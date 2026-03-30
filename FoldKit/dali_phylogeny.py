@@ -11,10 +11,10 @@ It does NOT call the public DALI server. Instead, it consumes pairwise Z-scores
 that you already computed with DALI (e.g. DaliLite or other DALI workflows).
 
 Input:
-  - Pairwise Z-score table (TSV/CSV/space-delimited): label_a, label_b, zscore
+  - Pairwise Z-score table (TSV/CSV/space-delimited): model_01, model_02, zscore
     Example lines:
-      label_a   label_b   12.3
-      label_a,label_c,8.7
+      model_01   model_02   12.3
+      model_01,model_03,8.7
     Comment lines beginning with '#' are ignored.
 
 Outputs:
@@ -42,6 +42,11 @@ import os
 import re
 import sys
 from pathlib import Path
+
+_DALI_PKG = os.path.dirname(os.path.abspath(__file__))
+if _DALI_PKG not in sys.path:
+    sys.path.insert(0, _DALI_PKG)
+from dali_log import install_dali_run_log, resolve_log_path, uninstall_dali_run_log
 
 
 def read_pairwise_zscores(path: str) -> dict[tuple[str, str], float]:
@@ -322,11 +327,40 @@ def main() -> None:
     ap.add_argument("--root", default=None, help="Outgroup label to root on (if supported by tree builder)")
     ap.add_argument("--no-midpoint-root", action="store_true", help="Disable midpoint rooting (NJ only)")
     ap.add_argument("--plot", default=None, metavar="PATH", help="Write a tree plot to PATH")
+    ap.add_argument(
+        "--log",
+        metavar="FILE",
+        help="Session log (stdout+stderr). Default: foldkit_dali_phylogeny.log next to -o; use --no-log to disable.",
+    )
+    ap.add_argument(
+        "--no-log",
+        action="store_true",
+        help="Do not write the default session log file.",
+    )
     args = ap.parse_args()
 
-    if not os.path.isfile(args.zscores):
-        ap.error(f"File not found: {args.zscores}")
+    tree_dir = os.path.dirname(os.path.abspath(args.output_tree)) or "."
+    default_log = os.path.join(tree_dir, "foldkit_dali_phylogeny.log")
+    log_path = resolve_log_path(args.log, default_log, args.no_log)
+    log_state = None
+    ok = True
+    try:
+        if log_path:
+            log_state = install_dali_run_log(log_path, "dali_phylogeny")
+        if not os.path.isfile(args.zscores):
+            ap.error(f"File not found: {args.zscores}")
+        _main_after_input(args)
+    except SystemExit as e:
+        ok = e.code is None or e.code == 0
+        raise
+    except BaseException:
+        ok = False
+        raise
+    finally:
+        uninstall_dali_run_log(log_state, "dali_phylogeny", ok=ok)
 
+
+def _main_after_input(args: argparse.Namespace) -> None:
     z = read_pairwise_zscores(args.zscores)
     if not z:
         raise SystemExit("No pairwise Z-scores parsed from input.")

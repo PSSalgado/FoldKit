@@ -290,7 +290,7 @@ class PackingMetricsCalculator:
 def filter_paths_by_patterns(paths, patterns):
     """
     Return paths whose basename contains every pattern in `patterns`.
-    Patterns are matched as substrings (e.g. 'set1' matches 'prefix_set1.pdb').
+    Patterns are matched as substrings (e.g. 'set_a' matches 'prefix_set_a.pdb').
     """
     import os
     if not patterns:
@@ -332,11 +332,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="Calculate crystal packing metrics (Matthews coefficient, solvent content, etc.).",
         epilog="""Examples:
-  python packing_metrics.py structure.pdb
+  python packing_metrics.py model_01.pdb
   python packing_metrics.py dir/
   python packing_metrics.py *.pdb -o results.txt
-  python packing_metrics.py *.pdb --sets set1 set2 set3 -o "analysis_{}.txt"
+  python packing_metrics.py *.pdb --sets set_a set_b set_c -o "analysis_{}.txt"
   python packing_metrics.py *.pdb --per-structure -o "{}_metrics.txt"
+  python packing_metrics.py *.pdb --per-structure --sets set_a set_b -o "{}_metrics.txt"
 """,
     )
     parser.add_argument(
@@ -371,7 +372,7 @@ def main():
         dest='sets_multi',
         nargs='+',
         metavar='SET',
-        help='Multiple set names in one go (one pattern per set). E.g. --sets set1 set2 set3.',
+        help='Multiple set names in one go (one pattern per set). E.g. --sets set_a set_b set_c.',
     )
     args = parser.parse_args()
 

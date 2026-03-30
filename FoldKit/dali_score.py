@@ -42,6 +42,11 @@ import sys
 import tempfile
 import warnings
 
+_DALI_PKG = os.path.dirname(os.path.abspath(__file__))
+if _DALI_PKG not in sys.path:
+    sys.path.insert(0, _DALI_PKG)
+from dali_log import install_dali_run_log, resolve_log_path, uninstall_dali_run_log
+
 try:
     import numpy as np
 except ImportError:
@@ -244,19 +249,62 @@ def _parse_dalilite_equivalences(txt: str, chain_a: str = 'A', chain_b: str = 'A
     return equivs
 
 
+def parse_dalilite_summary_hit(content: str) -> dict | None:
+    """
+    Parse the first DaliLite summary hit line.
+
+    Typical format: ``  1:  xxxxX  Z  rmsd  lali  nres  %id  Description...``
+
+    Returns dict with hit_id, z_score, rmsd, lali, nres, pct_id, description; nres and
+    pct_id may be None if only a short line is present.
+    """
+    m = re.search(
+        r"^\s*\d+:\s+(\S+)\s+"
+        r"([-\d.Ee+]+)\s+"
+        r"([\d.Ee+]+)\s+"
+        r"(\d+)\s+"
+        r"(\d+)\s+"
+        r"(\d+)\s*"
+        r"(.*)$",
+        content,
+        re.MULTILINE,
+    )
+    if m:
+        desc = (m.group(7) or "").strip()
+        return {
+            "hit_id": m.group(1),
+            "z_score": float(m.group(2)),
+            "rmsd": float(m.group(3)),
+            "lali": int(m.group(4)),
+            "nres": int(m.group(5)),
+            "pct_id": int(m.group(6)),
+            "description": desc,
+        }
+    m2 = re.search(
+        r"^\s*\d+:\s+(\S+)\s+([-\d.Ee+]+)\s+([\d.Ee+]+)\s+(\d+)",
+        content,
+        re.MULTILINE,
+    )
+    if not m2:
+        return None
+    return {
+        "hit_id": m2.group(1),
+        "z_score": float(m2.group(2)),
+        "rmsd": float(m2.group(3)),
+        "lali": int(m2.group(4)),
+        "nres": None,
+        "pct_id": None,
+        "description": "",
+    }
+
+
 def _dalilite_text_has_summary_hit(txt: str) -> bool:
     """
     True if DaliLite summary block contains at least one hit line (Z, rmsd, lali, ...).
     When False, equivalences/transrot are usually empty—DaliLite omits alignments for
     non-significant pairs (commonly Z < ~2).
     """
-    return bool(
-        re.search(
-            r'^\s*\d+:\s+\S+\s+([-\d.]+)\s+([\d.]+)\s+(\d+)\s+\d+\s+\d+',
-            txt,
-            re.MULTILINE,
-        )
-    )
+    return parse_dalilite_summary_hit(txt) is not None
 
 
 def _get_first_chain_id(coords_dict) -> str:
@@ -591,7 +639,8 @@ def run_dalilite(pdb_a: str, pdb_b: str, dalilite_path: str = None,
                  chain_a: str = None, chain_b: str = None):
     """
     Run DaliLite pairwise comparison and parse output.
-    Returns dict with z_score, rmsd, lali, equivs, or None on failure.
+    Returns dict with z_score, rmsd, lali, nres, pct_id, hit_id, description, equivs,
+    or None on failure.
 
     Uses import.pl to build DAT/*.dat then dali.pl --cd1/--cd2 (required for
     typical DaliLite installs; bare --pdbfile1/2 often yields empty DAT).
@@ -616,30 +665,32 @@ def run_dalilite(pdb_a: str, pdb_b: str, dalilite_path: str = None,
         if content is None:
             return None
 
-    # Parse summary: "   1:  xxxxX  Z  rmsd  lali  nres  ..."
-    # Fields: No, ids, Z, rmsd, lali, nres, %id, Description
-    z_score = None
-    rmsd = None
-    lali = None
-    summary_pattern = re.compile(
-        r'^\s*\d+:\s+\S+\s+([-\d.]+)\s+([\d.]+)\s+(\d+)\s+\d+\s+\d+',
-        re.MULTILINE
-    )
-    m = summary_pattern.search(content)
-    if m:
-        z_score = float(m.group(1))
-        rmsd = float(m.group(2))
-        lali = int(m.group(3))
+    hit = parse_dalilite_summary_hit(content)
 
     equivs = _parse_dalilite_equivalences(content, ra, rb)
     if not equivs:
         return None
 
+    if hit:
+        return {
+            "z_score": hit["z_score"],
+            "rmsd": hit["rmsd"],
+            "lali": hit["lali"],
+            "nres": hit["nres"],
+            "pct_id": hit["pct_id"],
+            "hit_id": hit["hit_id"],
+            "description": hit["description"],
+            "equivs": equivs,
+        }
     return {
-        'z_score': z_score,
-        'rmsd': rmsd,
-        'lali': lali,
-        'equivs': equivs,
+        "z_score": None,
+        "rmsd": None,
+        "lali": None,
+        "nres": None,
+        "pct_id": None,
+        "hit_id": None,
+        "description": "",
+        "equivs": equivs,
     }
 
 
@@ -924,6 +975,11 @@ def run(pdb_a: str, pdb_b: str, alignment_file: str = None,
     if dalilite_result:
         out['dalilite_z_score'] = dalilite_result.get('z_score')
         out['dalilite_rmsd'] = dalilite_result.get('rmsd')
+        out['dalilite_lali'] = dalilite_result.get('lali')
+        out['dalilite_nres'] = dalilite_result.get('nres')
+        out['dalilite_pct_id'] = dalilite_result.get('pct_id')
+        out['dalilite_hit_id'] = dalilite_result.get('hit_id')
+        out['dalilite_description'] = dalilite_result.get('description')
     return out
 
 
@@ -936,12 +992,13 @@ def run_all_vs_all(files: list, chain_a: str = None, chain_b: str = None,
       zscores: (label_a, label_b) -> z_score
       raw_scores: (label_a, label_b) -> raw_score
       n_core: (label_a, label_b) -> n_core
-      results: full run() results per pair
+      pair_dalilite: (label_a, label_b) with a < b -> dict of DaliLite summary fields (or empty)
     """
     labels = [_label_from_path(f) for f in files]
     zscores = {}
     raw_scores = {}
     n_core = {}
+    pair_dalilite = {}
     n_pairs = len(files) * (len(files) - 1) // 2
     done = 0
 
@@ -962,8 +1019,24 @@ def run_all_vs_all(files: list, chain_a: str = None, chain_b: str = None,
             zscores[(la, lb)] = zscores[(lb, la)] = z
             raw_scores[(la, lb)] = raw_scores[(lb, la)] = result['raw_score']
             n_core[(la, lb)] = n_core[(lb, la)] = result['n_core']
+            a, b = (la, lb) if la < lb else (lb, la)
+            pair_dalilite[(a, b)] = {
+                'alignment_source': result.get('alignment_source'),
+                'dalilite_rmsd': result.get('dalilite_rmsd'),
+                'dalilite_lali': result.get('dalilite_lali'),
+                'dalilite_nres': result.get('dalilite_nres'),
+                'dalilite_pct_id': result.get('dalilite_pct_id'),
+                'dalilite_hit_id': result.get('dalilite_hit_id'),
+                'dalilite_description': result.get('dalilite_description'),
+            }
 
-    return {'zscores': zscores, 'raw_scores': raw_scores, 'n_core': n_core, 'labels': labels}
+    return {
+        'zscores': zscores,
+        'raw_scores': raw_scores,
+        'n_core': n_core,
+        'labels': labels,
+        'pair_dalilite': pair_dalilite,
+    }
 
 
 def _zscores_to_distance_matrix(zscores: dict, transform: str, exp_scale: float):
@@ -1162,7 +1235,7 @@ def main():
     ap = argparse.ArgumentParser(
         description='Compute Dali-like structural similarity score. Pairwise or all-vs-all with tree output.',
         epilog='''
-Pairwise: dali_score.py pdb_a pdb_b [OPTIONS]
+Pairwise: dali_score.py model_01.pdb model_02.pdb [OPTIONS]
 All-vs-all: dali_score.py --all-vs-all dir_or_file [dir_or_file ...] [OPTIONS]
 
 Alignment sources: DaliLite -> alignment file -> biotite -> sequence-order.
@@ -1171,7 +1244,7 @@ Alignment sources: DaliLite -> alignment file -> biotite -> sequence-order.
 Tree/dendrogram (all-vs-all only): --output-tree, --output-plot, --output-matrix, --output-ranking.
 ''')
     ap.add_argument('paths', nargs='*', metavar='PATH',
-                    help='Pairwise: pdb_a pdb_b. All-vs-all: dir(s) or file(s)')
+                    help='Pairwise: model_01.pdb model_02.pdb. All-vs-all: dir(s) or file(s)')
     ap.add_argument('--all-vs-all', action='store_true',
                     help='Compare all structures (from dirs/files) pairwise; enable tree outputs')
     ap.add_argument('--filter', metavar='PATTERN',
@@ -1206,9 +1279,38 @@ Tree/dendrogram (all-vs-all only): --output-tree, --output-plot, --output-matrix
     ap.add_argument('--no-midpoint-root', action='store_true',
                     help='Disable midpoint rooting (when no --root specified)')
     ap.add_argument('-q', '--quiet', action='store_true', help='Reduce progress output (all-vs-all)')
+    ap.add_argument(
+        '--log',
+        metavar='FILE',
+        help='Session log (stdout+stderr). Default: foldkit_dali_score.log in cwd; use --no-log to disable.',
+    )
+    ap.add_argument(
+        '--no-log',
+        action='store_true',
+        help='Do not write the default session log file.',
+    )
 
     args = ap.parse_args()
 
+    default_log = os.path.join(os.getcwd(), 'foldkit_dali_score.log')
+    log_path = resolve_log_path(args.log, default_log, args.no_log)
+    log_state = None
+    ok = True
+    try:
+        if log_path:
+            log_state = install_dali_run_log(log_path, 'dali_score')
+        _main_after_parse(ap, args)
+    except SystemExit as e:
+        ok = e.code is None or e.code == 0
+        raise
+    except BaseException:
+        ok = False
+        raise
+    finally:
+        uninstall_dali_run_log(log_state, 'dali_score', ok=ok)
+
+
+def _main_after_parse(ap, args):
     all_vs_all = args.all_vs_all
     if all_vs_all:
         if len(args.paths) < 2:
@@ -1237,14 +1339,45 @@ Tree/dendrogram (all-vs-all only): --output-tree, --output-plot, --output-matrix
         # Pairwise table CSV
         if args.output:
             os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
+            pd_extra = data.get('pair_dalilite', {})
+            hdr = [
+                'pdb_a',
+                'pdb_b',
+                'raw_score',
+                'z_score',
+                'n_core',
+                'alignment_source',
+                'dalilite_rmsd',
+                'dalilite_lali',
+                'dalilite_nres',
+                'dalilite_pct_id',
+                'dalilite_hit_id',
+                'dalilite_description',
+            ]
             with open(args.output, 'w', newline='') as f:
                 w = csv.writer(f)
-                w.writerow(['pdb_a', 'pdb_b', 'raw_score', 'z_score', 'n_core'])
+                w.writerow(hdr)
                 for (la, lb), z in sorted(zscores.items(), key=lambda x: (x[0][0], x[0][1])):
                     if la < lb:
                         r = data['raw_scores'].get((la, lb), '')
                         nc = data['n_core'].get((la, lb), '')
-                        w.writerow([la, lb, r, z, nc])
+                        ex = pd_extra.get((la, lb), {})
+                        w.writerow(
+                            [
+                                la,
+                                lb,
+                                r,
+                                z,
+                                nc,
+                                ex.get('alignment_source') or '',
+                                ex.get('dalilite_rmsd') if ex.get('dalilite_rmsd') is not None else '',
+                                ex.get('dalilite_lali') if ex.get('dalilite_lali') is not None else '',
+                                ex.get('dalilite_nres') if ex.get('dalilite_nres') is not None else '',
+                                ex.get('dalilite_pct_id') if ex.get('dalilite_pct_id') is not None else '',
+                                ex.get('dalilite_hit_id') or '',
+                                ex.get('dalilite_description') or '',
+                            ]
+                        )
             print(f"Wrote pairwise table: {args.output}")
 
         # Ranking CSV
@@ -1321,15 +1454,34 @@ Tree/dendrogram (all-vs-all only): --output-tree, --output-plot, --output-matrix
     if args.output:
         with open(args.output, 'w', newline='') as f:
             w = csv.writer(f)
-            row_names = ['pdb_a', 'pdb_b', 'raw_score', 'z_score', 'n_core', 'alignment_source']
-            row_vals = [
-                pdb_a, pdb_b,
-                f"{result['raw_score']:.4f}", f"{result['z_score']:.4f}",
-                result['n_core'], result['alignment_source'],
+            row_names = [
+                'pdb_a',
+                'pdb_b',
+                'raw_score',
+                'z_score',
+                'n_core',
+                'alignment_source',
+                'dalilite_rmsd',
+                'dalilite_lali',
+                'dalilite_nres',
+                'dalilite_pct_id',
+                'dalilite_hit_id',
+                'dalilite_description',
             ]
-            if result.get('dalilite_rmsd') is not None:
-                row_names.extend(['dalilite_rmsd'])
-                row_vals.append(f"{result['dalilite_rmsd']:.4f}")
+            row_vals = [
+                pdb_a,
+                pdb_b,
+                f"{result['raw_score']:.4f}",
+                f"{result['z_score']:.4f}",
+                result['n_core'],
+                result['alignment_source'],
+                f"{result['dalilite_rmsd']:.4f}" if result.get('dalilite_rmsd') is not None else '',
+                result['dalilite_lali'] if result.get('dalilite_lali') is not None else '',
+                result['dalilite_nres'] if result.get('dalilite_nres') is not None else '',
+                result['dalilite_pct_id'] if result.get('dalilite_pct_id') is not None else '',
+                result.get('dalilite_hit_id') or '',
+                result.get('dalilite_description') or '',
+            ]
             w.writerow(row_names)
             w.writerow(row_vals)
         print(f"Wrote {args.output}")

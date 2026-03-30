@@ -4,6 +4,8 @@
 
 All scripts live under `FoldKit/`. From the repository root run `python FoldKit/script_name.py` (or `Rscript FoldKit/...` where noted).
 
+**Example naming (this file, `FoldKit/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged text report from tools such as `interface_analyzer.py -o` or `packing_metrics.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders.
+
 ## Contents
 
 | Section | What it covers |
@@ -50,7 +52,7 @@ Options (regex mode): `--remove`, `--replace`, `--with` (required with `--replac
 Examples:
 
 ```bash
-python FoldKit/rename_files.py /path/to/dir my_protein
+python FoldKit/rename_files.py /path/to/dir sample_prefix
 python FoldKit/rename_files.py /path/to/dir --remove='\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_'
 python FoldKit/rename_files.py /path/to/dir --replace='fold_' --with='protein_'
 python FoldKit/rename_files.py /path/to/dir --remove='temp_' --no-recursive
@@ -66,7 +68,7 @@ python FoldKit/pdb_rechain.py /path/to/input_dir --pattern '*_models.pdb' -f B -
   --merge-renumber -o /path/to/output_dir/
 
 # Simple rename (only if target chain is empty in the file):
-python FoldKit/pdb_rechain.py model.pdb -f X -t Y -o model_Y.pdb
+python FoldKit/pdb_rechain.py model_01.pdb -f X -t Y -o model_01_Y.pdb
 ```
 
 `SEQRES` / `CRYST1` lines are not rewritten; adjust those separately if your downstream tool requires them.
@@ -76,7 +78,7 @@ python FoldKit/pdb_rechain.py model.pdb -f X -t Y -o model_Y.pdb
 **Residue trimming only** (no superposition, no Coot): harmonize PDB/mmCIF models to the **shortest** residue span found among the inputs. **Self-contained** (stdlib + optional **`gemmi`** for mmCIF→PDB); it does not import other FoldKit scripts. **`trim_superimposeLSQ.py`** uses the same trimming implementation via **`trim_models.py`** for `--trim` / `--trim-only`.
 
 ```bash
-python FoldKit/trim_models.py [--filter=tag_a,tag_b,...] directory1 [directory2 ...]
+python FoldKit/trim_models.py [--filter=set_a,set_b,...] directory1 [directory2 ...]
 ```
 
 **`--filter`:** optional comma-separated patterns (basename substring or glob). If omitted, every `*.pdb` / `*.cif` in the given directories is included (output under `trimmed_all/`).
@@ -84,9 +86,9 @@ python FoldKit/trim_models.py [--filter=tag_a,tag_b,...] directory1 [directory2 
 Examples:
 
 ```bash
-python FoldKit/trim_models.py models_dir/
-python FoldKit/trim_models.py --filter=tag_a models_dir/
-python FoldKit/trim_superimposeLSQ.py --trim-only --filter=tag_a models_dir/
+python FoldKit/trim_models.py models/
+python FoldKit/trim_models.py --filter=set_a models/
+python FoldKit/trim_superimposeLSQ.py --trim-only --filter=set_a models/
 ```
 
 Output: `trimmed_<pattern>/` per filter, or `trimmed_all/` with no filter; trimmed PDBs. **`gemmi`** may be needed for mmCIF inputs.
@@ -112,10 +114,10 @@ Secondary Structure Matching (SSM) superposition: one-to-many or all-vs-all.
 
 ```bash
 # One-to-many: align all models to a reference
-python FoldKit/superimpose_coot_SSM.py [--filter=TAG] [--output-dir=DIR] reference.pdb dir1 [dir2 ...]
+python FoldKit/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] reference.pdb dir1 [dir2 ...]
 
 # All-vs-all: each structure used as reference in turn
-python FoldKit/superimpose_coot_SSM.py [--filter=TAG] [--output-dir=DIR] --all-vs-all dir1 [dir2 ...]
+python FoldKit/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] --all-vs-all dir1 [dir2 ...]
 
 # Explicit chains (one-to-many or all-vs-all)
 python FoldKit/superimpose_coot_SSM.py --ref-chain=B --model-chain=B reference.pdb models/
@@ -126,12 +128,12 @@ Examples:
 
 ```bash
 python FoldKit/superimpose_coot_SSM.py reference.pdb dir1 dir2 dir3
-python FoldKit/superimpose_coot_SSM.py --all-vs-all --filter=tag_a models/
-python FoldKit/superimpose_coot_SSM.py --filter=tag_a --output-dir=SSM_run reference.pdb models/
+python FoldKit/superimpose_coot_SSM.py --all-vs-all --filter=set_a models/
+python FoldKit/superimpose_coot_SSM.py --filter=set_a --output-dir=SSM_run reference.pdb models/
 python FoldKit/superimpose_coot_SSM.py --ref-chain=C --model-chain=B reference.pdb models/
 ```
 
-Options: `--filter=TAG` (substring or glob on basename), `--output-dir=DIR` (placeholders: `[reference_name]`, `[filter]`), `--ref-chain`, `--model-chain`, `--all-vs-all`
+Options: `--filter` (substring or glob on basename, e.g. `set_a`), `--output-dir=DIR` (placeholders: `[reference_name]`, `[filter]`), `--ref-chain`, `--model-chain`, `--all-vs-all`
 
 Output: `SSMaligned2_[reference_name]` or `SSMaligned_all_vs_all[*]`; `[model]_SSMaligned2_[reference].pdb`; `coot_log.txt`; `rmsd_SSM_values.txt` (via `extract_rmsd.py --format ssm` or `--format auto`). Prior outputs whose paths contain `SSMaligned` or `LSQaligned` are skipped when collecting models.
 
@@ -153,12 +155,12 @@ python FoldKit/superimpose_coot_LSQ.py --all-vs-all [--output-dir=DIR] dir1 [dir
 Examples:
 
 ```bash
-python FoldKit/superimpose_coot_LSQ.py --reference=reference.cif --filter=tag_a models/
-python FoldKit/superimpose_coot_LSQ.py --all-vs-all --filter=tag_a models/
+python FoldKit/superimpose_coot_LSQ.py --reference=reference.cif --filter=set_a models/
+python FoldKit/superimpose_coot_LSQ.py --all-vs-all --filter=set_a models/
 python FoldKit/superimpose_coot_LSQ.py dir1 dir2
 ```
 
-Options: `--reference=FILE`, `--filter=TAG` (substring match), `--output-dir=DIR`
+Options: `--reference=FILE`, `--filter` (substring match, e.g. `set_a`), `--output-dir=DIR`
 
 Output: `LSQaligned2_[reference_name]` or `LSQaligned_all_vs_all[*]`; `coot_log.txt`; `rmsd_values.txt` (via `extract_rmsd.py`)
 
@@ -179,9 +181,9 @@ Options:
 Examples:
 
 ```bash
-python FoldKit/superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_tag model_tag
-python FoldKit/superimpose_coot_LSQ.py --pattern --ref-file-pattern="*final.pdb" --model-file-pattern="*.pdb" /path/to/refs /path/to/models ref_tag model_tag
-python FoldKit/superimpose_coot_LSQ.py --pattern --divider=LSQaligned2 /path/to/refs /path/to/models ref_tag model_tag
+python FoldKit/superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id
+python FoldKit/superimpose_coot_LSQ.py --pattern --ref-file-pattern="*final.pdb" --model-file-pattern="*.pdb" /path/to/refs /path/to/models ref_id model_id
+python FoldKit/superimpose_coot_LSQ.py --pattern --divider=LSQaligned2 /path/to/refs /path/to/models ref_id model_id
 ```
 
 Output: `[subdir]_LSQaligned_[ref_name]/`; aligned PDBs named `[model]_LSQaligned_[ref].pdb` inside each output directory.
@@ -192,39 +194,39 @@ Trims models to a **common residue span** (shortest model among the set, optiona
 
 ```bash
 # Trim and superimpose (all-vs-all or one-to-many with interactive reference)
-python FoldKit/trim_superimposeLSQ.py --trim [--all-vs-all] [--filter=tag_a,tag_b] dir1 [dir2 ...]
+python FoldKit/trim_superimposeLSQ.py --trim [--all-vs-all] [--filter=set_a,set_b] dir1 [dir2 ...]
 
 # Only trim (no Coot) — same implementation as trim_models.py
-python FoldKit/trim_superimposeLSQ.py --trim-only [--filter=tag_a,tag_b,...] dir1 [dir2 ...]
+python FoldKit/trim_superimposeLSQ.py --trim-only [--filter=set_a,set_b,...] dir1 [dir2 ...]
 
 # Superimpose without trimming
-python FoldKit/trim_superimposeLSQ.py [--all-vs-all] [--filter=tag_a] dir1 [dir2 ...]
+python FoldKit/trim_superimposeLSQ.py [--all-vs-all] [--filter=set_a] dir1 [dir2 ...]
 ```
 
 Examples:
 
 ```bash
-python FoldKit/trim_superimposeLSQ.py --trim --all-vs-all --filter=tag_a,tag_b models/
+python FoldKit/trim_superimposeLSQ.py --trim --all-vs-all --filter=set_a,set_b models/
 python FoldKit/trim_superimposeLSQ.py --all-vs-all models/
 python FoldKit/trim_superimposeLSQ.py --trim dir1 dir2
-python FoldKit/trim_models.py --filter=my_tag dir1
-python FoldKit/trim_superimposeLSQ.py --trim-only --filter=my_tag dir1
+python FoldKit/trim_models.py --filter=set_a dir1
+python FoldKit/trim_superimposeLSQ.py --trim-only --filter=set_a dir1
 ```
 
-Options: `--trim`, `--trim-only` (implies `--trim`; incompatible with `--all-vs-all`), `--all-vs-all`, `--filter=tag_a[,tag_b,...]` (comma-separated substrings)
+Options: `--trim`, `--trim-only` (implies `--trim`; incompatible with `--all-vs-all`), `--all-vs-all`, `--filter=set_a[,set_b,...]` (comma-separated substrings)
 
-Output: With trimming, creates `trimmed_tag_a/`, `trimmed_tag_b/` (or `trimmed_all/`); superposition output in `LSQ_tag_a_all_vs_all/`, `LSQ_all_vs_all/`, or `LSQaligned2_[ref]` (one-to-many).
+Output: With trimming, creates `trimmed_set_a/`, `trimmed_set_b/` (or `trimmed_all/`); superposition output in `LSQ_set_a_all_vs_all/`, `LSQ_all_vs_all/`, or `LSQaligned2_[ref]` (one-to-many).
 
 ### `run_all_superpositions.py`
 
-Batch driver for **`superimpose_coot_LSQ.py --pattern`**: loops over **conditions** (subfolders under each base, e.g. `condition_a`) and **tags** (same role as `--filter=tag_a` in SSM/LSQ). Expects `refs_base/<condition>/<REFERENCE_SUBDIR>/` for reference PDBs (default subdir `LSQaligned2_reference_m0` in the script) and `models_base/<condition>/*_fl_<tag>*` for models. The script passes **`--pattern`**, **`--divider=LSQ_`**, and globs derived from **`CONDITION_PREFIX`** (e.g. `v1_sd_tag_a` vs `v1_sd_reference`); edit **`CONDITION_PREFIX`**, **`REFERENCE_SUBDIR`**, **`REFERENCE_STEM`**, and **`TAGS`** in the script to match your layout.
+Batch driver for **`superimpose_coot_LSQ.py --pattern`**: loops over **conditions** (subfolders under each base, e.g. `condition_1`) and **tags** (same role as `--filter=set_a` in SSM/LSQ). Expects `refs_base/<condition>/<REFERENCE_SUBDIR>/` for reference PDBs (default subdir `LSQaligned2_reference_m0` in the script) and `models_base/<condition>/*_fl_<set>*` for models. The script passes **`--pattern`**, **`--divider=LSQ_`**, and globs derived from **`CONDITION_PREFIX`** (e.g. `run1_sd_set_a` vs `run1_sd_reference`); edit **`CONDITION_PREFIX`**, **`REFERENCE_SUBDIR`**, **`REFERENCE_STEM`**, and **`TAGS`** in the script to match your layout.
 
 ```bash
-python FoldKit/run_all_superpositions.py --tags tag_a tag_b \
+python FoldKit/run_all_superpositions.py --tags set_a set_b \
   --ref-base /path/to/refs --models-base /path/to/models
 
 # Subset of conditions (default: all keys in CONDITION_PREFIX)
-python FoldKit/run_all_superpositions.py --tags tag_a --conditions condition_a condition_b \
+python FoldKit/run_all_superpositions.py --tags set_a --conditions condition_1 condition_2 \
   --ref-base /path/to/refs --models-base /path/to/models
 ```
 
@@ -234,8 +236,10 @@ Options: `--tags` (required unless `TAGS` is set in the script), `--conditions`,
 
 Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target on query frame) plus CSV / Z-matrix / Newick tree. Requires DaliLite and **mkdssp** (same constraints as `dali_score.py`; see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)).
 
+**Session log:** by default, stdout and stderr are also copied to `foldkit_dalilite.log` under `-d` (override with `--log PATH`, or pass `--no-log` to disable).
+
 ```bash
-python FoldKit/dalilite_superpose_scores.py query.pdb target.pdb -d ./out \
+python FoldKit/dalilite_superpose_scores.py model_01.pdb model_02.pdb -d ./out \
   --dalilite-path /path/to/DaliLite
 ```
 
@@ -252,9 +256,9 @@ Examples:
 
 ```bash
 python FoldKit/open_models_in_coot.py models/
-python FoldKit/open_models_in_coot.py --filter tag_a dir1 dir2
-python FoldKit/open_models_in_coot.py '*tag_a*LSQaligned2*ref*pdb'
-python FoldKit/open_models_in_coot.py '*model*.cif' models/
+python FoldKit/open_models_in_coot.py --filter set_a dir1 dir2
+python FoldKit/open_models_in_coot.py '*set_a*LSQaligned2*ref*pdb'
+python FoldKit/open_models_in_coot.py '*model_*.cif' models/
 ```
 
 #### References (superimposition)
@@ -285,7 +289,7 @@ Examples:
 python FoldKit/extract_rmsd.py LSQaligned2_ref/coot_log.txt --format lsq
 python FoldKit/extract_rmsd.py SSMaligned2_ref/coot_log.txt --format ssm
 python FoldKit/extract_rmsd.py coot_log.txt   # auto: picks SSM vs LSQ from log content
-python FoldKit/extract_rmsd.py coot_log.txt --aligned=tag_a --reference=ref_tag --format lsq
+python FoldKit/extract_rmsd.py coot_log.txt --aligned=set_a --reference=ref_01 --format lsq
 python FoldKit/extract_rmsd.py coot_log.txt --debug --format lsq
 ```
 
@@ -331,11 +335,16 @@ Converts pairwise RMSD file (all-vs-all SSM/LSQ) to square CSV table. Optionally
 ```bash
 python FoldKit/rmsd_to_csv.py rmsd_SSM_values.txt
 python FoldKit/rmsd_to_csv.py rmsd_values.txt -o rmsd_table.csv
-python FoldKit/rmsd_to_csv.py rmsd_SSM_values.txt --plot heatmap.pdf --order tag_a,tag_b,tag_c
+python FoldKit/rmsd_to_csv.py rmsd_SSM_values.txt --plot heatmap.pdf --order model_01,model_02,model_03
 python FoldKit/rmsd_to_csv.py rmsd_SSM_values.txt --plot heatmap.pdf --cmap RdYlBu_r
+python FoldKit/rmsd_to_csv.py rmsd_values.txt --plot heatmap.png --vmin 0 --vmax 5
+
+# Row/column order from a directory (recursive); each label is the file stem and must match the RMSD file
+python FoldKit/rmsd_to_csv.py rmsd_values.txt --order-dir /path/to/root --order-glob 'model_*.pdb'
+python FoldKit/rmsd_to_csv.py rmsd_values.txt --order-dir /path/to/root   # glob defaults to *.pdb
 ```
 
-Options: `-o`, `--output`; `--plot PATH`; `--title`; `--order FILE_OR_LIST`; `--cmap` (matplotlib colormap, default: viridis_r; e.g. plasma_r, RdYlBu_r, coolwarm, YlOrRd)
+Options: `-o`, `--output`; `--plot PATH`; `--title`; `--vmin` / `--vmax` (optional heatmap color scale in Å; defaults: min/max of **positive off-diagonal** pairwise RMSDs, so diagonal zeros do not compress the scale); `--order FILE_OR_LIST` (comma-separated list or one label per line in a file); `--order-dir DIR` with optional `--order-glob PATTERN` (default `*.pdb`) to build order from matching files under `DIR` recursively—sorted by relative path with natural numeric order; `--order` and `--order-dir` cannot be used together; `--cmap` (matplotlib colormap, default: viridis_r; e.g. plasma_r, RdYlBu_r, coolwarm, YlOrRd)
 
 ### `structure_phylogeny.py`
 
@@ -346,13 +355,13 @@ python FoldKit/structure_phylogeny.py rmsd_values.txt -o structure_tree.nwk
 python FoldKit/structure_phylogeny.py rmsd_values.txt -o tree.nwk --plot tree.pdf
 
 # Root on outgroup
-python FoldKit/structure_phylogeny.py rmsd_values.txt -o tree.nwk --root "outgroup_label"
+python FoldKit/structure_phylogeny.py rmsd_values.txt -o tree.nwk --root "outgroup"
 
 # Unrooted tree
 python FoldKit/structure_phylogeny.py rmsd_values.txt -o tree.nwk --unrooted --plot tree.pdf
 
 # Compute distances from PDBs (TM-align required)
-python FoldKit/structure_phylogeny.py --from-pdb /path/to/pdbs -o tree.nwk --plot tree.pdf
+python FoldKit/structure_phylogeny.py --from-pdb /path/to/models -o tree.nwk --plot tree.pdf
 ```
 
 Options: `-o`, `--output`; `--plot PATH`; `--root LABEL`; `--unrooted`; `--from-pdb [DIR]`; `--format auto|lsq_txt|ssm_txt|csv`
@@ -392,7 +401,7 @@ Related options:
 If you already have pairwise DALI Z-scores (for example from DaliLite or `dali_score.py`), `dali_phylogeny.py` can rank structures, convert Z to distances, and build a Newick tree.
 
 Input format: a delimited text table (TSV/CSV/space-delimited) with 3 fields per row:  
-`label_a  label_b  zscore`
+`model_01  model_02  zscore`
 
 Comment lines starting with `#` are ignored.
 
@@ -415,6 +424,7 @@ Options:
 - `--exp-scale VALUE` (only for `exp`)
 - `--root LABEL` and `--no-midpoint-root`
 - `--plot PATH`
+- `--log FILE` (default: `foldkit_dali_phylogeny.log` next to `-o`; `--no-log` disables)
 
 ### `dali_score.py`
 
@@ -425,20 +435,20 @@ With DaliLite, the script runs **`import.pl`** then **`dali.pl --cd1/--cd2`** fr
 **Pairwise:**
 
 ```bash
-python FoldKit/dali_score.py structure_a.pdb structure_b.pdb -o result.csv
+python FoldKit/dali_score.py model_01.pdb model_02.pdb -o result.csv
 # With DaliLite (canonical Z-score): set DALILITE_HOME or --dalilite-path
 export DALILITE_HOME=/path/to/DaliLite
-python FoldKit/dali_score.py model_a.pdb model_b.pdb
+python FoldKit/dali_score.py model_01.pdb model_02.pdb
 ```
 
 **All-vs-all with tree:**
 
 ```bash
-python FoldKit/dali_score.py --all-vs-all dir_of_structures/ -o pairs.csv \
+python FoldKit/dali_score.py --all-vs-all models_dir/ -o pairs.csv \
   --output-tree dali_tree.nwk --output-plot dendrogram.png --output-ranking ranking.csv
 ```
 
-Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob on basename for directory inputs); tree: `--output-tree`, `--output-plot`, `--output-matrix`, `--transform`, `--root`.
+Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob on basename for directory inputs); tree: `--output-tree`, `--output-plot`, `--output-matrix`, `--transform`, `--root`. **Session log:** default `foldkit_dali_score.log` in the current directory (`--log FILE`, `--no-log`).
 
 #### References (ranking, scoring, phylogeny)
 
@@ -512,7 +522,7 @@ The pipeline generates R scripts for publication-quality plots. Install R and re
 
 ```bash
 # Python pipeline generates R scripts and data (use your files, directory, or glob)
-python FoldKit/crystal_packing_analyzer.py --input structure.pdb structure2.pdb --compare
+python FoldKit/crystal_packing_analyzer.py --input model_01.pdb model_02.pdb --compare
 # or: --input dir/   or: --input *.pdb
 
 # Run R visualizations
@@ -533,11 +543,11 @@ Rscript master_visualization.R
 Full pipeline: packing metrics, interface, contact, channel, graph, optional comparative analysis.
 
 ```bash
-python FoldKit/crystal_packing_analyzer.py --input structure.pdb
+python FoldKit/crystal_packing_analyzer.py --input model_01.pdb
 python FoldKit/crystal_packing_analyzer.py --input dir/
 python FoldKit/crystal_packing_analyzer.py --input *.pdb --compare --output comparison_results
-python FoldKit/crystal_packing_analyzer.py --input *.pdb --sets tag_a tag_b --output "crystal_analysis_{}"
-python FoldKit/crystal_packing_analyzer.py --input *.pdb --sets tag_a tag_b --output my_analysis --dry-run
+python FoldKit/crystal_packing_analyzer.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
+python FoldKit/crystal_packing_analyzer.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
 ```
 
 Options: `--input`, `--output` (use `{}` for one dir per set), `--set`, `--sets`, `--compare`, `--verbose`, `--dry-run`
@@ -547,13 +557,13 @@ Options: `--input`, `--output` (use `{}` for one dir per set), `--set`, `--sets`
 Matthews coefficient, solvent content, packing efficiency.
 
 ```bash
-python FoldKit/packing_metrics.py structure.pdb
+python FoldKit/packing_metrics.py model_01.pdb
 python FoldKit/packing_metrics.py dir/
 python FoldKit/packing_metrics.py *.pdb -o results.txt
 python FoldKit/packing_metrics.py *.pdb -q -o summary.txt
-python FoldKit/packing_metrics.py *.pdb --sets tag_a tag_b -o "analysis_{}.txt"
+python FoldKit/packing_metrics.py *.pdb --sets set_a set_b -o "analysis_{}.txt"
 python FoldKit/packing_metrics.py *.pdb --per-structure -o "{}_metrics.txt"
-python FoldKit/packing_metrics.py *.pdb --per-structure --sets tag_a tag_b -o "{}_metrics.txt"
+python FoldKit/packing_metrics.py *.pdb --per-structure --sets set_a set_b -o "{}_metrics.txt"
 ```
 
 Options: `-o`, `-q` (quiet), `--per-structure`, `--set`, `--sets`
@@ -563,27 +573,45 @@ Options: `-o`, `-q` (quiet), `--per-structure`, `--set`, `--sets`
 Protein–protein interface analysis (buried surface area, contacts, complementarity).
 
 ```bash
-python FoldKit/interface_analyzer.py structure.pdb
+python FoldKit/interface_analyzer.py model_01.pdb
 python FoldKit/interface_analyzer.py *.pdb -o results.txt
-python FoldKit/interface_analyzer.py *.pdb --set tag1,tag2 -o output_set.txt
-python FoldKit/interface_analyzer.py *.pdb --sets tag_a tag_b -o "interface_{}.txt"
+python FoldKit/interface_analyzer.py *.pdb --set set_a,set_b -o by_set.txt
+python FoldKit/interface_analyzer.py *.pdb --sets set_a set_b -o "interface_{}.txt"
 python FoldKit/interface_analyzer.py *.pdb --per-structure -o "{}_interface.txt"
-python FoldKit/interface_analyzer.py *.pdb --per-structure --sets tag_a tag_b -o "{}_interface.txt"
-python FoldKit/interface_analyzer.py *.pdb --sets tag_a tag_b -o results.txt --dry-run
+python FoldKit/interface_analyzer.py *.pdb --per-structure --sets set_a set_b -o "{}_interface.txt"
+python FoldKit/interface_analyzer.py *.pdb --sets set_a set_b -o results.txt --dry-run
 ```
 
 Options: `-o` (use `{}` for per-set or per-structure), `--per-structure`, `--set`, `--sets`, `--dry-run`
+
+#### `interface_molecule_report_csv.py`
+
+Filter an `interface_analyzer.py` text report into CSV (optional filters by PDB basename and chain). Input is typically the file from `interface_analyzer.py … -o results.txt`. Writes one file per structure when using `--output-dir` or `-o` with `{}`.
+
+```bash
+python FoldKit/interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
+python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
+python FoldKit/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
+python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\d+[^_]*)_' --output-dir ./out
+python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1*' --combine-glob 'model2*' --output-dir ./out
+python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B \
+  --combine-glob 'model1a*' --combine-glob 'model1del*' --combine-glob 'model1_*' --output-dir ./out
+```
+
+Options: `--pdb`, `--pdbs`, `-m`, `--molecule`, `--chains`, `-o`, `--output-dir`, `--group-by-chain`, `--combine-regex` (Python regex; **first capturing group** = merge key / output stem), `--combine-glob` (fnmatch on stem). **Order matters** for globs: use more specific patterns first (e.g. `model1a*` before `model1_*`), because `model1*` matches `model1a_*` and `model1del_*` as well.
+
+The regex above captures `model`, digits, then **any suffix without an underscore** up to the next `_` (e.g. time/lane token `2m`). It maps stems like `model1_2m`, `model1a_7m`, `model1del_12m`, `model2_2m` to `model1.csv`, `model1a.csv`, `model1del.csv`, `model2.csv`. If stems are only `modelN_…` with no letters after the digits, `^(model\d+)_` is enough. To allow only specific suffixes, use `'^(model\d+(?:a|del)?)_'`. To list variants explicitly: `'^(model1a|model1del|model1|model2)_'`. Invalid: `model\d+*` — use `\d+` plus a separate suffix rule (`[^_]*`, `(?:a|del)?`, etc.).
 
 #### `contact_analyzer.py`
 
 Crystal contact and symmetry interaction analysis.
 
 ```bash
-python FoldKit/contact_analyzer.py structure.pdb
+python FoldKit/contact_analyzer.py model_01.pdb
 python FoldKit/contact_analyzer.py *.pdb -o contact_results.txt
-python FoldKit/contact_analyzer.py *.pdb --sets tag_a tag_b -o "contact_{}.txt"
+python FoldKit/contact_analyzer.py *.pdb --sets set_a set_b -o "contact_{}.txt"
 python FoldKit/contact_analyzer.py *.pdb --per-structure -o "{}_contact.txt"
-python FoldKit/contact_analyzer.py *.pdb --per-structure --sets tag_a tag_b -o "{}_contact.txt"
+python FoldKit/contact_analyzer.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
 ```
 
 Options: same as `interface_analyzer.py`
@@ -593,8 +621,8 @@ Options: same as `interface_analyzer.py`
 Solvent channel and void space analysis.
 
 ```bash
-python FoldKit/channel_analyzer.py structure.pdb
-python FoldKit/channel_analyzer.py *.pdb --sets tag_a tag_b -o "channel_{}.txt"
+python FoldKit/channel_analyzer.py model_01.pdb
+python FoldKit/channel_analyzer.py *.pdb --sets set_a set_b -o "channel_{}.txt"
 python FoldKit/channel_analyzer.py *.pdb --per-structure -o "{}_channel.txt"
 ```
 
@@ -605,8 +633,8 @@ Options: same as `interface_analyzer.py`
 Graph-theoretical analysis (residue networks, modularity, centrality).
 
 ```bash
-python FoldKit/graph_analyzer.py structure.pdb
-python FoldKit/graph_analyzer.py *.pdb --sets tag_a tag_b -o "graph_{}.txt"
+python FoldKit/graph_analyzer.py model_01.pdb
+python FoldKit/graph_analyzer.py *.pdb --sets set_a set_b -o "graph_{}.txt"
 python FoldKit/graph_analyzer.py *.pdb --per-structure -o "{}_graph.txt"
 ```
 
@@ -617,8 +645,8 @@ Options: same as `interface_analyzer.py`
 Multi-structure comparison (PCA, clustering, correlation). Requires ≥2 structures per set.
 
 ```bash
-python FoldKit/comparative_analyzer.py struct_a.pdb struct_b.pdb
-python FoldKit/comparative_analyzer.py *.pdb --sets tag_a tag_b -o "comparison_{}.txt"
+python FoldKit/comparative_analyzer.py model_01.pdb model_02.pdb
+python FoldKit/comparative_analyzer.py *.pdb --sets set_a set_b -o "comparison_{}.txt"
 ```
 
 Options: `-o`, `--set`, `--sets`, `--dry-run` (no `--per-structure`)
@@ -634,11 +662,11 @@ Run Python with `FoldKit` on the module path (for example `cd FoldKit` or `PYTHO
 ```python
 from crystal_packing_analyzer import CrystalPackingAnalyzer
 
-analyzer = CrystalPackingAnalyzer(output_dir="my_analysis")
-results = analyzer.analyze_single_structure("structure.pdb")
+analyzer = CrystalPackingAnalyzer(output_dir="analysis_output")
+results = analyzer.analyze_single_structure("model_01.pdb")
 
-structure_list = ["struct1.pdb", "struct2.pdb", "struct3.pdb"]
-all_results = [analyzer.analyze_single_structure(p) for p in structure_list]
+model_paths = ["model_01.pdb", "model_02.pdb", "model_03.pdb"]
+all_results = [analyzer.analyze_single_structure(p) for p in model_paths]
 comparison = analyzer.compare_structures(all_results)
 ```
 
@@ -650,7 +678,7 @@ comparison = analyzer.compare_structures(all_results)
 from packing_metrics import PackingMetricsCalculator
 
 calc = PackingMetricsCalculator()
-metrics = calc.calculate_metrics("structure.pdb")
+metrics = calc.calculate_metrics("model_01.pdb")
 print(f"Matthews coefficient: {metrics['matthews_coefficient']:.2f}")
 print(f"Solvent content: {metrics['solvent_content_percent']:.1f}%")
 ```
@@ -661,7 +689,7 @@ print(f"Solvent content: {metrics['solvent_content_percent']:.1f}%")
 from interface_analyzer import InterfaceAnalyzer
 
 analyzer = InterfaceAnalyzer(contact_distance=5.0)
-interfaces = analyzer.analyze_interfaces("structure.pdb")
+interfaces = analyzer.analyze_interfaces("model_01.pdb")
 print(f"Total interfaces: {interfaces['summary']['total_interfaces']}")
 ```
 
@@ -671,8 +699,8 @@ print(f"Total interfaces: {interfaces['summary']['total_interfaces']}")
 
 ```
 crystal_analysis_output/
-├── structure1_analysis.json
-├── structure2_analysis.json
+├── model_01_analysis.json
+├── model_02_analysis.json
 ├── comparison_report.txt
 ├── comparison_plots/
 │   ├── summary_statistics.csv
@@ -695,7 +723,7 @@ crystal_analysis_output/
 
 ```json
 {
-  "structure_id": "example_structure",
+  "structure_id": "model_01",
   "packing_metrics": {
     "matthews_coefficient": 2.15,
     "solvent_content_percent": 43.2,
@@ -747,8 +775,8 @@ python FoldKit/crystal_packing_analyzer.py --input SSMaligned2_ref/*.pdb --compa
 
 ```bash
 python FoldKit/quick_start.py
-python FoldKit/crystal_packing_analyzer.py --input your_structure.pdb
-python FoldKit/crystal_packing_analyzer.py --input form1.pdb form2.pdb form3.pdb --compare
+python FoldKit/crystal_packing_analyzer.py --input model_01.pdb
+python FoldKit/crystal_packing_analyzer.py --input model_01.pdb model_02.pdb model_03.pdb --compare
 cd comparison_plots/
 Rscript master_visualization.R
 ```
@@ -797,9 +825,9 @@ working_directory/
 ├── LSQaligned2_[reference_name]/     # LSQ one-to-many
 ├── LSQaligned_all_vs_all/            # LSQ all-vs-all (superimpose_coot_LSQ)
 ├── LSQ_all_vs_all/                   # LSQ all-vs-all (trim_superimposeLSQ)
-├── LSQ_tag_a_all_vs_all/            # LSQ all-vs-all with filter
-├── trimmed_tag_a/                    # Trimmed models (trim_models.py / trim_superimposeLSQ --trim)
-├── trimmed_tag_b/
+├── LSQ_set_a_all_vs_all/            # LSQ all-vs-all with filter
+├── trimmed_set_a/                    # Trimmed models (trim_models.py / trim_superimposeLSQ --trim)
+├── trimmed_set_b/
 ├── trimmed_all/                      # Trimmed models, no --filter (same)
 └── [subdir]_LSQaligned_[ref]/        # superimpose_coot_LSQ.py --pattern
 ```
@@ -822,3 +850,7 @@ working_directory/
 - Trimming aligns residue ranges before LSQ for fair comparison.
 - Original input files are not modified by superposition scripts; outputs go to new directories.
 - RMSD extraction parses alignment and RMSD lines from Coot logs.
+
+## License
+
+FoldKit is licensed under the [Apache License, Version 2.0](LICENSE).

@@ -303,17 +303,17 @@ def main():
         epilog="""
 Examples:
   # Analyze single structure
-  python crystal_packing_analyzer.py --input structure.pdb
+  python crystal_packing_analyzer.py --input model_01.pdb
 
   # Analyze all PDBs in a directory
-  python crystal_packing_analyzer.py --input my_structures/
+  python crystal_packing_analyzer.py --input models/
 
   # Compare multiple structures (files, directory, or glob)
   python crystal_packing_analyzer.py --input *.pdb --compare
 
   # Filter by set(s): one output dir per set (use {} in --output)
-  python crystal_packing_analyzer.py --input *.pdb --sets set1 set2 --output "crystal_analysis_{}"
-  python crystal_packing_analyzer.py --input *.pdb --sets set1 set2 --output my_analysis --dry-run
+  python crystal_packing_analyzer.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
+  python crystal_packing_analyzer.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
         """
     )
 
@@ -342,7 +342,7 @@ Examples:
         dest='sets_multi',
         nargs='+',
         metavar='SET',
-        help='Multiple set names in one go (one pattern per set). E.g. --sets set1 set2 set3.',
+        help='Multiple set names in one go (one pattern per set). E.g. --sets set_a set_b set_c.',
     )
 
     parser.add_argument(

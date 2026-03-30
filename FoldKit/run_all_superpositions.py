@@ -5,11 +5,11 @@ Batch driver for superimpose_coot_LSQ.py --pattern across multiple conditions an
 Layout (same spirit as superimpose_coot_LSQ.py pattern-mode examples):
 
   refs_base/
-    <condition>/          e.g. condition_a, condition_b
+    <condition>/          e.g. condition_1, condition_2
       <reference_subdir>/ trimmed references (LSQ output naming)
   models_base/
     <condition>/          same condition labels as under refs_base
-      *_fl_<tag>*/         model subdirectories per tag (tag_a, tag_b, …)
+      *_fl_<set>*/         model subdirectories per set (set_a, set_b, …)
 
 Override paths with --ref-base and --models-base, or edit the defaults below.
 """
@@ -30,16 +30,16 @@ REFERENCE_SUBDIR = "LSQaligned2_reference_m0"
 # Stem used in reference filenames (matches *LSQ*reference*.pdb style in --pattern mode).
 REFERENCE_STEM = "reference"
 
-# Condition directory name -> filename prefix token (e.g. v1 in v1_sd_tag_a).
+# Condition directory name -> filename prefix token (e.g. run1 in run1_sd_set_a).
 CONDITION_PREFIX = {
-    "condition_a": "v1",
-    "condition_b": "v2",
-    "condition_c": "v3",
+    "condition_1": "run1",
+    "condition_2": "run2",
+    "condition_3": "run3",
 }
 
 CONDITIONS = list(CONDITION_PREFIX.keys())
 
-# Tags to process if --tags is omitted (same idea as --filter=tag_a in SSM/LSQ scripts).
+# Tags to process if --tags is omitted (same idea as --filter=set_a in SSM/LSQ scripts).
 TAGS: list[str] = []
 
 
@@ -58,8 +58,8 @@ def run_superposition(
     Run superimpose_coot_LSQ.py --pattern for one condition and tag.
 
     Args:
-        condition: Subdirectory name under ref_base and models_base (e.g. condition_a).
-        tag: Model tag, like tag_a in --filter=tag_a (matches *_fl_<tag>* dirs and ref glob).
+        condition: Subdirectory name under ref_base and models_base (e.g. condition_1).
+        tag: Model tag, like set_a in --filter=set_a (matches *_fl_<tag>* dirs and ref glob).
         script_path: Path to superimpose_coot_LSQ.py.
         ref_base: Base directory for reference trees.
         models_base: Base directory for model trees.
@@ -148,7 +148,7 @@ def main() -> None:
         "--tags",
         nargs="+",
         metavar="TAG",
-        help="Tags to process (e.g. tag_a tag_b); same role as --filter in SSM/LSQ scripts.",
+        help="Tags to process (e.g. set_a set_b); same role as --filter in SSM/LSQ scripts.",
     )
     parser.add_argument(
         "--conditions",
@@ -175,7 +175,7 @@ def main() -> None:
 
     if not tags:
         parser.error(
-            "No tags given. Use --tags (e.g. tag_a tag_b) or set TAGS in this script."
+            "No tags given. Use --tags (e.g. set_a set_b) or set TAGS in this script."
         )
 
     unknown_c = [c for c in conditions if c not in CONDITION_PREFIX]

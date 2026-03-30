@@ -517,8 +517,8 @@ def main():
         print("Without --ref-chain/--model-chain: first chain per structure, SSM mode 1 (legacy).")
         print("Examples:")
         print("  python superimpose_coot_SSM.py /path/to/reference.pdb dir1 dir2 dir3")
-        print("  python superimpose_coot_SSM.py --ref-chain=B --model-chain=B ref.pdb models/")
-        print("  python superimpose_coot_SSM.py --all-vs-all --filter=tag_a /path/to/models/")
+        print("  python superimpose_coot_SSM.py --ref-chain=B --model-chain=B reference.pdb models/")
+        print("  python superimpose_coot_SSM.py --all-vs-all --filter=set_a /path/to/models/")
         sys.exit(1)
 
     # Allow --output-dir anywhere

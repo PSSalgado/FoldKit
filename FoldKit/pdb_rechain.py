@@ -14,7 +14,7 @@ Examples:
       --merge-renumber -o rechained/
 
   # Single file:
-  python pdb_rechain.py structure.pdb --from B --to A --merge-renumber -o out.pdb
+  python pdb_rechain.py model_01.pdb --from B --to A --merge-renumber -o model_01_merged.pdb
 """
 
 from __future__ import annotations

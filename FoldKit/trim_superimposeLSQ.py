@@ -202,8 +202,8 @@ coot_real_exit(0)
 def main():
     # Check for minimum arguments
     if len(sys.argv) < 2:
-        print("Usage: python trim_superimposeLSQ.py [--trim] [--trim-only] [--all-vs-all] [--filter=tag_a,tag_b,...] directory1 [directory2 ...]")
-        print("       python trim_models.py [--filter=tag_a,tag_b,...] directory1 [directory2 ...]   # standalone trim (no Coot)")
+        print("Usage: python trim_superimposeLSQ.py [--trim] [--trim-only] [--all-vs-all] [--filter=set_a,set_b,...] directory1 [directory2 ...]")
+        print("       python trim_models.py [--filter=set_a,set_b,...] directory1 [directory2 ...]   # standalone trim (no Coot)")
         print("Options:")
         print("  --trim           Trim models to match the shortest model's residue range, then superpose")
         print("  --trim-only      Only trim (no Coot); implies --trim. Same trimming logic as trim_models.py.")

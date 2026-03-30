@@ -12,7 +12,7 @@ Two ways to select files:
 
 Examples:
   python open_models_in_coot.py models/
-  python open_models_in_coot.py --filter tag_a dir1/ dir2/
+  python open_models_in_coot.py --filter set_a dir1/ dir2/
   python open_models_in_coot.py '*tag*LSQaligned2*ref*pdb' models/
 """
 

@@ -27,6 +27,7 @@ if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
 import dali_score as _ds
+from dali_log import install_dali_run_log, resolve_log_path, uninstall_dali_run_log
 
 warnings.filterwarnings("ignore", category=UserWarning, module="Bio")
 
@@ -156,6 +157,10 @@ def _pair_result_from_biotite_fallback(
             "z_score": None,
             "rmsd": rmsd,
             "lali": n_core,
+            "nres": None,
+            "pct_id": None,
+            "hit_id": None,
+            "description": "",
             "equivs": equivs,
             "raw_text": note,
             "rotation": R,
@@ -263,16 +268,19 @@ def run_dalilite_pair(
     except OSError:
         out_file = ""
 
+    hit = _ds.parse_dalilite_summary_hit(content)
     z_score = rmsd = lali = None
-    sm = re.search(
-        r"^\s*\d+:\s+\S+\s+([-\d.]+)\s+([\d.]+)\s+(\d+)\s+\d+\s+\d+",
-        content,
-        re.MULTILINE,
-    )
-    if sm:
-        z_score = float(sm.group(1))
-        rmsd = float(sm.group(2))
-        lali = int(sm.group(3))
+    nres = pct_id = None
+    hit_id = ""
+    description = ""
+    if hit:
+        z_score = hit["z_score"]
+        rmsd = hit["rmsd"]
+        lali = hit["lali"]
+        nres = hit["nres"]
+        pct_id = hit["pct_id"]
+        hit_id = hit["hit_id"]
+        description = hit["description"]
 
     equivs = _ds._parse_dalilite_equivalences(content, ra, rb)
     if not equivs:
@@ -318,6 +326,10 @@ def run_dalilite_pair(
             "z_score": z_score,
             "rmsd": rmsd,
             "lali": lali,
+            "nres": nres,
+            "pct_id": pct_id,
+            "hit_id": hit_id,
+            "description": description,
             "equivs": equivs,
             "raw_text": content,
             "rotation": R,
@@ -407,6 +419,10 @@ def score_pair_from_dalilite(
         "core_rmsd": dali.get("rmsd"),
         "alignment_source": src,
         "lali": dali.get("lali"),
+        "nres": dali.get("nres"),
+        "pct_id": dali.get("pct_id"),
+        "dalilite_hit_id": dali.get("hit_id"),
+        "dali_description": dali.get("description"),
     }
 
 
@@ -489,6 +505,10 @@ def run_all_pairs(
                     "core_rmsd": meta.get("core_rmsd"),
                     "alignment_source": meta.get("alignment_source", "dalilite"),
                     "lali": meta.get("lali"),
+                    "nres": meta.get("nres"),
+                    "pct_id": meta.get("pct_id"),
+                    "dalilite_hit_id": meta.get("dalilite_hit_id"),
+                    "dali_description": meta.get("dali_description"),
                 }
             )
 
@@ -526,10 +546,10 @@ def main() -> None:
         epilog="""
 Examples:
   Pairwise:
-    %(prog)s query.pdb target.pdb -d ./out --dalilite-path /path/to/DaliLite
+    %(prog)s model_01.pdb model_02.pdb -d ./out --dalilite-path /path/to/DaliLite
 
   All-vs-all (need at least two path arguments; quote glob filters):
-    %(prog)s --all-vs-all dir/ dir/ -d run1/ --filter '*.pdb'
+    %(prog)s --all-vs-all models_dir/ models_dir/ -d run_01/ --filter '*.pdb'
 
   When DaliLite omits a hit (Z<~2) but models still superpose in Coot (e.g. SSM):
     %(prog)s ... --fallback-biotite   # needs: pip install biotite
@@ -542,7 +562,7 @@ must exist (symlink a compatible mkdssp to the expected path, or edit mpidali.pm
 Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install.
 """,
     )
-    ap.add_argument("paths", nargs="*", help="Pairwise: pdb_a pdb_b. All-vs-all: dirs/files.")
+    ap.add_argument("paths", nargs="*", help="Pairwise: model_01.pdb model_02.pdb. All-vs-all: dirs/files.")
     ap.add_argument(
         "-d",
         "--output-dir",
@@ -615,6 +635,16 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         action="store_true",
         help="Print dali.pl stderr when a pair fails (nonzero exit, missing .txt, or no equivalences).",
     )
+    ap.add_argument(
+        "--log",
+        metavar="FILE",
+        help="Session log (stdout+stderr). Default: foldkit_dalilite.log in -d; use --no-log to disable.",
+    )
+    ap.add_argument(
+        "--no-log",
+        action="store_true",
+        help="Do not write the default session log file.",
+    )
     args = ap.parse_args()
 
     if not _ds.BIOPYTHON_AVAILABLE or _ds.PDBParser is None:
@@ -650,6 +680,25 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
     out_dir = os.path.abspath(args.output_dir)
     os.makedirs(out_dir, exist_ok=True)
 
+    default_log = os.path.join(out_dir, "foldkit_dalilite.log")
+    log_path = resolve_log_path(args.log, default_log, args.no_log)
+    log_state = None
+    ok = True
+    try:
+        if log_path:
+            log_state = install_dali_run_log(log_path, "dalilite_superpose_scores")
+        _dalilite_run_body(ap, args, out_dir)
+    except SystemExit as e:
+        ok = e.code is None or e.code == 0
+        raise
+    except BaseException:
+        ok = False
+        raise
+    finally:
+        uninstall_dali_run_log(log_state, "dalilite_superpose_scores", ok=ok)
+
+
+def _dalilite_run_body(ap, args, out_dir: str) -> None:
     def out_path(name: str | None) -> str | None:
         if not name:
             return None
@@ -704,6 +753,10 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
                     "dalilite_rmsd",
                     "core_rmsd",
                     "lali",
+                    "nres",
+                    "pct_id",
+                    "dalilite_hit_id",
+                    "dali_description",
                 ]
             )
             for row in data["results_rows"]:
@@ -721,6 +774,10 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
                         row["dalilite_rmsd"] if row["dalilite_rmsd"] is not None else "",
                         f"{cr:.4f}" if cr is not None else "",
                         row["lali"] if row["lali"] is not None else "",
+                        row["nres"] if row.get("nres") is not None else "",
+                        row["pct_id"] if row.get("pct_id") is not None else "",
+                        row.get("dalilite_hit_id") or "",
+                        row.get("dali_description") or "",
                     ]
                 )
         print(f"Wrote {pairs_csv}")
@@ -849,6 +906,10 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
                     "dalilite_rmsd",
                     "core_rmsd",
                     "lali",
+                    "nres",
+                    "pct_id",
+                    "dalilite_hit_id",
+                    "dali_description",
                 ]
             )
             cr = meta.get("core_rmsd")
@@ -863,9 +924,14 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
                     meta["dalilite_rmsd"] if meta["dalilite_rmsd"] is not None else "",
                     f"{cr:.4f}" if cr is not None else "",
                     meta["lali"] if meta["lali"] is not None else "",
+                    meta["nres"] if meta.get("nres") is not None else "",
+                    meta["pct_id"] if meta.get("pct_id") is not None else "",
+                    meta.get("dalilite_hit_id") or "",
+                    meta.get("dali_description") or "",
                 ]
             )
         print(f"Wrote {pair_csv}")
+
 
     if not args.keep_dalilite_work:
         shutil.rmtree(work, ignore_errors=True)

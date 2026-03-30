@@ -4,11 +4,11 @@ Superimpose CIF/PDB models in nested subfolders to a reference using SSM in Coot
 
 **Example structure:**
 ```
-<project>/                          e.g. group1/, group2/, ...
-  ├── subset1/
-  │     └── prefix_subset1_model_*.cif
-  └── subset2/
-        └── (same naming pattern with subset2)
+<project>/                          e.g. condition_1/, condition_2/, ...
+  ├── set_a/
+  │     └── prefix_set_a_model_*.cif
+  └── set_b/
+        └── (same naming pattern with set_b)
 ```
 
 ---
@@ -51,13 +51,13 @@ python superimpose_coot_SSM.py "$REFERENCE" "$ROOT_FOLDER"
 To restrict to files whose names contain a substring (e.g. `pattern`):
 
 ```bash
-python superimpose_coot_SSM.py --filter=fold_protein "$REFERENCE" "$ROOT_FOLDER"
+python superimpose_coot_SSM.py --filter=set_a "$REFERENCE" "$ROOT_FOLDER"
 ```
 
 Or only models that have `_model_` in the name:
 
 ```bash
-python superimpose_coot_SSM.py --filter=_model_ "$REFERENCE" "$ROOT_FOLDER"
+python superimpose_coot_SSM.py --filter=model_ "$REFERENCE" "$ROOT_FOLDER"
 ```
 
 **Note:** `--filter` is a **substring** match (no glob). Use e.g. `--filter=tag` to include only matching models; don’t use `*` in the filter.
@@ -67,7 +67,7 @@ python superimpose_coot_SSM.py --filter=_model_ "$REFERENCE" "$ROOT_FOLDER"
 Use **`superimpose_coot_SSM.py`** with **`--ref-chain`** and/or **`--model-chain`** (the other defaults to `A` if only one is set):
 
 ```bash
-python superimpose_coot_SSM.py --ref-chain=B --model-chain=B --filter=your_pattern "$REFERENCE" "$ROOT_FOLDER"
+python superimpose_coot_SSM.py --ref-chain=B --model-chain=B --filter=set_a "$REFERENCE" "$ROOT_FOLDER"
 ```
 
 - You will be prompted if `SSMaligned2_<ref_name>/` already exists (files may be overwritten).
@@ -144,7 +144,7 @@ Replace `REFNAME` with your reference base name (no extension).
 If you want the RMSD output in a different file or directory:
 
 ```bash
-python extract_rmsd_info.py file SSMaligned2_<ref_name>/coot_log.txt -o /path/to/my_rmsd_output.txt
+python extract_rmsd_info.py file SSMaligned2_<ref_name>/coot_log.txt -o /path/to/rmsd_output.txt
 ```
 
 `extract_rmsd_info.py` targets another log format; for **SSM** logs use **`extract_rmsd.py --format ssm`** to get molecule/superposition info plus RMSD.

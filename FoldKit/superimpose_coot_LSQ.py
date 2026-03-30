@@ -571,7 +571,7 @@ def main_pattern_mode():
         print("  --model-file-pattern=GLOB (default: \"*.cif\")")
         print("  --output-suffix=STRING   output dir suffix (default: \"_LSQaligned_\")")
         print("\nExample:")
-        print("  python superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_tag model_tag")
+        print("  python superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id")
         sys.exit(1)
 
     ref_dir = os.path.abspath(args[0])
@@ -634,9 +634,9 @@ def main():
             "       python superimpose_coot_LSQ.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
         )
         print("Examples:")
-        print("  python superimpose_coot_LSQ.py --reference=/path/to/ref.cif --filter=tag_a /path/to/models/")
-        print("  python superimpose_coot_LSQ.py --all-vs-all --filter=tag_a /path/to/models/")
-        print("  python superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_tag model_tag")
+        print("  python superimpose_coot_LSQ.py --reference=/path/to/ref.cif --filter=set_a /path/to/models/")
+        print("  python superimpose_coot_LSQ.py --all-vs-all --filter=set_a /path/to/models/")
+        print("  python superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id")
         sys.exit(1)
     
     # Parse arguments

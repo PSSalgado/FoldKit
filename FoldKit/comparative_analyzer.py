@@ -393,10 +393,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Compare crystal packing metrics between multiple structures.",
         epilog="""Examples:
-  python comparative_analyzer.py model_a.pdb model_b.pdb
+  python comparative_analyzer.py model_01.pdb model_02.pdb
   python comparative_analyzer.py dir/
   python comparative_analyzer.py *.pdb -o comparison_results.txt
-  python comparative_analyzer.py *.pdb --set tag_a,tag_b -o output_set.txt
+  python comparative_analyzer.py *.pdb --set set_a,set_b -o by_set.txt
   python comparative_analyzer.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
   python comparative_analyzer.py *.pdb --sets set_a set_b -o results.txt --dry-run
 """,

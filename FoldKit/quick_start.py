@@ -27,17 +27,17 @@ def main():
     print("="*50)
     
     print("\n1. Analyze a single structure:")
-    print("   python crystal_packing_analyzer.py --input structure.pdb")
+    print("   python crystal_packing_analyzer.py --input model_01.pdb")
     
     print("\n2. Compare multiple structures:")
     print("   python crystal_packing_analyzer.py --input *.pdb --compare")
     
     print("\n3. Specify output directory:")
-    print("   python crystal_packing_analyzer.py --input structure.pdb --output my_results")
+    print("   python crystal_packing_analyzer.py --input model_01.pdb --output analysis_output")
     
     print("\n4. Use individual modules:")
-    print("   python packing_metrics.py structure.pdb")
-    print("   python interface_analyzer.py structure.pdb")
+    print("   python packing_metrics.py model_01.pdb")
+    print("   python interface_analyzer.py model_01.pdb")
     
     print("\n5. Generate R visualizations:")
     print("   cd comparison_plots/")

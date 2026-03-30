@@ -1033,13 +1033,13 @@ Requirements and environment variables match **`dali_score.py`** (DaliLite path,
 
 ### 9.3.2 run_all_superpositions.py (Coot LSQ batch)
 
-**`run_all_superpositions.py`** is a small driver that loops over **condition** subdirectories (e.g. `condition_a`) and **tags** (same idea as `--filter=tag_a` in the Coot LSQ/SSM scripts), calling **`superimpose_coot_LSQ.py`** with **`--pattern`**, **`--divider=LSQ_`**, per-tag reference globs, and **`CONDITION_PREFIX`**-derived filename tokens. Defaults such as **`REFERENCE_SUBDIR`** and **`REFERENCE_STEM`** are documented in the script and in the main **`README.md`** (superposition section).
+**`run_all_superpositions.py`** is a small driver that loops over **condition** subdirectories (e.g. `condition_1`) and **tags** (same idea as `--filter=set_a` in the Coot LSQ/SSM scripts), calling **`superimpose_coot_LSQ.py`** with **`--pattern`**, **`--divider=LSQ_`**, per-tag reference globs, and **`CONDITION_PREFIX`**-derived filename tokens. Defaults such as **`REFERENCE_SUBDIR`** and **`REFERENCE_STEM`** are documented in the script and in the main **`README.md`** (superposition section).
 
 ### 9.4 All-vs-all and tree output
 
 When `--all-vs-all` is used with one or more directories or PDB/CIF files, the script compares every pair of structures, collects Z-scores, and optionally generates:
 
-- **Pairwise table** (`-o`): CSV with pdb_a, pdb_b, raw_score, z_score, n_core
+- **Pairwise table** (`-o`): CSV with pdb_a, pdb_b, raw_score, z_score, n_core, alignment_source, dalilite_rmsd, lali, nres, pct_id, dalilite_hit_id, description (DaliLite summary fields empty when alignment is not from DaliLite)
 - **Ranking** (`--output-ranking`, default `dali_ranking.csv`): structures ranked by average and max Z-score
 - **Z-score matrix** (`--output-matrix`): symmetric matrix CSV for downstream use
 - **Newick tree** (`--output-tree`, default `dali_tree.nwk`): phylogenetic tree from Z-score–derived distances (neighbor-joining or UPGMA)

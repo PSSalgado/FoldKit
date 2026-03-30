@@ -6,6 +6,7 @@ suitable for structure_phylogeny.py and create_rmsd_heatmap.R.
 Usage:
   python rmsd_to_csv.py path/to/rmsd_SSM_values.txt -o path/to/rmsd_table.csv
   python rmsd_to_csv.py path/to/rmsd_SSM_values.txt --plot heatmap.pdf
+  python rmsd_to_csv.py path/to/rmsd_values.txt --order-dir /path/to/root --order-glob 'model_*.pdb'
 """
 
 from __future__ import annotations
@@ -15,15 +16,17 @@ import csv
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 # Reuse parsing and matrix logic from structure_phylogeny
 try:
     from structure_phylogeny import (
+        _natural_sort_key,
+        alignments_to_matrix,
         detect_format,
         parse_lsq_rmsd_txt,
-        parse_ssm_rmsd_txt,
         parse_rmsd_csv,
-        alignments_to_matrix,
+        parse_ssm_rmsd_txt,
     )
 except ImportError:
     # Run from repo root or FoldKit/
@@ -31,11 +34,12 @@ except ImportError:
     if _dir not in sys.path:
         sys.path.insert(0, _dir)
     from structure_phylogeny import (
+        _natural_sort_key,
+        alignments_to_matrix,
         detect_format,
         parse_lsq_rmsd_txt,
-        parse_ssm_rmsd_txt,
         parse_rmsd_csv,
-        alignments_to_matrix,
+        parse_ssm_rmsd_txt,
     )
 
 
@@ -78,6 +82,23 @@ def parse_order(order_arg: str) -> list[str]:
     return [x.strip() for x in order_arg.split(",") if x.strip()]
 
 
+def order_labels_from_scan(root: str, glob_pat: str) -> list[str]:
+    """Recursive rglob under root; sort paths naturally; labels are file stems (unique, first path wins)."""
+    root_p = Path(root).resolve()
+    if not root_p.is_dir():
+        return []
+    paths = [p for p in root_p.rglob(glob_pat) if p.is_file()]
+    paths.sort(key=lambda p: _natural_sort_key(str(p.relative_to(root_p))))
+    out: list[str] = []
+    seen: set[str] = set()
+    for p in paths:
+        stem = p.stem
+        if stem not in seen:
+            out.append(stem)
+            seen.add(stem)
+    return out
+
+
 def write_rmsd_csv(ids: list[str], matrix: list[list[float]], out_path: str) -> None:
     """Write square RMSD table: Model column + one column per model, diagonal '-'."""
     with open(out_path, "w", newline="") as f:
@@ -112,7 +133,15 @@ def _image_magic_ok(path: str, fmt: str) -> bool:
     return False
 
 
-def plot_heatmap(ids: list[str], matrix: list[list[float]], out_path: str, title: str = "RMSD heatmap", cmap: str = "viridis_r") -> None:
+def plot_heatmap(
+    ids: list[str],
+    matrix: list[list[float]],
+    out_path: str,
+    title: str = "RMSD heatmap",
+    cmap: str = "viridis_r",
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> None:
     """Draw heatmap with matplotlib and save to out_path as an image (PNG/SVG/PDF)."""
     try:
         import matplotlib
@@ -143,14 +172,35 @@ def plot_heatmap(ids: list[str], matrix: list[list[float]], out_path: str, title
             else:
                 arr[i, j] = float(v)
 
-    # Diagonal: value below range so it appears white
-    finite = arr[np.isfinite(arr)]
-    if len(finite) == 0:
-        print("No finite RMSD values to plot.", file=sys.stderr)
+    # Default color scale: off-diagonal pairwise RMSDs only, and > 0 (exclude diagonal zeros).
+    mask = ~np.eye(n, dtype=bool)
+    off = arr[mask]
+    off_finite = off[np.isfinite(off)]
+    pos = off_finite[off_finite > 0]
+    if len(pos) > 0:
+        data_min = float(np.min(pos))
+        data_max = float(np.max(pos))
+    elif len(off_finite) > 0:
+        data_min = float(np.min(off_finite))
+        data_max = float(np.max(off_finite))
+    else:
+        print("No finite off-diagonal RMSD values to plot.", file=sys.stderr)
         return
-    vmin = float(np.min(finite))
-    vmax = float(np.max(finite))
-    np.fill_diagonal(arr, vmin - 1.0)
+    disp_vmin = float(vmin) if vmin is not None else data_min
+    disp_vmax = float(vmax) if vmax is not None else data_max
+    if disp_vmin > disp_vmax:
+        print(
+            "Error: heatmap scale requires vmin < vmax (got vmin=%s vmax=%s)."
+            % (disp_vmin, disp_vmax),
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    if disp_vmax - disp_vmin <= 1e-15:
+        mid = 0.5 * (disp_vmin + disp_vmax)
+        eps = 1e-6 * max(abs(mid), 1.0)
+        disp_vmin, disp_vmax = mid - eps, mid + eps
+    # Diagonal: below scale so it maps to the colormap "under" color (white)
+    np.fill_diagonal(arr, disp_vmin - 1.0)
 
     try:
         cmap_obj = plt.get_cmap(cmap).copy()
@@ -160,7 +210,7 @@ def plot_heatmap(ids: list[str], matrix: list[list[float]], out_path: str, title
     cmap_obj.set_under(color="white")
 
     fig, ax = plt.subplots(figsize=(max(6, n * 0.4), max(5, n * 0.35)))
-    im = ax.imshow(arr, aspect="auto", cmap=cmap_obj, interpolation="nearest", vmin=vmin, vmax=vmax)
+    im = ax.imshow(arr, aspect="auto", cmap=cmap_obj, interpolation="nearest", vmin=disp_vmin, vmax=disp_vmax)
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
     ax.set_xticklabels(ids, rotation=45, ha="right")
@@ -242,16 +292,45 @@ def main() -> None:
         default="RMSD heatmap",
         help="Title for heatmap (default: RMSD heatmap)",
     )
-    ap.add_argument(
+    order_group = ap.add_mutually_exclusive_group()
+    order_group.add_argument(
         "--order",
         metavar="FILE_OR_LIST",
         default=None,
-        help="Order of labels: path to file (one label per line) or comma-separated list (e.g. tag1,tag2,...,tagN). Applies to CSV and heatmap.",
+        help="Order of labels: path to file (one label per line) or comma-separated list. Applies to CSV and heatmap.",
+    )
+    order_group.add_argument(
+        "--order-dir",
+        metavar="DIR",
+        default=None,
+        help="Build label order from files under DIR (recursive). Labels are basenames without extension; "
+        "sorted by relative path with natural numeric order. Use with --order-glob (default *.pdb). "
+        "Incompatible with --order.",
+    )
+    ap.add_argument(
+        "--order-glob",
+        metavar="PATTERN",
+        default=None,
+        help="Glob for --order-dir (default when --order-dir is set: *.pdb). Example: model_*.pdb",
     )
     ap.add_argument(
         "--cmap",
         default="viridis_r",
         help="Matplotlib colormap for heatmap (default: viridis_r). Examples: viridis_r, plasma_r, RdYlBu_r, coolwarm, YlOrRd.",
+    )
+    ap.add_argument(
+        "--vmin",
+        type=float,
+        default=None,
+        metavar="VAL",
+        help="Heatmap color scale minimum (Å); default: min of positive off-diagonal values.",
+    )
+    ap.add_argument(
+        "--vmax",
+        type=float,
+        default=None,
+        metavar="VAL",
+        help="Heatmap color scale maximum (Å); default: max of positive off-diagonal values.",
     )
     args = ap.parse_args()
 
@@ -267,13 +346,31 @@ def main() -> None:
 
     print("Loaded", len(ids), "models, matrix", len(ids), "x", len(ids))
 
-    if args.order:
+    if args.order_dir:
+        glob_pat = args.order_glob or "*.pdb"
+        root_abs = os.path.abspath(args.order_dir)
+        if not os.path.isdir(root_abs):
+            print("Error: --order-dir is not a directory:", root_abs, file=sys.stderr)
+            sys.exit(1)
+        order_list = order_labels_from_scan(root_abs, glob_pat)
+        if order_list:
+            ids, matrix = reorder_matrix(ids, matrix, order_list)
+            print("Applied --order-dir", root_abs, "glob", repr(glob_pat), ":", len(order_list), "labels")
+        else:
+            print(
+                "Warning: no files matched under --order-dir; using default matrix order.",
+                file=sys.stderr,
+            )
+    elif args.order:
         order_list = parse_order(args.order)
         if order_list:
             ids, matrix = reorder_matrix(ids, matrix, order_list)
             print("Applied --order:", len(order_list), "labels")
         else:
             print("Warning: --order empty or file not found; using default order.", file=sys.stderr)
+    elif args.order_glob:
+        print("Error: --order-glob requires --order-dir.", file=sys.stderr)
+        sys.exit(1)
 
     # CSV output (-o is for the CSV table; --plot is for the heatmap image)
     if args.output:
@@ -298,7 +395,15 @@ def main() -> None:
     print("Wrote", out_csv)
 
     if args.plot:
-        plot_heatmap(ids, matrix, args.plot, title=args.title, cmap=args.cmap)
+        plot_heatmap(
+            ids,
+            matrix,
+            args.plot,
+            title=args.title,
+            cmap=args.cmap,
+            vmin=args.vmin,
+            vmax=args.vmax,
+        )
 
 
 if __name__ == "__main__":

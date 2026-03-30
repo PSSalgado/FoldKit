@@ -298,7 +298,7 @@ def run_trim_job(
 def main() -> None:
     if len(sys.argv) < 2:
         print(
-            "Usage: python trim_models.py [--filter=tag_a,tag_b,...] directory1 [directory2 ...]"
+            "Usage: python trim_models.py [--filter=set_a,set_b,...] directory1 [directory2 ...]"
         )
         print("  --filter=   Optional comma-separated patterns (basename substring or glob).")
         print("              If omitted, all PDB/CIF files in the given directories are used.")

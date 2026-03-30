@@ -356,13 +356,13 @@ def main():
     parser = argparse.ArgumentParser(
         description="Analyze solvent channels and void spaces in crystal structures.",
         epilog="""Examples:
-  python channel_analyzer.py structure.pdb
+  python channel_analyzer.py model_01.pdb
   python channel_analyzer.py dir/
   python channel_analyzer.py *.pdb -o results.txt
-  python channel_analyzer.py *.pdb --set tag1,tag2 -o output_set.txt
-  python channel_analyzer.py *.pdb --sets set1 set2 set3 -o "output_{}.txt"
+  python channel_analyzer.py *.pdb --set set_a,set_b -o by_set.txt
+  python channel_analyzer.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
   python channel_analyzer.py *.pdb --per-structure -o "{}_channel.txt"
-  python channel_analyzer.py *.pdb --sets set1 set2 -o results.txt --dry-run
+  python channel_analyzer.py *.pdb --sets set_a set_b -o results.txt --dry-run
 """,
     )
     parser.add_argument('input', nargs='+', help='PDB/CIF file(s), directory, or glob pattern (e.g. *.pdb)')
@@ -372,7 +372,7 @@ def main():
     )
     parser.add_argument(
         '--sets', dest='sets_multi', nargs='+', metavar='SET',
-        help='Multiple set names in one go (one pattern per set). E.g. --sets set1 set2 set3.',
+        help='Multiple set names in one go (one pattern per set). E.g. --sets set_a set_b set_c.',
     )
     parser.add_argument(
         '--output', '-o', metavar='FILE',

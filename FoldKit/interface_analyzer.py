@@ -707,7 +707,7 @@ def collect_structure_paths(inputs):
 def filter_paths_by_patterns(paths, patterns):
     """
     Return paths whose basename contains every pattern in `patterns`.
-    Patterns are matched as substrings (e.g. 'tag1' and 'tag2' match 'prefix_tag1_tag2.pdb').
+    Patterns are matched as substrings (e.g. 'set_a' and 'set_b' match 'prefix_set_a_set_b.pdb').
     """
     if not patterns:
         return list(paths)
@@ -790,14 +790,26 @@ def main():
     parser = argparse.ArgumentParser(
         description="Analyze interfaces between molecules in crystal structures.",
         epilog="""Examples:
-  python interface_analyzer.py structure.pdb
+  python interface_analyzer.py model_01.pdb
   python interface_analyzer.py dir/
   python interface_analyzer.py *.pdb -o results.txt
-  python interface_analyzer.py *.pdb --set tag1,tag2 -o output_set.txt
-  python interface_analyzer.py *.pdb --sets set1 set2 set3 -o "output_{}.txt"
+  python interface_analyzer.py *.pdb --set set_a,set_b -o by_set.txt
+  python interface_analyzer.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
   python interface_analyzer.py *.pdb --per-structure -o "{}_interface.txt"
-  python interface_analyzer.py *.pdb --per-structure --sets tag_a tag_b -o "{}_interface.txt"
-  python interface_analyzer.py *.pdb --sets set1 set2 set3 set4 -o "output_{}.txt" --dry-run
+  python interface_analyzer.py *.pdb --per-structure --sets set_a set_b -o "{}_interface.txt"
+  python interface_analyzer.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
+
+Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
+  python interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv
+  python interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
+  python interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B --output-dir ./out
+  python interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
+  python interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+[^_]*)_' --output-dir ./out
+  python interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+(?:a|del)?)_' --output-dir ./out
+  python interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+)_' --output-dir ./out
+  python interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model1a|model1del|model1)_' --output-dir ./out
+  python interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1*' --combine-glob 'model2*' --output-dir ./out
+  python interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1a*' --combine-glob 'model1del*' --combine-glob 'model1_*' --output-dir ./out
 """,
     )
     parser.add_argument(
@@ -810,14 +822,14 @@ def main():
         action='append',
         dest='sets',
         metavar='PATTERNS',
-        help='Comma-separated patterns; file is included only if basename contains ALL patterns. Repeat for multiple sets (e.g. -s tag1,tag2 -s set1).',
+        help='Comma-separated patterns; file is included only if basename contains ALL patterns. Repeat for multiple sets (e.g. -s set_a,set_b -s set_c,set_d).',
     )
     parser.add_argument(
         '--sets',
         dest='sets_multi',
         nargs='+',
         metavar='SET',
-        help='Multiple set names in one go (one pattern per set). E.g. --sets set1 set2 set3 is equivalent to --set set1 --set set2 --set set3.',
+        help='Multiple set names in one go (one pattern per set). E.g. --sets set_a set_b set_c is equivalent to --set set_a --set set_b --set set_c.',
     )
     parser.add_argument(
         '--output', '-o',

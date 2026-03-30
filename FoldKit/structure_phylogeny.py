@@ -106,7 +106,7 @@ def parse_rmsd_csv(path: str) -> dict[tuple[str, str], float]:
 
 
 def _natural_sort_key(s: str):
-    """Sort key so 'tag2' comes before 'tag10' (natural/numeric order)."""
+    """Sort key so 'model_02' comes before 'model_10' (natural/numeric order)."""
     import re
     return [int(x) if x.isdigit() else x.lower() for x in re.split(r"(\d+)", s)]
 

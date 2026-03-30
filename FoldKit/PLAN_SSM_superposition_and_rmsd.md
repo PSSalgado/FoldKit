@@ -18,27 +18,27 @@ Use **`superimpose_coot_SSM.py`**:
 ```bash
 cd /path/to/scripts
 
-python superimpose_coot_SSM.py REFERENCE.pdb /path/to/folder_with_pdbs
+python superimpose_coot_SSM.py reference.pdb /path/to/models
 ```
 
-- **REFERENCE.pdb**: path to your reference structure (PDB or CIF).
-- **/path/to/folder_with_pdbs**: one or more directories; all `.pdb`/`.cif` under them (including subfolders) are aligned to the reference.
+- **reference.pdb**: path to your reference structure (PDB or CIF).
+- **/path/to/models**: one or more directories; all `.pdb`/`.cif` under them (including subfolders) are aligned to the reference.
 
 Optional:
 
-- **`--filter=PATTERN`**: only process files whose **filename** contains `PATTERN` (e.g. `--filter=pattern`).
+- **`--filter=PATTERN`**: only process files whose **filename** contains `PATTERN` (e.g. `--filter=set_a`).
 
 Examples:
 
 ```bash
-# All PDBs/CIFs under my_structures and subfolders
-python superimpose_coot_SSM.py ref.pdb my_structures
+# All PDBs/CIFs under models/ and subfolders
+python superimpose_coot_SSM.py reference.pdb models/
 
 # Multiple root folders
-python superimpose_coot_SSM.py ref.pdb dir1 dir2
+python superimpose_coot_SSM.py reference.pdb dir1 dir2
 
 # Only files matching a substring in the name
-python superimpose_coot_SSM.py ref.pdb my_structures --filter=model
+python superimpose_coot_SSM.py reference.pdb models/ --filter=set_a
 ```
 
 **Result:**
@@ -54,7 +54,7 @@ python superimpose_coot_SSM.py ref.pdb my_structures --filter=model
 Use **`superimpose_coot_SSM.py`** with the same flags:
 
 ```bash
-python superimpose_coot_SSM.py [--ref-chain=CHAIN] [--model-chain=CHAIN] [--filter=PATTERN] REFERENCE.pdb /path/to/folder_with_pdbs
+python superimpose_coot_SSM.py [--ref-chain=CHAIN] [--model-chain=CHAIN] [--filter=PATTERN] reference.pdb /path/to/models
 ```
 
 - **`--ref-chain=CHAIN`**: chain ID in the **reference** (default: `A`).
@@ -65,13 +65,13 @@ Examples:
 
 ```bash
 # Reference chain A, model chain A (default)
-python superimpose_coot_SSM.py ref.pdb my_structures
+python superimpose_coot_SSM.py reference.pdb models/
 
 # Reference chain B, all models use chain A
-python superimpose_coot_SSM.py --ref-chain=B ref.pdb my_structures
+python superimpose_coot_SSM.py --ref-chain=B reference.pdb models/
 
 # Both chains specified
-python superimpose_coot_SSM.py --ref-chain=A --model-chain=A ref.pdb my_structures
+python superimpose_coot_SSM.py --ref-chain=A --model-chain=A reference.pdb models/
 ```
 
 **Result:** Same as Option A: `SSMaligned2_<ref_name>/` with aligned PDBs and **`coot_log.txt`**.
@@ -105,7 +105,7 @@ python extract_rmsd.py --format auto SSMaligned2_ref/coot_log.txt
 For **LSQ** logs, use **`--format lsq`** with optional **`--aligned`**, **`--reference`**, **`--debug`**:
 
 ```bash
-python extract_rmsd.py --format lsq LSQaligned2_ref/coot_log.txt --aligned=model --debug
+python extract_rmsd.py --format lsq LSQaligned2_ref/coot_log.txt --aligned=set_a --debug
 ```
 
 ---
@@ -134,9 +134,9 @@ Use **`extract_rmsd.py`** for a single SSM or LSQ run; use **`extract_rmsd_info.
 
 1. **Superimpose (all PDBs in folder + subfolders, SSM, optional chain)**  
    - Default (first chain in each structure):  
-     `python superimpose_coot_SSM.py REFERENCE.pdb /path/to/folder`  
+     `python superimpose_coot_SSM.py reference.pdb /path/to/models`  
    - Specific chains:  
-     `python superimpose_coot_SSM.py --ref-chain=A --model-chain=A REFERENCE.pdb /path/to/folder`
+     `python superimpose_coot_SSM.py --ref-chain=A --model-chain=A reference.pdb /path/to/models`
 
 2. **Log**  
    Already in `SSMaligned2_<ref_name>/coot_log.txt`.
