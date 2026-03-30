@@ -13,7 +13,7 @@ All scripts live under `FoldKit/`. From the repository root run `python FoldKit/
 | [File management](#file-management) | Renaming files; PDB chain ID replacement and merge; residue-range trimming (no Coot) |
 | [Superimposition](#superimposition) | Coot SSM/LSQ and trim workflows; batch LSQ; DaliLite superposed coordinates; opening models in Coot |
 | [Ranking, scoring, phylogeny, and graphical outputs](#ranking-scoring-phylogeny-and-graphical-outputs) | RMSD from logs; RMSD tables and heatmaps; Dali Z-scores; neighbor-joining trees and plots |
-| [Metrics (crystal packing and lattice)](#metrics-crystal-packing-and-lattice) | Packing density, interfaces, contacts, channels, graphs, comparative analysis, R visualization |
+| [Metrics (crystal packing and lattice)](#metrics-crystal-packing-and-lattice) | Packing density, interfaces, contacts; optional batch JSON; R helpers (`visualization.py`) |
 | [Appendix](#appendix) | General notes, output layout, troubleshooting |
 
 ## Prerequisites
@@ -23,7 +23,7 @@ All scripts live under `FoldKit/`. From the repository root run `python FoldKit/
 **Depending on what you run:**
 
 - **Coot** (command-line): for `superimpose_coot_*.py`, `trim_superimposeLSQ.py` (superposition modes), `open_models_in_coot.py`, and log parsing in `extract_rmsd.py`. Not needed for **`trim_models.py`** (trim-only).
-- **R** (optional): `create_rmsd_heatmap.R` and the crystal-packing visualization pipeline.
+- **R** (optional): `create_rmsd_heatmap.R` and optional R plotting helpers in `visualization.py` (not invoked by the default `crystal_packing_analyzer` CLI).
 - **DaliLite** + **`mkdssp`**: `dalilite_superpose_scores.py` and DaliLite-backed modes of `dali_score.py` (see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)).
 - **TM-align**: optional distance input for `structure_phylogeny.py --from-pdb`.
 - **`gemmi`** (`pip install gemmi`): helpful for some CIF handling in superposition workflows.
@@ -461,17 +461,17 @@ Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob o
 
 ## Metrics (crystal packing and lattice)
 
-A Python toolkit for analyzing differences in **X-ray crystal lattice packing**, including interfaces, contacts, void spaces, and graph-theoretical descriptors. It complements FoldKit’s **structural similarity** tools by quantifying **how molecules pack in the unit cell**, not only how similar their isolated coordinates are.
+A Python toolkit for analyzing differences in **X-ray crystal lattice packing**, including interfaces and crystal contacts. It complements FoldKit’s **structural similarity** tools by quantifying **how molecules pack in the unit cell**, not only how similar their isolated coordinates are.
 
 ### Overview
 
-The pipeline implements established ways to quantify crystal packing differences that are visually apparent but hard to measure by eye. Individual molecules may have low pairwise RMSD while packing differs in interfaces, solvent channels, and symmetry contacts.
+The pipeline implements established ways to quantify crystal packing differences that are visually apparent but hard to measure by eye. Individual molecules may have low pairwise RMSD while packing differs in interfaces and symmetry contacts.
 
 ### Key features
 
-- **Quantitative metrics:** packing density (Matthews coefficient, solvent content), interface and contact analysis, solvent channels, graph-based descriptors.
-- **Comparative analysis:** PCA, clustering, correlations, outlier detection across structures.
-- **Visualization:** R-generated comparative plots, heatmaps, PCA and clustering figures (via `visualization.py` and generated R scripts).
+- **Quantitative metrics:** packing density (Matthews coefficient, solvent content), interface and contact analysis.
+- **Batch export:** `--compare` writes `batch_analysis_results.json` with all per-structure outputs in one file.
+- **Visualization (optional):** `visualization.py` can generate R scripts for multi-metric plots if you build a compatible summary dict in your own workflow.
 
 ### Scientific background
 
@@ -488,14 +488,6 @@ Buried surface area, contact area, interface complementarity, hydrogen-bond summ
 
 Classification (H-bond, hydrophobic, electrostatic, van der Waals), contact density, symmetry-related vs biological interfaces.
 
-#### Solvent channels
-
-Connectivity, bottlenecks, accessible void volume.
-
-#### Graph-theoretical descriptors
-
-Residue contact networks, modularity, small-world metrics, centrality.
-
 ### Installation
 
 #### Prerequisites
@@ -510,47 +502,33 @@ crystal_analysis_env\Scripts\activate     # Windows
 
 #### Install dependencies
 
-Install packages needed for the crystal-packing stack (for example `biopython`, `numpy`, `scipy`, `pandas`, `scikit-learn`, `networkx`; see script imports and error messages). If you maintain a project `requirements.txt`, use `pip install -r requirements.txt`.
+Install packages needed for the crystal-packing stack (for example `biopython`, `numpy`, `scipy`, `pandas`; see script imports and error messages). If you maintain a project `requirements.txt`, use `pip install -r requirements.txt`.
 
-#### R visualization setup
+#### R visualization (optional)
 
-The pipeline generates R scripts for publication-quality plots. Install R and required packages:
-
-1. **Install R:** [https://www.r-project.org/](https://www.r-project.org/)
-2. **R packages** (auto-installed when running scripts): ggplot2, viridis, pheatmap, corrplot, RColorBrewer, reshape2, gridExtra, jsonlite.
-3. **Generate and run visualizations:**
-
-```bash
-# Python pipeline generates R scripts and data (use your files, directory, or glob)
-python FoldKit/crystal_packing_analyzer.py --input model_01.pdb model_02.pdb --compare
-# or: --input dir/   or: --input *.pdb
-
-# Run R visualizations
-cd comparison_plots/
-Rscript master_visualization.R
-```
+`visualization.py` can emit R scripts when you call it from Python with a dict shaped for `PackingVisualizer.create_comparison_plots`. It is not run automatically by `crystal_packing_analyzer.py`. Install R and packages (ggplot2, viridis, pheatmap, corrplot, RColorBrewer, reshape2, gridExtra, jsonlite) if you use that module.
 
 #### Core dependencies
 
 - **BioPython:** structure parsing
-- **NumPy/SciPy, pandas, scikit-learn, NetworkX**
-- **R** (optional but recommended for full plots)
+- **NumPy, SciPy (optional), pandas**
+- **R** (optional; only if you use `visualization.py`)
 
 ### Crystal packing scripts
 
 #### `crystal_packing_analyzer.py`
 
-Full pipeline: packing metrics, interface, contact, channel, graph, optional comparative analysis.
+Runs packing metrics, interface analysis, and contact analysis per structure. With `--compare`, also writes `batch_analysis_results.json`.
 
 ```bash
 python FoldKit/crystal_packing_analyzer.py --input model_01.pdb
 python FoldKit/crystal_packing_analyzer.py --input dir/
-python FoldKit/crystal_packing_analyzer.py --input *.pdb --compare --output comparison_results
+python FoldKit/crystal_packing_analyzer.py --input *.pdb --compare --output analysis_run
 python FoldKit/crystal_packing_analyzer.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
 python FoldKit/crystal_packing_analyzer.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
 ```
 
-Options: `--input`, `--output` (use `{}` for one dir per set), `--set`, `--sets`, `--compare`, `--verbose`, `--dry-run`
+Options: `--input`, `--output` (use `{}` for one dir per set), `--set`, `--sets`, `--compare` (combined JSON), `--verbose`, `--dry-run`
 
 #### `packing_metrics.py`
 
@@ -593,14 +571,14 @@ python FoldKit/interface_molecule_report_csv.py results.txt -m A -m B --output-d
 python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
 python FoldKit/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
 python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\d+[^_]*)_' --output-dir ./out
-python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1*' --combine-glob 'model2*' --output-dir ./out
+python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'run_a*' --combine-glob 'run_b*' --output-dir ./out
 python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B \
-  --combine-glob 'model1a*' --combine-glob 'model1del*' --combine-glob 'model1_*' --output-dir ./out
+  --combine-glob 'run_a*' --combine-glob 'run_b*' --combine-glob 'run_*' --output-dir ./out
 ```
 
-Options: `--pdb`, `--pdbs`, `-m`, `--molecule`, `--chains`, `-o`, `--output-dir`, `--group-by-chain`, `--combine-regex` (Python regex; **first capturing group** = merge key / output stem), `--combine-glob` (fnmatch on stem). **Order matters** for globs: use more specific patterns first (e.g. `model1a*` before `model1_*`), because `model1*` matches `model1a_*` and `model1del_*` as well.
+Options: `--pdb`, `--pdbs`, `-m`, `--molecule`, `--chains`, `-o`, `--output-dir`, `--group-by-chain`, `--combine-regex` (Python regex; **first capturing group** = merge key / output stem), `--combine-glob` (fnmatch on stem). **Order matters** for globs: list more specific patterns before broader ones (e.g. `run_a*` before `run_*`), because a single broad glob can match stems you intended for a narrower rule.
 
-The regex above captures `model`, digits, then **any suffix without an underscore** up to the next `_` (e.g. time/lane token `2m`). It maps stems like `model1_2m`, `model1a_7m`, `model1del_12m`, `model2_2m` to `model1.csv`, `model1a.csv`, `model1del.csv`, `model2.csv`. If stems are only `modelN_…` with no letters after the digits, `^(model\d+)_` is enough. To allow only specific suffixes, use `'^(model\d+(?:a|del)?)_'`. To list variants explicitly: `'^(model1a|model1del|model1|model2)_'`. Invalid: `model\d+*` — use `\d+` plus a separate suffix rule (`[^_]*`, `(?:a|del)?`, etc.).
+The regex above captures `model`, digits, then **any suffix without an underscore** up to the next `_` (e.g. a replicate or batch token after the first `_`). It maps stems like `model_01_rep1`, `model_01_rep2`, `model_02_rep1` to `model_01.csv`, `model_02.csv`. If stems are only `modelN_…` with no letters after the digits, `^(model\d+)_` is enough. To restrict allowed suffixes after the digits, narrow the regex (character class or alternation). To list variants explicitly, enumerate them in the alternation (e.g. `'^(variant_a|variant_b)_'`). Invalid: `model\d+*` — use `\d+` plus a separate suffix rule (`[^_]*`, etc.).
 
 #### `contact_analyzer.py`
 
@@ -616,44 +594,9 @@ python FoldKit/contact_analyzer.py *.pdb --per-structure --sets set_a set_b -o "
 
 Options: same as `interface_analyzer.py`
 
-#### `channel_analyzer.py`
-
-Solvent channel and void space analysis.
-
-```bash
-python FoldKit/channel_analyzer.py model_01.pdb
-python FoldKit/channel_analyzer.py *.pdb --sets set_a set_b -o "channel_{}.txt"
-python FoldKit/channel_analyzer.py *.pdb --per-structure -o "{}_channel.txt"
-```
-
-Options: same as `interface_analyzer.py`
-
-#### `graph_analyzer.py`
-
-Graph-theoretical analysis (residue networks, modularity, centrality).
-
-```bash
-python FoldKit/graph_analyzer.py model_01.pdb
-python FoldKit/graph_analyzer.py *.pdb --sets set_a set_b -o "graph_{}.txt"
-python FoldKit/graph_analyzer.py *.pdb --per-structure -o "{}_graph.txt"
-```
-
-Options: same as `interface_analyzer.py`
-
-#### `comparative_analyzer.py`
-
-Multi-structure comparison (PCA, clustering, correlation). Requires ≥2 structures per set.
-
-```bash
-python FoldKit/comparative_analyzer.py model_01.pdb model_02.pdb
-python FoldKit/comparative_analyzer.py *.pdb --sets set_a set_b -o "comparison_{}.txt"
-```
-
-Options: `-o`, `--set`, `--sets`, `--dry-run` (no `--per-structure`)
-
 #### `visualization.py`
 
-R script generation for publication-quality plots (used by `crystal_packing_analyzer`).
+Optional R script generation for multi-metric plots. Call `PackingVisualizer.create_comparison_plots` from your own code with a suitable results dict; the default `crystal_packing_analyzer` CLI does not invoke it.
 
 ### Python API usage
 
@@ -667,7 +610,7 @@ results = analyzer.analyze_single_structure("model_01.pdb")
 
 model_paths = ["model_01.pdb", "model_02.pdb", "model_03.pdb"]
 all_results = [analyzer.analyze_single_structure(p) for p in model_paths]
-comparison = analyzer.compare_structures(all_results)
+batch = analyzer.compare_structures(all_results)  # writes batch_analysis_results.json
 ```
 
 ### Individual module usage
@@ -701,22 +644,7 @@ print(f"Total interfaces: {interfaces['summary']['total_interfaces']}")
 crystal_analysis_output/
 ├── model_01_analysis.json
 ├── model_02_analysis.json
-├── comparison_report.txt
-├── comparison_plots/
-│   ├── summary_statistics.csv
-│   ├── correlations.csv
-│   ├── pca_results.csv
-│   ├── clustering_results.csv
-│   ├── master_visualization.R
-│   ├── summary_statistics.R
-│   ├── correlations.R
-│   ├── pca_analysis.R
-│   ├── clustering_analysis.R
-│   ├── summary_statistics.pdf
-│   ├── correlations.pdf
-│   ├── pca_analysis.pdf
-│   ├── clustering_results.pdf
-│   └── cluster_assignments.txt
+└── batch_analysis_results.json    # when using --compare (or compare_structures in API)
 ```
 
 #### JSON output (excerpt)
@@ -756,7 +684,7 @@ crystal_analysis_output/
 
 ```bash
 python FoldKit/superimpose_coot_SSM.py reference.pdb dir1 dir2 dir3
-python FoldKit/crystal_packing_analyzer.py --input SSMaligned2_ref/*.pdb --compare
+python FoldKit/crystal_packing_analyzer.py --input SSMaligned2_ref/*.pdb --compare --output packing_batch
 ```
 
 ### Scientific applications
@@ -777,8 +705,6 @@ python FoldKit/crystal_packing_analyzer.py --input SSMaligned2_ref/*.pdb --compa
 python FoldKit/quick_start.py
 python FoldKit/crystal_packing_analyzer.py --input model_01.pdb
 python FoldKit/crystal_packing_analyzer.py --input model_01.pdb model_02.pdb model_03.pdb --compare
-cd comparison_plots/
-Rscript master_visualization.R
 ```
 
 #### References (metrics / crystal packing)
@@ -793,8 +719,7 @@ Rscript master_visualization.R
 
 1. **BioPython import errors:** `pip install biopython>=1.79`
 2. **Memory:** reduce contact distance cutoffs for large structures
-3. **NetworkX:** `pip install networkx>=2.6`
-4. **R:** install from [r-project.org](https://www.r-project.org/); on macOS ensure R is on `PATH` (e.g. `export PATH="/usr/local/bin:$PATH"`).
+3. **R:** install from [r-project.org](https://www.r-project.org/) if you use `visualization.py`; on macOS ensure R is on `PATH` (e.g. `export PATH="/usr/local/bin:$PATH"`).
 
 #### Features summary
 

@@ -2,11 +2,11 @@
 
 This document lists all metrics computed by the FoldKit analyzer and metrics scripts, with:
 
-**Related (not covered below):** **`trim_models.py`** only harmonizes residue ranges (standalone script; shared with **`trim_superimposeLSQ.py`** trimming); it does not compute packing or similarity metrics. See the main **README.md** (File management).
+**Related (not covered below):** `**trim_models.py`** only harmonizes residue ranges (standalone script; shared with `**trim_superimposeLSQ.py**` trimming); it does not compute packing or similarity metrics. See the main **README.md** (File management).
 
 - **Mathematical definition** and **script calculation** for each metric.
 - **Reader-friendly formula**: a short, plain-language description of what is being computed and how.
-- **Libraries and functions**: BioPython, NumPy, SciPy, NetworkX, pandas, scikit-learn (and fallbacks) used in the implementation.
+- **Libraries and functions**: BioPython, NumPy, SciPy (optional), pandas (where used), **biotite** (optional in Dali workflows), as summarized in the table below.
 - **Derivation / references** where applicable.
 
 ---
@@ -19,10 +19,7 @@ This document lists all metrics computed by the FoldKit analyzer and metrics scr
 | packing_metrics.py      | **BioPython** (Bio.PDB.PDBParser, PDBIO, PDBExceptions), **NumPy**, **SciPy** (optional)                                         | `PDBParser.get_structure()`, manual CRYST1 read; `structure` → model → chain → residue → atom; `atom.coord`, `atom.element`, `atom.name`; `np.radians`, `np.sqrt`, `np.cos`; `scipy.spatial.distance.pdist()` or fallback loop with `np.linalg.norm`                                                                                                                                                   |
 | interface_analyzer.py   | **BioPython** (PDBParser, NeighborSearch, Structure, Model, PDBExceptions), **Bio.PDB.SASA** (ShrakeRupley, optional), **NumPy** | `parser.get_structure()`, `structure.get_chains()`, `chain.get_atoms()`; `NeighborSearch(atom_list).search_all(threshold, 'R')` → interface residues; contact residues = interface residues filtered by same criteria (distance + type) via `_residue_passes_contact_criteria()`; `ShrakeRupley().compute()` for BSA; `np.linalg.norm`, `np.mean`, etc.                                                |
 | contact_analyzer.py     | **BioPython** (PDBParser, PDBExceptions), **NumPy**                                                                              | Same structure traversal; `chain.get_atoms()`, `atom.coord`; `np.linalg.norm`; manual contact loop and type classification                                                                                                                                                                                                                                                                             |
-| channel_analyzer.py     | **BioPython** (PDBParser), **NumPy**                                                                                             | `parser.get_structure()`, `structure.get_atoms()`, `atom.coord`; `np.array`, `np.min`/`np.max` (axis=0), `np.random.uniform`, `np.linalg.norm`, `np.prod`, `np.std`, `np.mean`, `np.sort`, `np.random.choice`                                                                                                                                                                                          |
-| graph_analyzer.py       | **BioPython** (PDBParser), **NumPy**, **NetworkX**                                                                               | `parser.get_structure()`, `structure.get_chains()`/`get_residues()`, `residue.get_atoms()`; `nx.Graph`, `nx.density`, `nx.average_shortest_path_length`, `nx.diameter`, `nx.average_clustering`, `nx.betweenness_centrality`, `nx.closeness_centrality`, `nx.degree_centrality`, `nx.algorithms.community.greedy_modularity_communities`, `nx.algorithms.community.modularity`, `nx.erdos_renyi_graph` |
-| comparative_analyzer.py | **NumPy**, **pandas**, **scikit-learn**                                                                                          | `pd.DataFrame()`, `df.select_dtypes()`, `np.mean`/`np.std`/`np.min`/`np.max`/`np.median`, `np.corrcoef`, `StandardScaler().fit_transform()`, `KMeans()`, `PCA().fit_transform()`, `np.cumsum`, `np.abs`, `np.where`                                                                                                                                                                                    |
-| dali_score.py          | **BioPython** (PDBParser), **NumPy**, **biotite** (optional)                                                                      | `PDBParser.get_structure()`, structure traversal for CA atoms; `np.linalg.norm`, `np.exp` for distance matrices and Dali formula; `biotite.structure.superimpose_structural_homologs()` for automatic residue equivalences when available                                                                                                                          |
+| dali_score.py           | **BioPython** (PDBParser), **NumPy**, **biotite** (optional)                                                                     | `PDBParser.get_structure()`, structure traversal for CA atoms; `np.linalg.norm`, `np.exp` for distance matrices and Dali formula; `biotite.structure.superimpose_structural_homologs()` for automatic residue equivalences when available                                                                                                                                                              |
 
 
 ---
@@ -428,7 +425,7 @@ Let \mathcal{M} be the set of matched contact residues between chain 1 and chain
  \text{averageinterfacermsdca} =
 \frac{1}{N_\mathrm{rmsd}} \sum_{\text{interfaces with valid RMSD}} \mathrm{RMSD}_k
 
-where N_\mathrm{rmsd} is the number of interfaces with RMSD > 0. This value is exported to the comparative pipeline as `average_interface_rmsd_ca`.
+where N_\mathrm{rmsd} is the number of interfaces with RMSD > 0. This value appears in per-structure output as `average_interface_rmsd_ca`.
 
 If there are no valid matches or the superposition fails, `interface_rmsd_ca` and the summary’s `average_interface_rmsd_ca` default to 0.
 
@@ -520,274 +517,18 @@ If there are no valid matches or the superposition fails, `interface_rmsd_ca` an
 
 ---
 
-## 4. channel_analyzer.py
+## 4. crystal_packing_analyzer.py
+
+This script orchestrates `packing_metrics`, `interface_analyzer`, and `contact_analyzer` on each structure. With `--compare`, it writes `batch_analysis_results.json` combining all per-structure outputs. It does not define new formulas; all metrics are as in §§1–3.
 
 **Function selection / usage**
 
-- Channel and void metrics are computed in `channel_analyzer.py`.
-- You select them by:
-  - Running `channel_analyzer.py` directly on a PDB/CIF (with optional arguments for probe radius, sampling counts, etc.), or
-  - Letting `crystal_packing_analyzer.py` call the corresponding `analyze_channels_for_structure` function.
-- Inside `channel_analyzer.py`, the main pipeline:
-  - Builds coordinate arrays and bounding boxes.
-  - Calls `_estimate_void_fraction_and_volume()` → §4.1.
-  - Calls `_analyze_density_variations()` → §4.2.
-  - Calls `_detect_bottlenecks()` → §4.3.
-- **Probe radius:** Default 1.4 Å (used for “accessible” space).
-
-**Libraries / functions used (channel_analyzer)**
-
-- **BioPython:** `PDBParser.get_structure()`, `structure.get_atoms()`; `atom.coord` collected into a NumPy array.
-- **NumPy:** `np.array([atom.coord for atom in atoms])`, `np.min(coords, axis=0)`, `np.max(coords, axis=0)`; `np.random.uniform` for sampling points; `np.linalg.norm(atom_coords - point, axis=1)`, `np.min(distances)` in `_is_point_accessible`; `np.prod(max_coords - min_coords)` for box volume; `np.random.choice`, `np.sum(distances <= 8.0)` for density variations; `np.std`, `np.mean` for CV and connectivity; `np.sort(distances)` for bottlenecks; `np.mean`, `np.min` on bottleneck radii.
-
-### 4.1 Void fraction and accessible volume
-
-**Reader-friendly formula**  
-*Void fraction* is estimated by Monte Carlo sampling: draw many random points in a box around the structure (atom extent ± 5 Å). A point is *accessible* if it is farther than (probe_radius + atom_radius) from every atom. Void fraction = (number of accessible points) / (number of points). *Accessible volume* = (box volume) × void fraction. Probe radius 1.4 Å approximates a water molecule.
-
-**Mathematical definition**
-
-A point is **accessible** if for every atom, \left\mathbf{p}-\mathbf{x}*a\right > r*{\mathrm{probe}} + r_{\mathrm{atom}} (r_{\mathrm{atom}} = 1.7\text{Å}). Then:
-\text{voidfraction} = \frac{\text{number of accessible sampled points}}{\text{number of sampled points}}
-
-V_{\mathrm{accessible}} = V_{\mathrm{box}} \times \text{voidfraction}
-
-- Bounding box: min/max of atom coordinates ± 5 Å. Up to 10,000 random points sampled uniformly in this box.
-
-**Implementation (simplified):** Build a box from atom coordinates (min/max ± 5 Å). Sample many random points (e.g. up to 10,000) uniformly in the box. A point is accessible if, for every atom, distance(point, atom) > probe_radius + atom_radius (atom_radius = 1.7 Å). void_fraction = (number of accessible points) / (number of points). accessible_volume = box_volume × void_fraction.
-
-### 4.2 Density variations and connectivity
-
-**Reader-friendly formula**  
-For a sample of atoms, count how many neighbors each has within 8 Å. *Density variation score* is the standard deviation of these counts (spread in local density). *Connectivity score* is the coefficient of variation (std/mean) of the counts, capped at 1 by dividing by 2 and taking min(1, cv/2). *Channel count* is a heuristic: max(1, int(connectivity_score × 5)).
-
-**Mathematical definition**
-
-\mathrm{cv} = \frac{\sigma}{\mu},\quad \text{connectivityscore} = \min\left(1, \frac{\mathrm{cv}}{2}\right)
-
-**Implementation (simplified):** For each of up to 100 random atoms, count how many other atoms are within 8 Å → list of counts. density_variation_score = std(counts). cv = std(counts) / mean(counts); connectivity_score = min(1, cv/2). channel_count = max(1, int(connectivity_score × 5)) (heuristic).
-
-### 4.3 Bottlenecks
-
-**Reader-friendly formula**  
-For a sample of atoms, the “bottleneck” at each is the *nearest-neighbor distance* to another atom (second smallest distance, excluding self). If that distance is < 4 Å, a bottleneck is recorded with radius = half that distance. Only bottlenecks with radius ≥ 5 Å are kept. *Bottleneck count*, *average* and *minimum bottleneck radius* are computed from this filtered set.
-
-**Implementation (simplified):** For each of up to 50 atoms, compute distances to all other atoms; take the second smallest (nearest neighbor). If that distance < 4.0 Å, record a bottleneck with radius = distance/2. Keep only bottlenecks with radius ≥ 5 Å. bottleneck_count = number kept; average/minimum_bottleneck_radius = mean/min of those radii.
-
-- Sample up to 50 atoms; for each, take second smallest distance to other atoms (nearest neighbor, excluding self).  
-- If that distance < 4.0 Å, record a “bottleneck” with position = atom center, radius = nearest_distance/2.  
-- **Minimum channel size:** Only bottlenecks with radius ≥ 5 Å are kept; smaller ones are discarded.  
-- **bottleneck_count:** Number of such points (after filtering).  
-- **average_bottleneck_radius, minimum_bottleneck_radius:** From the filtered list of radii.
-
-**Derivation / references**
-
-- The sampling-based void fraction is a Monte Carlo approximation to accessible volume, conceptually similar to probe-based cavity finders (e.g. void and channel analyses in tools like CAVER or MOLE).
-- The probe radius of 1.4 Å matches the standard water-molecule probe used in SASA calculations (e.g. Lee & Richards, *J. Mol. Biol.* **55**, 379–400, 1971). DOI: [10.1016/0022-2836(71)90324-x](https://doi.org/10.1016/0022-2836(71)90324-x)
-- Bottleneck detection via nearest-neighbor distances is a simplified proxy for minimum pore radii along putative channels; the 5 Å minimum radius is chosen so that only biologically relevant or solvent-accessible channels are retained.
+- When you run `crystal_packing_analyzer.py` from the command line, you choose which input structures (files or directories) to analyze and optional `--compare` for a single combined JSON file.
+- Internally, it iterates over structures and calls the per-structure modules from §§1–3.
 
 ---
 
-## 5. graph_analyzer.py
-
-**Function selection / usage**
-
-- Graph-based metrics are computed in `graph_analyzer.py`.
-- You select them by:
-  - Running `graph_analyzer.py` on one or more structures, or
-  - Using `crystal_packing_analyzer.py`, which calls a function such as `analyze_graphs_for_structure` for each input.
-- Inside `graph_analyzer.py`, the main workflow:
-  - Builds residue-level and chain-level graphs from contact information (using `contact_threshold`).
-  - Calls helper functions that wrap NetworkX routines:
-    - Graph density, degrees, paths, clustering → §§5.1–5.3.
-    - Centralities, communities, modularity → §§5.4–5.5.
-    - Random-graph comparison and small-world coefficient → §5.6.
-- Residues are nodes; two residues are connected if minimum atom–atom distance ≤ **contact_threshold** (default 5.0 Å).  
-- Chain graph: chains as nodes; edge if they have at least one residue–residue contact.
-
-**Libraries / functions used (graph_analyzer)**
-
-- **BioPython:** `PDBParser.get_structure()`, `structure.get_chains()`, `structure.get_residues()`; `chain.get_residues()`, `residue.get_atoms()`; `atom.coord`. Residue–residue distance = minimum over atom pairs of `np.linalg.norm(a1.coord - a2.coord)`.
-- **NumPy:** `np.linalg.norm` for distances.
-- **NetworkX:** `nx.Graph()`, `graph.add_node()`, `graph.add_edge()`; `nx.density(graph)`; `nx.is_connected(graph)`; `nx.average_shortest_path_length(graph)`, `nx.diameter(graph)`; `nx.average_clustering(graph)`; `nx.betweenness_centrality(graph)`, `nx.closeness_centrality(graph)`, `nx.degree_centrality(graph)`; `nx.connected_components(graph)`; `nx.algorithms.community.greedy_modularity_communities(residue_graph)`, `nx.algorithms.community.modularity(residue_graph, communities)`; `nx.erdos_renyi_graph(n, density)` for random graph.
-
-### 5.1 Residue and chain graphs
-
-**Reader-friendly formula**  
-The *residue graph* has one node per residue; an edge exists if the minimum distance between any atom of one residue and any atom of the other is ≤ contact_threshold (5 Å). The *chain graph* has one node per chain; an edge exists if at least one residue–residue contact exists between the two chains. *Graph density* = 2×|edges| / (n(n−1)). *Average degree* = mean of each node’s number of edges.
-
-**Mathematical definition**
-
-\text{density} = \frac{2|E|}{n(n-1)},\quad \text{averagedegree} = \frac{1}{n}\sum_i \deg(i)
-
-**Implementation (simplified):** Residue graph: one node per residue; edge between two residues if the minimum atom–atom distance between them is ≤ contact_threshold (5 Å). Chain graph: one node per chain; edge if at least one residue–residue contact between those chains. node_count = number of nodes; edge_count = number of edges. density = 2×edge_count / (n×(n−1)). average_degree = sum of degrees / n. Script: `nx.density(graph)`, etc.
-
-### 5.2 Shortest paths and diameter
-
-**Reader-friendly formula**  
-*Average path length* is the mean number of steps along the shortest path over all pairs of nodes (on the largest connected component if the graph is disconnected). *Diameter* is the maximum shortest-path length over those pairs.
-
-**Implementation (simplified):** For each pair of nodes, shortest path length = number of edges along the shortest path. average_path_length = mean of these (over pairs in the largest component if disconnected). diameter = maximum of these. Script: `nx.average_shortest_path_length()`, `nx.diameter()`.
-
-- **average_path_length:** Mean shortest-path length over all node pairs (or on largest connected component if graph disconnected).  
-- **diameter:** Maximum shortest-path length (or on largest component).  
-- **Script:** `nx.average_shortest_path_length()`, `nx.diameter()`.
-
-### 5.3 Clustering coefficient
-
-**Reader-friendly formula**  
-For each node, the *local clustering coefficient* is (number of triangles that include that node) / (number of possible triangles among its neighbors). The *average clustering coefficient* is the mean over all nodes.
-
-**Mathematical definition**
-
-C = \frac{1}{n}\sum_i C_i,\quad C_i = \frac{\text{number of triangles involving node } i}{\binom{\deg(i)}{2}}
-
-**Implementation (simplified):** For each node i, C_i = (number of triangles involving i) / (number of pairs of i's neighbors). Average clustering = mean of C_i over all nodes. Script: `nx.average_clustering(graph)`.
-
-### 5.4 Centrality (residue/chain graph)
-
-**Reader-friendly formula**  
-*Betweenness:* fraction of shortest paths between pairs of nodes that pass through this node. *Closeness:* inverse of the mean distance from this node to all others. *Degree centrality:* node degree / (n−1).
-
-**Implementation (simplified):** For each node: betweenness = (number of shortest paths that pass through this node) / (total number of shortest paths); closeness = 1 / (mean distance from this node to others); degree_centrality = degree / (n−1). Script reports max and mean over nodes: `nx.betweenness_centrality()`, `nx.closeness_centrality()`, `nx.degree_centrality()`.
-
-- **betweenness_centrality:** Fraction of shortest paths passing through each node.  
-- **closeness_centrality:** Inverse of mean distance from node to others.  
-- **degree_centrality:** degree(node) / (n−1).  
-- **Script:** `nx.betweenness_centrality()`, `nx.closeness_centrality()`, `nx.degree_centrality()`; reported as max and mean over nodes.
-
-### 5.5 Modularity and communities
-
-**Reader-friendly formula**  
-*Communities* are found by greedy modularity maximization (NetworkX). *Modularity* measures how much the edge density within communities exceeds that expected in a random graph with the same degrees.
-
-**Implementation (simplified):** Run greedy modularity maximization to partition nodes into communities. modularity = measure of how clustered the edges are within communities vs random. community_count = number of communities. Script: `nx.algorithms.community.greedy_modularity_communities(residue_graph)`, `nx.algorithms.community.modularity(residue_graph, communities)`.
-
-- Communities: `nx.algorithms.community.greedy_modularity_communities(residue_graph)`.  
-- **modularity:** `nx.algorithms.community.modularity(residue_graph, communities)`.  
-- **community_count:** Number of communities.
-
-### 5.6 Small-world coefficient
-
-**Reader-friendly formula**  
-A *small-world* graph has high clustering (like a regular lattice) but short average path length (like a random graph). The script builds an Erdős–Rényi random graph with the same number of nodes and same edge density, then computes: *clustering_ratio* = (clustering of residue graph) / (clustering of random graph); *path_length_ratio* = (avg path of residue graph) / (avg path of random graph). *Small-world coefficient* = clustering_ratio / path_length_ratio (0 if path_ratio = 0).
-
-**Mathematical definition**
-
-\text{smallworldcoefficient} = \frac{\text{clusteringratio}}{\text{pathlengthratio}} \quad (0 \text{ if } \text{pathlengthratio}=0).
-
-**Implementation (simplified):** Build a random graph (Erdős–Rényi) with the same number of nodes and same edge density. clustering_ratio = (clustering of residue graph) / (clustering of random graph). path_length_ratio = (average path length of residue graph) / (average path length of random graph). small_world_coefficient = clustering_ratio / path_length_ratio (0 if path_length_ratio = 0).
-
-- Build Erdős–Rényi random graph with same n and same edge density.  
-- **clustering_ratio:** `average_clustering(residue_graph) / average_clustering(random_graph)`.  
-- **path_length_ratio:** `average_shortest_path_length(residue_graph) / average_shortest_path_length(random_graph)`.
-
-**Derivation / references**
-
-- Graph-theoretic measures follow standard NetworkX and network-science definitions:
-  - M. E. J. Newman, *Networks: An Introduction* (Oxford University Press, 2010).
-- Small-world analysis mirrors the Watts–Strogatz framework, comparing real-graph clustering/path lengths to an Erdős–Rényi random graph:
-  - D. J. Watts & S. H. Strogatz, “Collective dynamics of ‘small-world’ networks”, *Nature* **393**, 440–442 (1998). DOI: `10.1038/30918`.
-- Community detection and modularity use greedy modularity maximization implemented in NetworkX; modularity is as defined by Newman–Girvan.
-
----
-
-## 6. comparative_analyzer.py
-
-**Function selection / usage**
-
-- Comparative metrics are computed in `comparative_analyzer.py` and operate on a combined table (DataFrame) of per-structure metrics.
-- You select them by:
-  - Running `comparative_analyzer.py` directly and pointing it to a metrics CSV/JSON, or
-  - Running the “comparative” step in `crystal_packing_analyzer.py`, which:
-    - Aggregates outputs from `packing_metrics`, `interface_analyzer`, `contact_analyzer`, `channel_analyzer`, and `graph_analyzer`.
-    - Passes the resulting DataFrame into summary, correlation, clustering, PCA, and outlier routines.
-
-Operates on a **DataFrame** of metrics (one row per structure) extracted from packing_metrics, interface_analysis, contact_analysis, and graph_analysis.
-
-**Libraries / functions used (comparative_analyzer)**
-
-- **pandas:** `pd.DataFrame(metrics_list)`, `df.select_dtypes(include=[np.number])` to get numeric columns.
-- **NumPy:** `np.mean`, `np.std`, `np.min`, `np.max`, `np.median` on column arrays; `np.corrcoef(col1, col2)[0, 1]` for Pearson correlation; `np.isnan`; `np.cumsum` for cumulative variance; `np.abs`, `np.where(z_scores > 2.5)[0]` for outliers.
-- **scikit-learn:** `StandardScaler().fit_transform(numeric_df)`; `KMeans(n_clusters=k, random_state=42, n_init=10).fit()`; `PCA(n_components=...).fit_transform()`; `pca.components`*, `pca.explained_variance_ratio`*.
-
-### 6.1 Summary statistics (per metric column)
-
-**Reader-friendly formula**  
-For each numeric metric column, the script computes the **mean**, **standard deviation**, **min**, **max**, and **median** over the structures (rows). These are the usual descriptive statistics.
-
-**Mathematical definition**
-
-For each numeric column x: \text{mean} = \bar{x},\quad \text{std} = \sigma_x,\quad \text{min},\ \text{max},\quad \text{median}
-
-**Implementation (simplified):** For each numeric column (one metric), take the values across all rows (structures). mean = average of values; std = standard deviation; min = smallest; max = largest; median = middle value. Script: `np.mean`, `np.std`, `np.min`, `np.max`, `np.median` on column values.
-
-### 6.2 Correlations
-
-**Reader-friendly formula**  
-*Pairwise Pearson correlation* between every pair of numeric metric columns: for each pair (i, j), the script computes the linear correlation coefficient between the two columns and stores it (e.g. as "metric1_vs_metric2": value).
-
-**Implementation (simplified):** For each pair of numeric columns (i < j), compute the Pearson correlation between the two lists of values. Store as e.g. "metric1_vs_metric2": correlation. Script: `np.corrcoef(col1, col2)[0, 1]`.
-
-- **Definition:** Pairwise Pearson correlation between metric columns.  
-- **Script:** For each pair of columns (i < j), `np.corrcoef(col1, col2)[0,1]`; stored as e.g. `"metric1_vs_metric2": corr`.
-
-### 6.3 Clustering (K-means)
-
-**Reader-friendly formula**  
-Data are standardized (zero mean, unit variance per column) with scikit-learn’s `StandardScaler`. The script tries K = 2 up to min(5, n_structures−1) and picks the K with the smallest K-means inertia (within-cluster sum of squared distances). It then reports optimal K, cluster label per structure, and inertia. Implemented with `KMeans(n_clusters=k, random_state=42, n_init=10)`.
-
-- Data standardized with `sklearn.preprocessing.StandardScaler`.  
-- K from 2 to min(5, n_structures−1); choose K with smallest K-means inertia.  
-- **Script:** `KMeans(n_clusters=k, random_state=42, n_init=10)`; report `optimal_clusters`, `cluster_assignments`, `inertia`.
-
-### 6.4 PCA
-
-**Reader-friendly formula**  
-The same standardized data are projected onto principal components. The script uses as many components as min(n_features, n_structures). It reports *explained variance ratio* per component, *cumulative variance* (cumsum of those), and the first two rows of `pca.components`_ as PC1 and PC2 loadings.
-
-**Implementation (simplified):** Use the same standardized numeric table. Fit PCA with n_components = min(n_features, n_structures). explained_variance_ratio = fraction of total variance per component; cumulative_variance = cumsum of those. PC1 and PC2 loadings = first two rows of pca.components_. Script: `sklearn.decomposition.PCA`, `np.cumsum`.
-
-- Same standardized data; PCA with `n_components = min(n_features, n_structures)`.  
-- **explained_variance_ratio:** Per-component.  
-- **cumulative_variance:** `np.cumsum(explained_variance_ratio)`.  
-- **pc1_loadings, pc2_loadings:** First two rows of `pca.components`_.
-
-### 6.5 Outliers
-
-**Reader-friendly formula**  
-For each metric column, a *z-score* is computed for each value: z = (x − mean) / std. Values with |z| > 2.5 are flagged as outliers. The script reports structure id, metric name, value, and z-score for each such case.
-
-**Mathematical definition:** For each metric, z = (x - \bar{x})/\sigma_x. Values with |z| > 2.5 are flagged as outliers.
-
-**Implementation (simplified):** For each numeric column, compute mean and std over the values. For each value x, z = (x − mean) / std. Flag as outlier if |z| > 2.5. Report structure id, metric name, value, z-score for each flagged value. Script: `z_scores = np.abs((values - np.mean(values)) / np.std(values))`; `np.where(z_scores > 2.5)[0]`.
-
-- **Definition:** For each metric, values with |z-score| > 2.5, where z = (x - mean)/std.  
-- **Script:** `z_scores = np.abs((values - np.mean(values)) / np.std(values))`; `outlier_indices = np.where(z_scores > 2.5)[0]`; report structure_id, metric, value, z_score.
-
-**Derivation / references**
-
-- Summary statistics, Pearson correlations, K-means clustering, and PCA follow standard definitions as implemented in NumPy/Scikit-learn.
-- The outlier threshold |z| > 2.5 is a common heuristic in exploratory data analysis, roughly corresponding to tail probabilities ≲ 1% for Gaussian-like distributions.
-
----
-
-## 7. crystal_packing_analyzer.py
-
-This script orchestrates the above: it runs packing_metrics, interface_analyzer, contact_analyzer, channel_analyzer, and graph_analyzer on each structure, then (optionally) runs comparative_analyzer on the combined results. It does not define new formulas; all metrics are as in §§1–6.
-
-**Function selection / usage**
-
-- When you run `crystal_packing_analyzer.py` from the command line, you choose:
-  - Which input structures (files or directories) to analyze.
-  - Optional flags that enable/disable particular stages (packing, interfaces, contacts, channels, graphs, comparative summary).
-- Internally, it:
-  - Iterates over structures and calls the appropriate per-structure analyzer functions from §§1–5.
-  - After all structures are processed, assembles a combined table and passes it to `comparative_analyzer.py` if requested.
-
----
-
-## 8. structure_phylogeny.py
+## 5. structure_phylogeny.py
 
 This script builds structure-based phylogenies from pairwise structural comparisons provided as an RMSD matrix (precomputed by your Coot LSQ/SSM pipeline, or optionally computed via `TM-align`).
 
@@ -796,7 +537,7 @@ It supports two related “distance matrix” modes for tree inference:
 1. Default: use RMSD directly as the distance.
 2. DALI-like “per-query pseudo Z-score” mode: convert RMSD to similarity, then to per-query z-scores, then to distances.
 
-### 8.1 Default mode: RMSD distance matrix
+### 5.1 Default mode: RMSD distance matrix
 
 **Mathematical definition**
 
@@ -812,14 +553,13 @@ D_{ij}, & i\neq j
 0, & i=j
 \end{cases}
 
-
 **Tree construction**
 
 The script feeds this distance matrix to neighbor-joining (NJ) when available (otherwise it uses an internal UPGMA fallback).
 
 ---
 
-### 8.2 DALI-like per-query pseudo Z-scores (RMSD -> distance)
+### 5.2 DALI-like per-query pseudo Z-scores (RMSD -> distance)
 
 This mode is activated by `structure_phylogeny.py --pseudo-z per_query`.
 
@@ -845,7 +585,6 @@ S_{ij}=
 \exp\left(-D_{ij}/\tau\right) & \text{(exp)}
 \end{cases}
 
-
 #### Step 2: per-query z-score standardization
 
 For each query `i`, compute the mean and population standard deviation over all `j != i`:
@@ -866,7 +605,6 @@ Then define the (asymmetric) query-centric z-score:
 \sigma_i=\sqrt{\frac{1}{m_i}\sum_{j\neq i}\left(S_{ij}-\mu_i\right)^2},\quad
 z_{ij}=\frac{S_{ij}-\mu_i}{\sigma_i}.
 
-
 #### Step 3: symmetrize the z-score matrix
 
 The code symmetrizes z-scores by averaging:
@@ -878,7 +616,6 @@ so the downstream distance matrix is symmetric.
 **LaTeX version**
 
 z^{\mathrm{sym}}*{ij}=\frac{z*{ij}+z_{ji}}{2}
-
 
 #### Step 4: z-score -> distance for tree inference (`--zdist`)
 
@@ -922,7 +659,6 @@ d_{ij}=
 \dfrac{z_{\max}-z^{+}*{ij}}{z*{\max}} & \text{(maxminus)}
 \end{cases}
 
-
 #### Query-centric ranking (optional)
 
 When `--ranking-csv` is provided, the script also writes a ranking table per structure `i` computed from the *asymmetric* z-scores `z_ij` (before symmetrization):
@@ -938,8 +674,7 @@ and ranks by descending `(avg_z_i, max_z_i)`.
 \bar{z}*i=\frac{1}{m_i}\sum*{j\neq i} z_{ij},\qquad
 z^{\max}*i=\max*{j\neq i} z_{ij}.
 
-
-### 8.3 Derivation / references (why these formulas)
+### 5.3 Derivation / references (why these formulas)
 
 - The DALI query-centric Z-score framework is rooted in Holm & Sander’s distance-matrix alignment framework:
   - Holm, L.; Sander, C. *Protein structure comparison by alignment of distance matrices.* *J. Mol. Biol.* (1993). DOI: `10.1006/jmbi.1993.1489`
@@ -951,7 +686,7 @@ z^{\max}*i=\max*{j\neq i} z_{ij}.
 
 ---
 
-## 9. dali_score.py
+## 6. dali_score.py
 
 **Function selection / usage**
 
@@ -966,14 +701,14 @@ z^{\max}*i=\max*{j\neq i} z_{ij}.
 - **NumPy:** `np.linalg.norm`, `np.exp`, `np.atleast_1d`; distance matrices for pairwise Cα–Cα distances.
 - **biotite (optional):** `PDBFile.read()`, `atom_array[atom_array.atom_name == 'CA']`, `superimpose_structural_homologs()` returning `fixed_indices`, `mobile_indices` for residue equivalences.
 
-### 9.1 Raw Dali score
+### 6.1 Raw Dali score
 
 **Reader-friendly formula**  
 The *raw Dali score* measures structural similarity by comparing intramolecular Cα–Cα distances between two structures. For each pair of equivalent residues (i, j) in the aligned core, compute the distance between residues i and j within structure A and within structure B. The score φ(i,j) rewards similar distances and penalizes deviations; an envelope downweights long-range pairs. The total score is the sum over all residue pairs in the core.
 
 **Mathematical definition**
 
-S(A,B) = ∑_{i ∈ core} ∑_{j ∈ core} φ(i,j)
+S(A,B) = ∑*{i ∈ core} ∑*{j ∈ core} φ(i,j)
 
 where
 
@@ -985,7 +720,7 @@ Only terms with φ > 0 contribute. d_{ij}^A and d_{ij}^B are intramolecular Cα�
 
 **Implementation (simplified):** For each pair (i,j) in the core, compute d_{ij}^A and d_{ij}^B from CA coordinates. d* = (d_A + d_B)/2; diff = |d_A − d_B|/d*; φ = max(0, (0.2 − diff) × exp(−(d*/20)²)). Sum all φ. Script: `compute_dali_score()`, `_residue_pair_score()`.
 
-### 9.2 Z-score
+### 6.2 Z-score
 
 **Reader-friendly formula**  
 The *Z-score* normalizes the raw score for protein length so that scores are comparable across pairs of different sizes. It uses empirically fitted mean m(L) and standard deviation σ(L) for random structure pairs of effective length L = √(L_A × L_B).
@@ -1004,38 +739,38 @@ m(L) = m(400) + (L − 400)   for L > 400
 
 **Implementation (simplified):** L = sqrt(L_A * L_B); m = polynomial or linear extrapolation; σ = 0.5*m; Z = (S − m) / σ. Script: `compute_z_score()`, `_mean_score_fit()`, `_std_score_fit()`.
 
-### 9.3 DaliLite integration
+### 6.3 DaliLite integration
 
-When **DaliLite** is available (user specifies its installation directory), it is used as the primary alignment source. In this repository, **`dali_score.py` does not rely on bare `dali.pl --pdbfile1/--pdbfile2`** (which often yields empty internal data). It uses the same pattern as DaliLite v5 batch workflows:
+When **DaliLite** is available (user specifies its installation directory), it is used as the primary alignment source. In this repository, `**dali_score.py` does not rely on bare `dali.pl --pdbfile1/--pdbfile2`** (which often yields empty internal data). It uses the same pattern as DaliLite v5 batch workflows:
 
 1. **Short working directory:** comparisons run under a short temporary directory (typically a randomly named subdirectory of the system temp folder; DaliLite Fortran binaries enforce a maximum path length of about 80 characters).
 2. **Staging:** PDB/mmCIF inputs may be copied or rewritten; PDB files without a `HEADER` record can get a dummy `HEADER` so `mkdssp` treats them as PDB, not mmCIF (`_stage_pdb_for_dalilite_import`).
-3. **`import.pl`** builds `DAT/*.dat` per structure: `import.pl --pdbfile … --pdbid xxxx --dat DAT/`.
-4. **`dali.pl`** pairwise comparison: `dali.pl --cd1 xxxxX --cd2 yyyyY --dat1 DAT` (with `--outfmt` for summary, equivalences, transrot as needed).
+3. `**import.pl`** builds `DAT/*.dat` per structure: `import.pl --pdbfile … --pdbid xxxx --dat DAT/`.
+4. `**dali.pl**` pairwise comparison: `dali.pl --cd1 xxxxX --cd2 yyyyY --dat1 DAT` (with `--outfmt` for summary, equivalences, transrot as needed).
 
-The script parses **`dali.pl` text output** for:
+The script parses `**dali.pl` text output** for:
 
 - **Z-score** (canonical Dali Z-score, used in preference to the empirical fit)
 - **RMSD** of structurally equivalent Cα atoms where reported
 - **Residue equivalences** from the structural equivalences block
 
-**Configuration:** set `--dalilite-path` or **`DALILITE_HOME`** to the DaliLite installation root (directory containing `bin/dali.pl`).
+**Configuration:** set `--dalilite-path` or `**DALILITE_HOME`** to the DaliLite installation root (directory containing `bin/dali.pl`).
 
-**mkdssp (required for `import.pl`):** DaliLite calls **`mkdssp`** using the path in **`bin/mpidali.pm`** (`$DSSP_EXE`; upstream defaults often use `/usr/local/bin/mkdssp`). That file must exist and be executable—otherwise `DAT/*.dat` can be empty and comparisons fail silently. Fix by installing a compatible **`mkdssp`**, symlinking it to the path in `mpidali.pm`, or editing `$DSSP_EXE`. Perl modules under `bin/` (e.g. `FSSP.pm`) must be readable by the user. Optionally set **`MKDSSP`** to the full path of `mkdssp` so this script’s diagnostics match your install.
+**mkdssp (required for `import.pl`):** DaliLite calls `**mkdssp`** using the path in `**bin/mpidali.pm**` (`$DSSP_EXE`; upstream defaults often use `/usr/local/bin/mkdssp`). That file must exist and be executable—otherwise `DAT/*.dat` can be empty and comparisons fail silently. Fix by installing a compatible `**mkdssp**`, symlinking it to the path in `mpidali.pm`, or editing `$DSSP_EXE`. Perl modules under `bin/` (e.g. `FSSP.pm`) must be readable by the user. Optionally set `**MKDSSP**` to the full path of `mkdssp` so this script’s diagnostics match your install.
 
 **Manual all-vs-all** (outside `dali_score.py`): batch-`import.pl` for each model into a shared `DAT/`, build `query.list` of five-character ids (`xxxxX` per `DAT/*.dat`), then `dali.pl --matrix --query query.list --dat1 DAT` from a short working directory path.
 
-### 9.3.1 dalilite_superpose_scores.py
+### 6.3.1 dalilite_superpose_scores.py
 
-**`dalilite_superpose_scores.py`** runs the DaliLite pairwise path via `dali_score._dalilite_pair_via_dat`, then applies **translation–rotation** from `--outfmt transrot` to write a superposed target PDB (BioPython). It supports **all-vs-all**, CSV scores, Z-matrix, and Newick tree output.
+`**dalilite_superpose_scores.py`** runs the DaliLite pairwise path via `dali_score._dalilite_pair_via_dat`, then applies **translation–rotation** from `--outfmt transrot` to write a superposed target PDB (BioPython). It supports **all-vs-all**, CSV scores, Z-matrix, and Newick tree output.
 
-Requirements and environment variables match **`dali_score.py`** (DaliLite path, mkdssp as above). Use **`--fallback-biotite`** when DaliLite reports no significant hit (often below Dali’s usual reporting threshold, Z ~ 2) but a structural alignment is still desired.
+Requirements and environment variables match `**dali_score.py`** (DaliLite path, mkdssp as above). Use `**--fallback-biotite**` when DaliLite reports no significant hit (often below Dali’s usual reporting threshold, Z ~ 2) but a structural alignment is still desired.
 
-### 9.3.2 run_all_superpositions.py (Coot LSQ batch)
+### 6.3.2 run_all_superpositions.py (Coot LSQ batch)
 
-**`run_all_superpositions.py`** is a small driver that loops over **condition** subdirectories (e.g. `condition_1`) and **tags** (same idea as `--filter=set_a` in the Coot LSQ/SSM scripts), calling **`superimpose_coot_LSQ.py`** with **`--pattern`**, **`--divider=LSQ_`**, per-tag reference globs, and **`CONDITION_PREFIX`**-derived filename tokens. Defaults such as **`REFERENCE_SUBDIR`** and **`REFERENCE_STEM`** are documented in the script and in the main **`README.md`** (superposition section).
+`**run_all_superpositions.py**` is a small driver that loops over **condition** subdirectories (e.g. `condition_1`) and **tags** (same idea as `--filter=set_a` in the Coot LSQ/SSM scripts), calling `**superimpose_coot_LSQ.py`** with `**--pattern**`, `**--divider=LSQ_**`, per-tag reference globs, and `**CONDITION_PREFIX**`-derived filename tokens. Defaults such as `**REFERENCE_SUBDIR**` and `**REFERENCE_STEM**` are documented in the script and in the main `**README.md**` (superposition section).
 
-### 9.4 All-vs-all and tree output
+### 6.4 All-vs-all and tree output
 
 When `--all-vs-all` is used with one or more directories or PDB/CIF files, the script compares every pair of structures, collects Z-scores, and optionally generates:
 
@@ -1049,15 +784,17 @@ When `--all-vs-all` is used with one or more directories or PDB/CIF files, the s
 
 **Filtering:** `--filter` limits which files are included: plain text matches as a substring on the basename; patterns with `*`, `?`, or `[` use `fnmatch` on basename or stem (see `_collect_pdb_files` in `dali_score.py`).
 
-### 9.5 Residue equivalences
+### 6.5 Residue equivalences
 
 **Alignment file format (optional):** TSV or CSV with either:
+
 - Two columns: `resnum_A`, `resnum_B` (for single chain per structure)
 - Four columns: `chain_A`, `resnum_A`, `chain_B`, `resnum_B`
 
 Lines starting with `#` are comments. Header row is auto-skipped.
 
 **Automatic alignment:** When no alignment file is provided:
+
 1. **biotite** (if installed): `superimpose_structural_homologs()` returns fixed/mobile indices of equivalent CA atoms; mapped to (chain, resseq, icode).
 2. **sequence-order:** For structures sharing residue numbering (e.g. same chain IDs and residue numbers), use 1:1 correspondence by (chain, resseq).
 
@@ -1076,19 +813,16 @@ Lines starting with `#` are comments. Header row is auto-skipped.
 | ------------------------------------ | ----------------------------------------------------- | ------------------------------- |
 | interface_analyzer                   | contact_distance                                      | 5.0 Å                           |
 | contact_analyzer                     | contact_distance                                      | 4.5 Å                           |
-| channel_analyzer                     | probe_radius                                          | 1.4 Å                           |
-| channel_analyzer                     | minimum channel radius (bottlenecks < this discarded) | 5.0 Å                           |
-| graph_analyzer                       | contact_threshold                                     | 5.0 Å                           |
 | packing_metrics                      | protein density (for solvent)                         | 0.81 Da/Å³                      |
 | interface_analyzer                   | BSA (fallback when SASA unavailable)                  | 15 Å² per contact atom          |
 | contact_analyzer                     | surface neighbor cutoff                               | 5.0 Å; < 12 neighbors → surface |
 | contact_analyzer                     | estimated area per contact                            | 4 Å²                            |
 | contact_analyzer                     | avg atomic volume (packing)                           | 20 Å³                           |
-| comparative_analyzer                 | outlier z-score threshold                             | 2.5                             |
 | interface_analyzer, contact_analyzer | H-bond max distance                                   | 3.5 Å                           |
 | interface_analyzer, contact_analyzer | Electrostatic max distance                            | 5.0 Å                           |
 | interface_analyzer, contact_analyzer | Hydrophobic range                                     | 3.5–4.5 Å                       |
 | interface_analyzer, contact_analyzer | Van der Waals max distance                            | 5.0 Å                           |
+
 
 ---
 
@@ -1101,5 +835,4 @@ Lines starting with `#` are comments. Header row is auto-skipped.
 - **Saitou, N.; Nei, M.** (1987). The neighbor-joining method: a new method for reconstructing phylogenetic trees. *Mol. Biol. Evol.* **4**, 406–425. DOI: [10.1093/oxfordjournals.molbev.a040454](https://doi.org/10.1093/oxfordjournals.molbev.a040454)
 - **Matthews, B.W.** (1968). Solvent content of protein crystals. *J. Mol. Biol.* **33**, 491–497. DOI: [10.1016/0022-2836(68)90205-2](https://doi.org/10.1016/0022-2836(68)90205-2)
 - **Shrake, A.; Rupley, J.A.** (1973). Environment and exposure to solvent of protein atoms. *J. Mol. Biol.* **79**, 351–371. DOI: [10.1016/0022-2836(73)90011-9](https://doi.org/10.1016/0022-2836(73)90011-9)
-
 

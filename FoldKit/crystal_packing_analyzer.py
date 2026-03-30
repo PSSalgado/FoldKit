@@ -61,30 +61,6 @@ except ImportError:
     print("Warning: contact_analyzer module not available")
     ContactAnalyzer = None
 
-try:
-    from channel_analyzer import ChannelAnalyzer
-except ImportError:
-    print("Warning: channel_analyzer module not available")
-    ChannelAnalyzer = None
-
-try:
-    from graph_analyzer import GraphAnalyzer
-except ImportError:
-    print("Warning: graph_analyzer module not available")
-    GraphAnalyzer = None
-
-try:
-    from comparative_analyzer import ComparativeAnalyzer
-except ImportError:
-    print("Warning: comparative_analyzer module not available")
-    ComparativeAnalyzer = None
-
-try:
-    from visualization import PackingVisualizer
-except ImportError:
-    print("Warning: visualization module not available")
-    PackingVisualizer = None
-
 class CrystalPackingAnalyzer:
     """Main class for crystal packing analysis pipeline."""
     
@@ -97,10 +73,6 @@ class CrystalPackingAnalyzer:
         self.packing_calc = PackingMetricsCalculator() if PackingMetricsCalculator else None
         self.interface_analyzer = InterfaceAnalyzer() if InterfaceAnalyzer else None
         self.contact_analyzer = ContactAnalyzer() if ContactAnalyzer else None
-        self.channel_analyzer = ChannelAnalyzer() if ChannelAnalyzer else None
-        self.graph_analyzer = GraphAnalyzer() if GraphAnalyzer else None
-        self.comparative_analyzer = ComparativeAnalyzer() if ComparativeAnalyzer else None
-        self.visualizer = PackingVisualizer() if PackingVisualizer else None
         
         self.results = {}
         
@@ -109,10 +81,6 @@ class CrystalPackingAnalyzer:
         if self.packing_calc: available.append("packing_metrics")
         if self.interface_analyzer: available.append("interface_analyzer")
         if self.contact_analyzer: available.append("contact_analyzer")
-        if self.channel_analyzer: available.append("channel_analyzer")
-        if self.graph_analyzer: available.append("graph_analyzer")
-        if self.comparative_analyzer: available.append("comparative_analyzer")
-        if self.visualizer: available.append("visualization")
         
         print(f"Available analyzers: {', '.join(available) if available else 'None'}")
     
@@ -169,24 +137,6 @@ class CrystalPackingAnalyzer:
                 print("  - Skipping contact analysis (module not available)")
                 results['contact_analysis'] = {'error': 'contact_analyzer module not available'}
             
-            # Phase 4: Solvent channel analysis
-            if self.channel_analyzer:
-                print("  - Analyzing solvent channels...")
-                channel_data = self.channel_analyzer.analyze_channels(pdb_file)
-                results['channel_analysis'] = channel_data
-            else:
-                print("  - Skipping channel analysis (module not available)")
-                results['channel_analysis'] = {'error': 'channel_analyzer module not available'}
-            
-            # Phase 5: Graph-theoretical analysis
-            if self.graph_analyzer:
-                print("  - Performing graph analysis...")
-                graph_data = self.graph_analyzer.analyze_packing_graph(pdb_file)
-                results['graph_analysis'] = graph_data
-            else:
-                print("  - Skipping graph analysis (module not available)")
-                results['graph_analysis'] = {'error': 'graph_analyzer module not available'}
-            
             # Save individual results
             self._save_single_results(results, structure_id)
             
@@ -198,44 +148,29 @@ class CrystalPackingAnalyzer:
     
     def compare_structures(self, structure_results):
         """
-        Compare multiple crystal structures.
-        
-        Parameters:
-        -----------
+        Write all per-structure results into one JSON file (batch export).
+
+        Parameters
+        ----------
         structure_results : list
-            List of individual structure analysis results
-            
-        Returns:
-        --------
-        dict : Comparative analysis results
+            List of dicts from ``analyze_single_structure``.
+
+        Returns
+        -------
+        dict
+            ``{'n_structures': n, 'structures': structure_results}`` (JSON-serializable).
         """
-        if not self.comparative_analyzer:
-            print("Warning: Comparative analyzer not available - cannot perform comparison")
-            return {
-                'error': 'comparative_analyzer module not available',
-                'individual_results': structure_results
-            }
-        
-        print(f"Comparing {len(structure_results)} structures...")
-        
-        # Perform comparative analysis
-        comparison_results = self.comparative_analyzer.compare_structures(structure_results)
-        
-        # Generate visualizations if available
-        if self.visualizer and 'comparison_plots' in self.output_dir.name:
-            plot_dir = self.output_dir / "comparison_plots"
-            self.visualizer.create_comparison_plots(comparison_results, plot_dir)
-        elif not self.visualizer:
-            print("Warning: Visualization module not available - skipping plot generation")
-        
-        # Save comparison results
-        comparison_file = self.output_dir / "comparison_results.json"
-        with open(comparison_file, 'w') as f:
-            # Handle numpy arrays in JSON serialization
-            import json
-            json.dump(comparison_results, f, indent=2, default=str)
-        
-        return comparison_results
+        import json
+
+        combined = {
+            'n_structures': len(structure_results),
+            'structures': structure_results,
+        }
+        out_path = self.output_dir / 'batch_analysis_results.json'
+        with open(out_path, 'w') as f:
+            json.dump(self._make_serializable(combined), f, indent=2, default=str)
+        print(f"Wrote combined results for {len(structure_results)} structure(s) to {out_path}")
+        return combined
     
     def _save_single_results(self, results, structure_id):
         """Save results for a single structure."""
@@ -261,40 +196,6 @@ class CrystalPackingAnalyzer:
         else:
             return obj
     
-    def _generate_comparison_report(self, comparison_results):
-        """Generate a comprehensive comparison report."""
-        report_file = self.output_dir / "comparison_report.txt"
-        
-        with open(report_file, 'w') as f:
-            f.write("CRYSTAL PACKING COMPARISON REPORT\n")
-            f.write("=" * 50 + "\n\n")
-            
-            # Summary statistics
-            if 'summary_stats' in comparison_results:
-                f.write("SUMMARY STATISTICS\n")
-                f.write("-" * 20 + "\n")
-                for metric, stats in comparison_results['summary_stats'].items():
-                    f.write(f"{metric}:\n")
-                    f.write(f"  Mean: {stats.get('mean', 'N/A'):.3f}\n")
-                    f.write(f"  Std:  {stats.get('std', 'N/A'):.3f}\n")
-                    f.write(f"  Range: {stats.get('min', 'N/A'):.3f} - {stats.get('max', 'N/A'):.3f}\n\n")
-            
-            # Correlation analysis
-            if 'correlations' in comparison_results:
-                f.write("CORRELATION ANALYSIS\n")
-                f.write("-" * 20 + "\n")
-                for pair, corr in comparison_results['correlations'].items():
-                    f.write(f"{pair}: {corr:.3f}\n")
-                f.write("\n")
-            
-            # Principal component analysis
-            if 'pca_results' in comparison_results:
-                f.write("PRINCIPAL COMPONENT ANALYSIS\n")
-                f.write("-" * 30 + "\n")
-                pca = comparison_results['pca_results']
-                f.write(f"Explained variance ratio: {pca.get('explained_variance_ratio', [])}\n")
-                f.write(f"Cumulative variance: {pca.get('cumulative_variance', [])}\n\n")
-
 def main():
     """Main function for command-line interface."""
     parser = argparse.ArgumentParser(
@@ -308,7 +209,7 @@ Examples:
   # Analyze all PDBs in a directory
   python crystal_packing_analyzer.py --input models/
 
-  # Compare multiple structures (files, directory, or glob)
+  # Combine per-structure JSON into one file (batch export)
   python crystal_packing_analyzer.py --input *.pdb --compare
 
   # Filter by set(s): one output dir per set (use {} in --output)
@@ -348,7 +249,7 @@ Examples:
     parser.add_argument(
         '--compare', '-c',
         action='store_true',
-        help='Perform comparative analysis if multiple structures provided'
+        help='After processing, write batch_analysis_results.json (all structures in one file)'
     )
 
     parser.add_argument(
@@ -426,7 +327,7 @@ Examples:
             result = analyzer.analyze_single_structure(pdb_file)
             all_results.append(result)
 
-        if args.compare and len(all_results) > 1:
+        if args.compare and all_results:
             analyzer.compare_structures(all_results)
 
         print(f"\nSet {label!r} complete. Results saved to: {out_dir}")

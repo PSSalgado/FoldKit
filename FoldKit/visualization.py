@@ -54,7 +54,7 @@ theme_set(theme_minimal() + theme(
         Parameters:
         -----------
         comparison_results : dict
-            Results from comparative analysis
+            Summary dict with keys such as ``summary_stats``, ``correlations``, ``pca_results``, ``clustering`` (your pipeline must build this shape).
         output_dir : Path or str
             Directory to save R scripts and data
         """

@@ -18,9 +18,7 @@ def main():
     print("• Packing density metrics (Matthews coefficient, solvent content)")
     print("• Interface analysis (buried surface area, contacts)")
     print("• Crystal contact analysis")
-    print("• Solvent channel analysis")
-    print("• Graph-theoretical analysis")
-    print("• Comparative statistics and visualization")
+    print("• Optional batch JSON (--compare)")
     
     print("\n" + "="*50)
     print("USAGE EXAMPLES:")
@@ -29,7 +27,7 @@ def main():
     print("\n1. Analyze a single structure:")
     print("   python crystal_packing_analyzer.py --input model_01.pdb")
     
-    print("\n2. Compare multiple structures:")
+    print("\n2. Combine outputs from multiple structures:")
     print("   python crystal_packing_analyzer.py --input *.pdb --compare")
     
     print("\n3. Specify output directory:")
@@ -39,9 +37,7 @@ def main():
     print("   python packing_metrics.py model_01.pdb")
     print("   python interface_analyzer.py model_01.pdb")
     
-    print("\n5. Generate R visualizations:")
-    print("   cd comparison_plots/")
-    print("   Rscript master_visualization.R")
+    print("\n5. Optional: use visualization.py from Python for R script generation")
     
     print("\n" + "="*50)
     print("INSTALLATION:")
@@ -52,9 +48,7 @@ def main():
     print("\n2. Required packages:")
     print("   • numpy, pandas, scipy")
     print("   • biopython")
-    print("   • scikit-learn")
-    print("   • networkx")
-    print("   • R (for visualization)")
+    print("   • R (optional; for visualization.py)")
     print("   • R packages: ggplot2, viridis, pheatmap, etc.")
     
     print("\n" + "="*50)
@@ -66,10 +60,7 @@ def main():
         "packing_metrics.py - Basic packing calculations",
         "interface_analyzer.py - Interface analysis",
         "contact_analyzer.py - Crystal contact analysis",
-        "channel_analyzer.py - Solvent channel analysis",
-        "graph_analyzer.py - Graph-theoretical analysis",
-        "comparative_analyzer.py - Multi-structure comparison",
-        "visualization.py - Plotting and visualization",
+        "visualization.py - Optional R plotting helpers",
         "requirements.txt - Required Python packages",
         "README.md - Comprehensive documentation"
     ]
@@ -87,7 +78,7 @@ def main():
     print("\n1. Install dependencies: pip install -r requirements.txt")
     print("2. Install R from https://www.r-project.org/")
     print("3. Test with your PDB files")
-    print("4. Generate R visualizations for publication-quality plots")
+    print("4. Optionally use visualization.py if you need R-generated plots")
     print("5. Check README.md for detailed documentation")
     print("6. Customize analysis parameters as needed")
     
