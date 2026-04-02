@@ -442,11 +442,17 @@ def main():
         epilog="""Examples:
   python contact_analyzer.py model_01.pdb
   python contact_analyzer.py dir/
-  python contact_analyzer.py *.pdb -o results.txt
+  python contact_analyzer.py *.pdb -o contact_results.txt
   python contact_analyzer.py *.pdb --set set_a,set_b -o by_set.txt
-  python contact_analyzer.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
+  python contact_analyzer.py *.pdb --sets set_a set_b set_c -o "contact_{}.txt"
   python contact_analyzer.py *.pdb --per-structure -o "{}_contact.txt"
-  python contact_analyzer.py *.pdb --sets set_a set_b -o results.txt --dry-run
+  python contact_analyzer.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
+  python contact_analyzer.py *.pdb --sets set_a set_b -o contact_results.txt --dry-run
+
+Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
+  python contact_molecule_report_csv.py contact_results.txt -m A -m B -o contacts_AB.csv
+  python contact_molecule_report_csv.py contact_results.txt --pdbs model_01.pdb --chains A,B --output-dir ./out
+  python contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb -m A -o model_01_contacts.csv
 """,
     )
     parser.add_argument('input', nargs='+', help='PDB/CIF file(s), directory, or glob pattern (e.g. *.pdb)')

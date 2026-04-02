@@ -4,7 +4,7 @@
 
 All scripts live under `FoldKit/`. From the repository root run `python FoldKit/script_name.py` (or `Rscript FoldKit/...` where noted).
 
-**Example naming (this file, `FoldKit/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged text report from tools such as `interface_analyzer.py -o` or `packing_metrics.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders.
+**Example naming (this file, `FoldKit/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged text report from `interface_analyzer.py -o` or `packing_metrics.py -o`; `contact_results.txt` denotes a merged report from `contact_analyzer.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders.
 
 ## Contents
 
@@ -593,6 +593,16 @@ python FoldKit/contact_analyzer.py *.pdb --per-structure --sets set_a set_b -o "
 ```
 
 Options: same as `interface_analyzer.py`
+
+#### `contact_molecule_report_csv.py`
+
+Filter a `contact_analyzer.py` text report into CSV rows (one per atom–atom contact). Columns include `chain1`, `chain2`, `res1`, `atom1`, `res2`, `atom2`, `distance_A`, `contact_type`, plus `set_label` and `structure_basename`. Same filtering and merge options as `interface_molecule_report_csv.py` (`--pdb`, `--pdbs`, `-m`, `--chains`, `-o`, `--output-dir`, `--combine-regex`, `--combine-glob`). For `*_asu_contacts.txt` sidecars (no progress lines in file), use `--structure-basename model_01.pdb` or rely on the filename heuristic (`…_<stem>_asu_contacts.txt`).
+
+```bash
+python FoldKit/contact_molecule_report_csv.py contact_results.txt -m A -m B --output-dir ./out
+python FoldKit/contact_molecule_report_csv.py contact_results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
+python FoldKit/contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb --chains A,B -o model_01_contacts.csv
+```
 
 #### `visualization.py`
 

@@ -34,6 +34,7 @@ import argparse
 import csv
 import fnmatch
 import glob
+import io
 import os
 import shutil
 import re
@@ -53,13 +54,19 @@ except ImportError:
     np = None
 
 try:
+    from Bio.PDB.MMCIFParser import MMCIFParser
+    from Bio.PDB.PDBIO import PDBIO, Select
     from Bio.PDB.PDBParser import PDBParser
-    from Bio.PDB.PDBExceptions import PDBConstructionWarning
+    from Bio.PDB.PDBExceptions import PDBConstructionWarning, PDBIOException
     warnings.simplefilter('ignore', PDBConstructionWarning)
     BIOPYTHON_AVAILABLE = True
 except ImportError:
+    MMCIFParser = None  # type: ignore[misc, assignment]
+    PDBIO = None  # type: ignore[misc, assignment]
+    Select = None  # type: ignore[misc, assignment]
     PDBParser = None
     PDBConstructionWarning = None
+    PDBIOException = None  # type: ignore[misc, assignment]
     BIOPYTHON_AVAILABLE = False
 
 try:
@@ -423,8 +430,12 @@ def _stage_pdb_for_dalilite_import(src_path: str, dest_base: str) -> str:
     """
     Copy or rewrite structure into dest_base + extension for DaliLite import.
 
+    Many DaliLite ``import.pl`` builds accept only PDB (they skip ``*.cif`` with
+    "not a PDB file"). mmCIF inputs are converted to PDB with a HEADER line when
+    BioPython is available; otherwise they are copied as-is (may fail import).
+
     mkdssp (inside import.pl) treats files without a PDB HEADER as mmCIF; prepend
-    HEADER when needed. mmCIF is copied as-is.
+    HEADER when needed for plain coordinate PDBs.
     """
     ext = os.path.splitext(src_path)[1].lower()
     if ext not in ('.cif', '.mmcif', '.mcif', '.pdb', '.ent', ''):
@@ -434,6 +445,43 @@ def _stage_pdb_for_dalilite_import(src_path: str, dest_base: str) -> str:
     dest = dest_base + ext
 
     if ext in ('.cif', '.mmcif', '.mcif'):
+        dest_pdb = dest_base + '.pdb'
+        if BIOPYTHON_AVAILABLE and MMCIFParser is not None and PDBIO is not None:
+            try:
+                parser = MMCIFParser(QUIET=True)
+                structure = parser.get_structure('stg', src_path)
+                models = list(structure.get_models())
+                if not models:
+                    raise ValueError('no models in mmCIF')
+                first_model_id = models[0].id
+
+                class _FirstModelOnly(Select):
+                    def accept_model(self, model):
+                        return 1 if model.id == first_model_id else 0
+
+                buf = io.StringIO()
+                pdb_out = PDBIO()
+                # PDBIO.set_structure accepts Structure, Model, Chain, …; pass
+                # Structure and restrict save() to the first model (same as only
+                # writing structure[0] for multi-model mmCIF).
+                pdb_out.set_structure(structure)
+                pdb_out.save(buf, select=_FirstModelOnly())
+                header = (
+                    'HEADER    STRUCTURE FOR DALILITE/DSSP                      '
+                    '01-JAN-00   UNKN\n'
+                )
+                with open(dest_pdb, 'w', encoding='ascii', errors='replace') as fout:
+                    fout.write(header)
+                    fout.write(buf.getvalue())
+                return dest_pdb
+            except (
+                OSError,
+                ValueError,
+                KeyError,
+                IndexError,
+                PDBIOException,
+            ):
+                pass
         try:
             shutil.copy2(src_path, dest)
         except OSError:
