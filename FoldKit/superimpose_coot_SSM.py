@@ -1,9 +1,12 @@
+import hashlib
 import os
 import sys
 from subprocess import Popen, PIPE, STDOUT
 import glob
 import re
 import fnmatch
+
+from superimpose_pattern_match import find_ref_model_matches
 
 def sanitize_pattern_for_filename(pattern):
     """Make a filter pattern safe for use in log/rmsd filenames."""
@@ -27,8 +30,45 @@ def expand_output_dir_pattern(template, ref_name=None, filter_pattern=None):
         s = s.replace("*filter*", pat)
     return s
 
+
+def _announce_superposition_finished(log_file, exit_code, summary=""):
+    """
+    Print a clear completion line to the terminal. While Coot runs, stdout/stderr
+    are only copied to the log file, so users otherwise see no progress until the end.
+    """
+    print(flush=True)
+    print("=" * 72, flush=True)
+    if exit_code == 0:
+        print(
+            "Finished: all superpositions for this run are complete (Coot exit code 0).",
+            flush=True,
+        )
+    else:
+        print(
+            "Coot process ended (exit code {}). Check the log if outputs look wrong.".format(
+                exit_code
+            ),
+            flush=True,
+        )
+    if summary:
+        print(summary, flush=True)
+    print("Log: {}".format(log_file), flush=True)
+    print("=" * 72, flush=True)
+
+
 # Function to create Coot script for SSM superposition
-def create_coot_script(reference_file, model_files, output_dir):
+def create_coot_script(
+    reference_file,
+    model_files,
+    output_dir,
+    keep_coot_open=True,
+    aligned_tag="_SSMaligned2_",
+):
+    """One-to-many SSM. If keep_coot_open is False, skip reload-for-display and exit Coot.
+
+    aligned_tag: substring between model basename and reference basename in output PDB names
+    (default _SSMaligned2_; use _SSMaligned_ for --pattern mode, matching LSQ pattern naming).
+    """
     script_content = """
 import os
 import sys
@@ -43,6 +83,7 @@ set_show_symmetry_master(0)
 reference_mol = read_pdb("{0}")
 reference_chain = chain_ids(reference_mol)[0]
 ref_name = os.path.splitext(os.path.basename("{0}"))[0]
+graphics_to_ca_representation(reference_mol)
 
 # Create output directory if it doesn't exist
 if not os.path.exists("{1}"):
@@ -53,7 +94,10 @@ for model_path in {2}:
     # Load model
     model_mol = read_pdb(model_path)
     model_chain = chain_ids(model_mol)[0]
-    
+    model_name = os.path.splitext(os.path.basename(model_path))[0]
+    print("Superposing " + model_name + " onto " + ref_name)
+    graphics_to_ca_representation(model_mol)
+
     try:
         # Use SSM superposition (1 for SSM mode)
         superpose_with_atom_selection(reference_mol, model_mol, 
@@ -66,8 +110,7 @@ for model_path in {2}:
         continue
     
     # Create output name with new format
-    model_name = os.path.splitext(os.path.basename(model_path))[0]
-    output_name = os.path.join("{1}", model_name + "_SSMaligned2_" + ref_name + ".pdb")
+    output_name = os.path.join("{1}", model_name + "__ALIGNED_TAG__" + ref_name + ".pdb")
     
     # Save aligned structure
     write_pdb_file(model_mol, output_name)
@@ -76,6 +119,9 @@ for model_path in {2}:
 for i in range(graphics_n_molecules()):
     close_molecule(i)
 
+__POST_CLOSE__
+"""
+    post_open = """
 # Start new Coot window with reference structure
 handle_read_draw_molecule_with_recentre("{0}", 0)
 ref_mol = graphics_n_molecules() - 1
@@ -85,7 +131,7 @@ graphics_to_ca_representation(int(ref_mol))
 # Load and display all aligned structures
 for model_path in {2}:
     model_name = os.path.splitext(os.path.basename(model_path))[0]
-    aligned_path = os.path.join("{1}", model_name + "_SSMaligned2_" + ref_name + ".pdb")
+    aligned_path = os.path.join("{1}", model_name + "__ALIGNED_TAG__" + ref_name + ".pdb")
     handle_read_draw_molecule_with_recentre(aligned_path, 0)
     mol = graphics_n_molecules() - 1
     set_molecule_bonds_colour_map_rotation(mol, 21 * (mol - ref_mol))
@@ -95,17 +141,22 @@ for model_path in {2}:
 x, y, z = molecule_centre(ref_mol)
 set_rotation_centre(x, y, z)
 
-# Exit Coot
 # coot_real_exit(0)  # Comment out to keep Coot window open
-""".format(
+"""
+    post_batch = """
+print("Aligned structures saved to: {1}")
+coot_real_exit(0)
+"""
+    post_close = post_open if keep_coot_open else post_batch
+    tpl = script_content.replace("__POST_CLOSE__", post_close)
+    tpl = tpl.replace("__ALIGNED_TAG__", aligned_tag)
+    return tpl.format(
         reference_file,  # {0}
         output_dir,     # {1}
         model_files,    # {2}
     )
-    
-    return script_content
 
-def create_all_vs_all_ssm_script(model_files, output_dir):
+def create_all_vs_all_ssm_script(model_files, output_dir, keep_coot_open=True):
     """Create Coot script for all-vs-all SSM superposition."""
     script_content = """
 import os
@@ -181,6 +232,9 @@ for ref_path in model_files:
     else:
         close_molecule(reference_mol)
 
+__ALL_VS_ALL_TAIL__
+"""
+    tail_open = """
 # Reload final set for visual inspection
 print("\\nReloading structures for visual inspection...")
 unique_files = list(set(model_files))
@@ -195,11 +249,21 @@ print("\\nAll-vs-all SSM superposition complete. All structures loaded in Coot f
 print("Aligned structures saved to: {0}")
 
 # coot_real_exit(0)  # Comment out to keep Coot window open
-""".format(output_dir, model_files)
-    return script_content
+"""
+    tail_batch = """
+for i in range(graphics_n_molecules()):
+    close_molecule(i)
+print("\\nAll-vs-all SSM superposition complete (batch). Aligned structures saved to: {0}")
+coot_real_exit(0)
+"""
+    tail = tail_open if keep_coot_open else tail_batch
+    script_content = script_content.replace("__ALL_VS_ALL_TAIL__", tail)
+    return script_content.format(output_dir, model_files)
 
 
-def create_coot_script_explicit_chains(reference_file, model_files, output_dir, ref_chain, model_chain):
+def create_coot_script_explicit_chains(
+    reference_file, model_files, output_dir, ref_chain, model_chain, keep_coot_open=True
+):
     """One-to-many SSM with explicit reference/model chains (mmdb selections, move_copy_flag 0)."""
     script_content = """
 import os
@@ -333,6 +397,9 @@ for model_path in {model_files}:
 for i in range(graphics_n_molecules()):
     close_molecule(i)
 
+__POST_CLOSE__
+"""
+    post_open = """
 handle_read_draw_molecule_with_recentre(r"{reference_file}", 0)
 ref_mol = graphics_n_molecules() - 1
 set_molecule_bonds_colour_map_rotation(ref_mol, 0)
@@ -350,17 +417,253 @@ for model_path in {model_files}:
 x, y, z = molecule_centre(ref_mol)
 set_rotation_centre(x, y, z)
 # coot_real_exit(0)
-""".format(
+"""
+    post_batch = """
+print("Aligned structures saved to: " + r"{output_dir}")
+coot_real_exit(0)
+"""
+    post_close = post_open if keep_coot_open else post_batch
+    script_content = script_content.replace("__POST_CLOSE__", post_close)
+    return script_content.format(
         reference_file=reference_file,
         model_files=model_files,
         output_dir=output_dir,
         ref_chain=ref_chain,
         model_chain=model_chain,
     )
-    return script_content
 
 
-def create_all_vs_all_ssm_explicit_chains(model_files, output_dir, ref_chain, model_chain):
+def create_axb_ssm_script(
+    ref_files,
+    model_files_B,
+    output_dirs_per_ref,
+    keep_coot_open=False,
+):
+    """
+    AxB SSM: for each reference in ref_files, superpose each model in model_files_B
+    (skipping same path). Uses first chain per structure, SSM mode 1 (legacy).
+    output_dirs_per_ref[i] is the output directory for ref_files[i].
+    keep_coot_open False (default): coot_real_exit(0) after all alignments (batch).
+    keep_coot_open True (--interactive): reload inputs and leave Coot open.
+    """
+    exit_line = "# coot_real_exit(0)  # AxB --interactive: keep Coot open after reload"
+    if not keep_coot_open:
+        exit_line = "coot_real_exit(0)  # AxB default: non-interactive batch (exit when done)"
+
+    script_content = """
+import os
+import sys
+
+set_nomenclature_errors_on_read("ignore")
+set_show_symmetry_master(0)
+
+ref_configs = {ref_configs}
+model_paths = {model_paths}
+keep_coot_open = {keep_coot_open_py}
+
+for ref_path, out_dir in ref_configs:
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    reference_mol = read_pdb(ref_path)
+    reference_chain = chain_ids(reference_mol)[0]
+    ref_name = os.path.splitext(os.path.basename(ref_path))[0]
+    print("SSM AxB: reference " + ref_name)
+    for model_path in model_paths:
+        if model_path == ref_path:
+            continue
+        model_mol = read_pdb(model_path)
+        model_chain = chain_ids(model_mol)[0]
+        model_name = os.path.splitext(os.path.basename(model_path))[0]
+        print("  Superposing " + model_name + " onto " + ref_name)
+        try:
+            superpose_with_atom_selection(reference_mol, model_mol,
+                "//" + reference_chain + "//",
+                "//" + model_chain + "//",
+                1)
+        except Exception as e:
+            print("Error SSM " + model_name + " onto " + ref_name + ": " + str(e))
+            close_molecule(model_mol)
+            continue
+        output_name = os.path.join(out_dir, model_name + "_SSMaligned2_" + ref_name + ".pdb")
+        write_pdb_file(model_mol, output_name)
+        close_molecule(model_mol)
+    close_molecule(reference_mol)
+
+for i in range(graphics_n_molecules()):
+    close_molecule(i)
+
+if keep_coot_open:
+    print("\\nReloading structures for visual inspection (AxB)...")
+    unique_paths = []
+    seen = set()
+    for p, _ in ref_configs:
+        ap = os.path.abspath(p)
+        if ap not in seen:
+            seen.add(ap)
+            unique_paths.append(p)
+    for p in model_paths:
+        ap = os.path.abspath(p)
+        if ap not in seen:
+            seen.add(ap)
+            unique_paths.append(p)
+    for i, file_path in enumerate(unique_paths):
+        mol = read_pdb(file_path)
+        graphics_to_ca_representation(mol)
+        set_molecule_bonds_colour_map_rotation(mol, 20 * i)
+        print("Loaded for display: " + os.path.basename(file_path))
+    print("SSM AxB complete. Aligned PDBs under each reference output directory.")
+
+__EXIT_LINE__
+""".replace("__EXIT_LINE__", exit_line)
+
+    ref_configs = list(zip(ref_files, output_dirs_per_ref))
+    return script_content.format(
+        ref_configs=repr(ref_configs),
+        model_paths=repr(model_files_B),
+        keep_coot_open_py=repr(bool(keep_coot_open)),
+    )
+
+
+def create_axb_ssm_explicit_chains_script(
+    ref_files,
+    model_files_B,
+    output_dirs_per_ref,
+    ref_chain,
+    model_chain,
+    keep_coot_open=False,
+):
+    """AxB SSM with explicit chains (mmdb selections, move_copy_flag 0)."""
+    exit_line = "# coot_real_exit(0)  # AxB --interactive: keep Coot open after reload"
+    if not keep_coot_open:
+        exit_line = "coot_real_exit(0)  # AxB default: non-interactive batch (exit when done)"
+
+    script_content = """
+import os
+import sys
+
+set_nomenclature_errors_on_read("ignore")
+set_show_symmetry_master(0)
+
+def get_chain_id(file_path, specified_chain):
+    return specified_chain
+
+def find_available_chains(mol_id):
+    chains = []
+    try:
+        chain_list = chain_ids(mol_id)
+        if chain_list:
+            chains = chain_list
+        else:
+            common_chains = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+            for chain_id in common_chains:
+                try:
+                    n_atoms = n_atoms_in_chain(mol_id, chain_id)
+                    if n_atoms > 0:
+                        chains.append(chain_id)
+                except:
+                    continue
+    except Exception as e:
+        print("Error getting chains for molecule " + str(mol_id) + ": " + str(e))
+        chains = ["A"]
+    return chains
+
+def validate_chain_exists(mol_id, chain_id):
+    try:
+        available_chains = chain_ids(mol_id)
+        if available_chains and chain_id in available_chains:
+            return True
+        try:
+            length = chain_length(mol_id, chain_id)
+            return length > 0
+        except:
+            pass
+        return False
+    except:
+        return False
+
+ref_configs = {ref_configs}
+model_paths = {model_paths}
+ref_chain_spec = "{ref_chain}"
+model_chain_spec = "{model_chain}"
+keep_coot_open = {keep_coot_open_py}
+
+for ref_path, out_dir in ref_configs:
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    reference_mol = read_pdb(ref_path)
+    ref_name = os.path.splitext(os.path.basename(ref_path))[0]
+    ref_chain_id = get_chain_id(ref_path, ref_chain_spec)
+    if not validate_chain_exists(reference_mol, ref_chain_id):
+        ref_chains = find_available_chains(reference_mol)
+        ref_chain_id = ref_chains[0] if ref_chains else "A"
+    print("SSM AxB (explicit chains): reference " + ref_name + " chain " + ref_chain_id)
+
+    for model_path in model_paths:
+        if model_path == ref_path:
+            continue
+        model_mol = read_pdb(model_path)
+        model_name = os.path.splitext(os.path.basename(model_path))[0]
+        model_chain_id = get_chain_id(model_path, model_chain_spec)
+        if not validate_chain_exists(model_mol, model_chain_id):
+            model_chains = find_available_chains(model_mol)
+            model_chain_id = model_chains[0] if model_chains else "A"
+        try:
+            ref_selection = "/1/" + ref_chain_id + "/*"
+            model_selection = "/1/" + model_chain_id + "/*"
+            superpose_with_atom_selection(reference_mol, model_mol, ref_selection, model_selection, 0)
+        except Exception as e:
+            try:
+                ref_ca = "/1/" + ref_chain_id + "/*/CA"
+                model_ca = "/1/" + model_chain_id + "/*/CA"
+                superpose_with_atom_selection(reference_mol, model_mol, ref_ca, model_ca, 0)
+            except Exception as e2:
+                print("Error SSM " + model_name + " onto " + ref_name + ": " + str(e2))
+                close_molecule(model_mol)
+                continue
+        output_name = os.path.join(out_dir, model_name + "_SSMaligned2_" + ref_name + ".pdb")
+        write_pdb_file(model_mol, output_name)
+        close_molecule(model_mol)
+    close_molecule(reference_mol)
+
+for i in range(graphics_n_molecules()):
+    close_molecule(i)
+
+if keep_coot_open:
+    print("\\nReloading structures for visual inspection (AxB explicit)...")
+    unique_paths = []
+    seen = set()
+    for p, _ in ref_configs:
+        ap = os.path.abspath(p)
+        if ap not in seen:
+            seen.add(ap)
+            unique_paths.append(p)
+    for p in model_paths:
+        ap = os.path.abspath(p)
+        if ap not in seen:
+            seen.add(ap)
+            unique_paths.append(p)
+    for i, file_path in enumerate(unique_paths):
+        mol = read_pdb(file_path)
+        graphics_to_ca_representation(mol)
+        set_molecule_bonds_colour_map_rotation(mol, 20 * i)
+    print("SSM AxB (explicit chains) complete.")
+
+__EXIT_LINE__
+""".replace("__EXIT_LINE__", exit_line)
+
+    ref_configs = list(zip(ref_files, output_dirs_per_ref))
+    return script_content.format(
+        ref_configs=repr(ref_configs),
+        model_paths=repr(model_files_B),
+        ref_chain=ref_chain,
+        model_chain=model_chain,
+        keep_coot_open_py=repr(bool(keep_coot_open)),
+    )
+
+
+def create_all_vs_all_ssm_explicit_chains(
+    model_files, output_dir, ref_chain, model_chain, keep_coot_open=True
+):
     """All-vs-all SSM with explicit chains per structure."""
     script_content = """
 import os
@@ -460,6 +763,9 @@ for ref_path in model_files:
 
     close_molecule(reference_mol)
 
+__ALL_VS_ALL_EXPLICIT_TAIL__
+"""
+    tail_open = """
 print("\\nReloading structures for visual inspection...")
 unique_files = list(set(model_files))
 for i, file_path in enumerate(unique_files):
@@ -467,13 +773,21 @@ for i, file_path in enumerate(unique_files):
     graphics_to_ca_representation(mol)
     set_molecule_bonds_colour_map_rotation(mol, 20 * i)
 print("\\nAll-vs-all SSM (explicit chains) complete. Aligned structures saved to: " + r"{output_dir}")
-""".format(
+"""
+    tail_batch = """
+for i in range(graphics_n_molecules()):
+    close_molecule(i)
+print("\\nAll-vs-all SSM (explicit chains) complete (batch). Aligned structures saved to: " + r"{output_dir}")
+coot_real_exit(0)
+"""
+    tail = tail_open if keep_coot_open else tail_batch
+    script_content = script_content.replace("__ALL_VS_ALL_EXPLICIT_TAIL__", tail)
+    return script_content.format(
         model_files=model_files,
         output_dir=output_dir,
         ref_chain=ref_chain,
         model_chain=model_chain,
     )
-    return script_content
 
 
 def _pattern_has_glob_chars(pattern: str) -> bool:
@@ -494,57 +808,270 @@ def _matches_filter(basename: str, pattern: str) -> bool:
         )
     return (pattern in basename) or (pattern in stem)
 
+
+def run_pattern_ssm_superposition(
+    ref_dir,
+    model_dir,
+    ref_pattern,
+    model_pattern,
+    target_pattern=None,
+    divider=None,
+    strict_position=False,
+    ref_file_pattern="*.pdb",
+    model_file_pattern="*.cif",
+    output_suffix="_SSMaligned_",
+    keep_coot_open=True,
+):
+    """Pair reference and model files by patterns, then SSM-superpose each match in Coot (same pairing as LSQ --pattern)."""
+    matches = find_ref_model_matches(
+        ref_dir,
+        model_dir,
+        ref_pattern,
+        model_pattern,
+        target_pattern,
+        divider,
+        strict_position,
+        ref_file_pattern,
+        model_file_pattern,
+    )
+    if not matches:
+        print("No matching files found to process.")
+        return
+
+    for ref_file, subdir, model_files in matches:
+        subdir_name = os.path.basename(subdir)
+        ref_name = os.path.splitext(os.path.basename(ref_file))[0]
+        output_dir = "{}{}{}".format(subdir_name, output_suffix, ref_name)
+
+        if os.path.exists(output_dir):
+            print("Directory {} already exists. Skipping this set.".format(output_dir))
+            continue
+
+        os.makedirs(output_dir)
+        print("\nProcessing {}...".format(subdir_name))
+        print("Reference: {}".format(os.path.basename(ref_file)))
+        print("Models to align: {}".format(len(model_files)))
+
+        script_file = "temp_coot_script.py"
+        with open(script_file, "w") as f:
+            f.write(
+                create_coot_script(
+                    ref_file,
+                    model_files,
+                    output_dir,
+                    keep_coot_open=keep_coot_open,
+                    aligned_tag="_SSMaligned_",
+                )
+            )
+
+        try:
+            log_file = os.path.join(output_dir, "coot_log.txt")
+            with open(log_file, "w") as log:
+                log.write("# SSM alignment log\n")
+                log.write(
+                    "# Mode: pattern (pair reference and model files by name patterns; same pairing rules as LSQ --pattern)\n"
+                )
+                log.write("# Reference: {}\n".format(ref_file))
+                log.write("# Models directory: {}\n".format(subdir))
+                log.write("# Number of models: {}\n\n".format(len(model_files)))
+
+            process = Popen(
+                ["coot", "--script", script_file],
+                stdout=PIPE,
+                stderr=STDOUT,
+                universal_newlines=True,
+                bufsize=1,
+            )
+            with open(log_file, "a") as log:
+                if process.stdout is not None:
+                    while True:
+                        output = process.stdout.readline()
+                        if output == "" and process.poll() is not None:
+                            break
+                        if output:
+                            log.write(output)
+                            log.flush()
+                else:
+                    print("Warning: process.stdout is None, cannot capture output.")
+            rc = process.wait()
+            _announce_superposition_finished(
+                log_file,
+                rc,
+                "SSM pattern mode — subdirectory: {}.".format(subdir_name),
+            )
+            print("\nTo extract RMSD values, run:")
+            print("python extract_rmsd.py --format ssm {}".format(log_file))
+        except Exception as e:
+            print("Error during superposition: {}".format(e))
+        finally:
+            if os.path.exists(script_file):
+                os.remove(script_file)
+
+
+def main_pattern_mode():
+    """CLI: --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"""
+    args = sys.argv[2:]
+    strict_position = False
+    divider = None
+    target_pattern = None
+    ref_file_pattern = "*.pdb"
+    model_file_pattern = "*.cif"
+    output_suffix = "_SSMaligned_"
+    keep_coot_open = True
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--strict-position":
+            strict_position = True
+            args.pop(i)
+        elif args[i] == "--not-interactive":
+            keep_coot_open = False
+            args.pop(i)
+        elif args[i].startswith("--divider="):
+            divider = args[i].split("=", 1)[1]
+            args.pop(i)
+        elif args[i].startswith("--ref-file-pattern="):
+            ref_file_pattern = args[i].split("=", 1)[1]
+            args.pop(i)
+        elif args[i].startswith("--model-file-pattern="):
+            model_file_pattern = args[i].split("=", 1)[1]
+            args.pop(i)
+        elif args[i].startswith("--output-suffix="):
+            output_suffix = args[i].split("=", 1)[1]
+            args.pop(i)
+        else:
+            i += 1
+
+    if len(args) < 4:
+        print("Pattern mode: pair reference and model files by name patterns (superimpose_pattern_match).")
+        print("This mode cannot be combined with --all-vs-all, --reference, --filter, AxB filters, etc.")
+        print("")
+        print(
+            "Usage: python superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
+        )
+        print("\nOptions:")
+        print("  --strict-position        ref_pattern before divider and target_pattern after")
+        print("  --divider=STRING")
+        print("  --ref-file-pattern=GLOB  (default: \"*.pdb\")")
+        print("  --model-file-pattern=GLOB (default: \"*.cif\")")
+        print("  --output-suffix=STRING   output dir suffix (default: \"_SSMaligned_\")")
+        print("  --not-interactive        exit Coot after each alignment set (default: keep open)")
+        print("\nExamples:")
+        print("  python superimpose_coot_SSM.py --pattern /path/to/refs /path/to/models ref_id model_id")
+        print("  python superimpose_coot_SSM.py --pattern --not-interactive /path/to/refs /path/to/models ref_id model_id")
+        sys.exit(1)
+
+    ref_dir = os.path.abspath(args[0])
+    model_dir = os.path.abspath(args[1])
+    ref_pattern = args[2]
+    model_pattern = args[3]
+    if len(args) >= 5:
+        target_pattern = args[4]
+
+    if not os.path.exists(ref_dir):
+        print("Error: Reference directory '{}' does not exist.".format(ref_dir))
+        sys.exit(1)
+    if not os.path.exists(model_dir):
+        print("Error: Model directory '{}' does not exist.".format(model_dir))
+        sys.exit(1)
+
+    run_pattern_ssm_superposition(
+        ref_dir,
+        model_dir,
+        ref_pattern,
+        model_pattern,
+        target_pattern,
+        divider,
+        strict_position,
+        ref_file_pattern,
+        model_file_pattern,
+        output_suffix,
+        keep_coot_open=keep_coot_open,
+    )
+
+
 def main():
-    # Parse arguments
+    if len(sys.argv) > 1 and sys.argv[1] == "--pattern":
+        main_pattern_mode()
+        return
+
+    # Parse arguments (same style as superimpose_coot_LSQ.py: options may appear anywhere)
     filter_pattern = None
+    ref_filter = None
+    model_filter = None
     output_dir_arg = None
     directories = []
     reference_file = None
+    reference_from_flag = None
     all_vs_all = False
     ref_chain = None
     model_chain = None
-    args = sys.argv[1:]
+    axb_keep_coot_open = False
+    legacy_keep_coot_open = True
+    positionals = []
 
-    if not args:
+    if len(sys.argv) < 2:
         print("Usage: python superimpose_coot_SSM.py [options] reference_file dir1 [dir2 ...]")
+        print("       python superimpose_coot_SSM.py [options] --reference=REF_FILE --filter=TAG dir1 [dir2 ...]")
         print("       python superimpose_coot_SSM.py [options] --all-vs-all dir1 [dir2 ...]")
+        print(
+            "       python superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
+        )
         print("Options:")
-        print("  --filter=TAG         Substring or glob (* ? [) on basename / stem")
+        print("  --filter=TAG         Substring or glob (* ? [) on basename / stem (single set)")
+        print("  --ref-filter=TAG     Like --filter, but selects reference set (A) for AxB mode")
+        print("  --model-filter=TAG   Like --filter, but selects model set (B) for AxB mode")
+        print("  --reference=FILE     Reference structure (one-to-many); alternative to leading positional")
+        print("  --ref=FILE           Same as --reference=")
         print("  --output-dir=DIR     Output dir; may contain [reference_name], [filter], *filter*")
+        print("  --out-dir=DIR        Alias for --output-dir=")
         print("  --ref-chain=CHAIN    Use this chain on the reference (implies explicit-chain SSM)")
         print("  --model-chain=CHAIN  Use this chain on each model (implies explicit-chain SSM)")
-        print("  --all-vs-all         Each structure as reference in turn")
+        print("  --all-vs-all         Each structure as reference in turn; with --ref-filter/--model-filter: AxB mode")
+        print("  --interactive        AxB only: after all alignments, reload structures and keep Coot open")
+        print("  --not-interactive    One-to-many and single-set all-vs-all: exit Coot when done (default: keep open)")
         print("Without --ref-chain/--model-chain: first chain per structure, SSM mode 1 (legacy).")
         print("Examples:")
         print("  python superimpose_coot_SSM.py /path/to/reference.pdb dir1 dir2 dir3")
+        print("  python superimpose_coot_SSM.py --reference=/path/to/reference.pdb dir1 dir2")
         print("  python superimpose_coot_SSM.py --ref-chain=B --model-chain=B reference.pdb models/")
         print("  python superimpose_coot_SSM.py --all-vs-all --filter=set_a /path/to/models/")
+        print("  python superimpose_coot_SSM.py --pattern /path/to/refs /path/to/models ref_id model_id")
+        print("")
+        print("Pattern mode (--pattern) is a separate entry point, not combinable with the lines above:")
+        print("  --pattern must be the FIRST argument after the script name.")
+        print("  Do not use --pattern together with --all-vs-all, --reference/--ref, --filter,")
+        print("  --ref-filter, --model-filter, or a leading reference positional in the same command.")
         sys.exit(1)
 
-    # Allow --output-dir anywhere
-    for a in args:
-        if a.startswith("--output-dir=") or a.startswith("--out-dir="):
-            output_dir_arg = a.split("=", 1)[1]
-
-    # Parse flags, then positionals
-    i = 0
-    while i < len(args):
-        if args[i] == "--all-vs-all":
+    for arg in sys.argv[1:]:
+        if arg == "--all-vs-all":
             all_vs_all = True
-            i += 1
-        elif args[i].startswith("--filter="):
-            filter_pattern = args[i].split("=", 1)[1]
-            i += 1
-        elif args[i].startswith("--output-dir=") or args[i].startswith("--out-dir="):
-            i += 1
-        elif args[i].startswith("--ref-chain="):
-            ref_chain = args[i].split("=", 1)[1]
-            i += 1
-        elif args[i].startswith("--model-chain="):
-            model_chain = args[i].split("=", 1)[1]
-            i += 1
+        elif arg == "--interactive":
+            axb_keep_coot_open = True
+        elif arg == "--not-interactive":
+            legacy_keep_coot_open = False
+        elif arg.startswith("--filter="):
+            filter_pattern = arg.split("=", 1)[1]
+        elif arg.startswith("--ref-filter="):
+            ref_filter = arg.split("=", 1)[1]
+        elif arg.startswith("--model-filter="):
+            model_filter = arg.split("=", 1)[1]
+        elif arg.startswith("--output-dir=") or arg.startswith("--out-dir="):
+            output_dir_arg = arg.split("=", 1)[1]
+        elif arg.startswith("--reference="):
+            reference_from_flag = os.path.abspath(arg.split("=", 1)[1])
+        elif arg.startswith("--ref="):
+            reference_from_flag = os.path.abspath(arg.split("=", 1)[1])
+        elif arg.startswith("--ref-chain="):
+            ref_chain = arg.split("=", 1)[1]
+        elif arg.startswith("--model-chain="):
+            model_chain = arg.split("=", 1)[1]
+        elif arg.startswith("--"):
+            print("Error: Unknown option '{}'.".format(arg))
+            sys.exit(1)
         else:
-            break
+            positionals.append(os.path.abspath(arg))
 
     explicit_chains = ref_chain is not None or model_chain is not None
     if explicit_chains:
@@ -553,8 +1080,14 @@ def main():
         if model_chain is None:
             model_chain = "A"
 
-    # Positionals: either (reference, dir1, ...) or (dir1, ...) when --all-vs-all
-    positionals = [os.path.abspath(arg) for arg in args[i:] if not arg.startswith("--")]
+    if all_vs_all and reference_from_flag is not None:
+        print(
+            "Error: Cannot use --reference/--ref together with --all-vs-all.\n"
+            "  One-to-many: use --reference=FILE (or a leading positional) without --all-vs-all.\n"
+            "  AxB (two sets): use --all-vs-all --ref-filter=... --model-filter=... dir_A dir_B; "
+            "each structure in set A is a reference in turn (no single --reference)."
+        )
+        sys.exit(1)
 
     if all_vs_all:
         if not positionals:
@@ -563,21 +1096,35 @@ def main():
         directories = positionals
         reference_file = None
     else:
-        if len(positionals) < 2:
-            print("Error: Reference file and at least one directory required (or use --all-vs-all with directory/ies).")
-            sys.exit(1)
-        reference_file = positionals[0]
-        if not os.path.isfile(reference_file):
-            print("Error: Reference '{}' is not a file.".format(reference_file))
-            sys.exit(1)
-        if explicit_chains:
-            ref_ext = os.path.splitext(reference_file.lower())[1]
-            if ref_ext not in (".pdb", ".cif"):
+        if reference_from_flag is not None:
+            reference_file = reference_from_flag
+            if not os.path.isfile(reference_file):
+                print("Error: Reference file '{}' does not exist or is not a file.".format(reference_file))
+                sys.exit(1)
+            if not positionals:
+                print("Error: With --reference/--ref, at least one model directory is required.")
+                sys.exit(1)
+            directories = positionals
+        else:
+            if len(positionals) < 2:
                 print(
-                    f"Warning: Reference '{reference_file}' may not be .pdb or .cif; "
-                    "explicit-chain mode expects PDB or mmCIF."
+                    "Error: Reference file and at least one directory required, "
+                    "or use --reference=FILE with directories, "
+                    "or use --all-vs-all with directory/ies."
                 )
-        directories = positionals[1:]
+                sys.exit(1)
+            reference_file = positionals[0]
+            if not os.path.isfile(reference_file):
+                print("Error: Reference '{}' is not a file.".format(reference_file))
+                sys.exit(1)
+            if explicit_chains:
+                ref_ext = os.path.splitext(reference_file.lower())[1]
+                if ref_ext not in (".pdb", ".cif"):
+                    print(
+                        f"Warning: Reference '{reference_file}' may not be .pdb or .cif; "
+                        "explicit-chain mode expects PDB or mmCIF."
+                    )
+            directories = positionals[1:]
 
     # Collect model files from all specified directories
     model_files = []
@@ -616,8 +1163,61 @@ def main():
         print("Error: No PDB or CIF files found in the specified directories.")
         sys.exit(1)
 
-    # Apply filter if specified
-    if filter_pattern:
+    # Two-set AxB mode: --ref-filter / --model-filter (requires --all-vs-all)
+    use_two_sets = bool(ref_filter or model_filter)
+    if use_two_sets and not all_vs_all:
+        print("Error: --ref-filter/--model-filter currently require --all-vs-all (AxB mode).")
+        sys.exit(1)
+
+    if use_two_sets and filter_pattern:
+        print("Warning: --filter is ignored when --ref-filter/--model-filter are used.")
+        filter_pattern = None
+
+    ref_files = None
+    model_files_B = None
+
+    if use_two_sets:
+        # Build reference set A
+        if ref_filter:
+            ref_files = [
+                f for f in model_files
+                if _matches_filter(os.path.basename(f), ref_filter)
+            ]
+        else:
+            ref_files = list(model_files)
+
+        # Build model set B
+        if model_filter:
+            model_files_B = [
+                f for f in model_files
+                if _matches_filter(os.path.basename(f), model_filter)
+            ]
+        else:
+            model_files_B = list(model_files)
+
+        if not ref_files:
+            if ref_filter is not None:
+                print(f"Error: No structures match --ref-filter='{ref_filter}'.")
+            else:
+                print(
+                    "Error: Reference set (A) is empty (no structure files available; "
+                    "check input directories)."
+                )
+            sys.exit(1)
+        if not model_files_B:
+            if model_filter is not None:
+                print(f"Error: No structures match --model-filter='{model_filter}'.")
+            else:
+                print(
+                    "Error: Model set (B) is empty (no structure files available; "
+                    "check input directories)."
+                )
+            sys.exit(1)
+
+        print(f"AxB mode: {len(ref_files)} references (A), {len(model_files_B)} models (B).")
+
+    # Single-set filter (legacy --filter)
+    if not use_two_sets and filter_pattern:
         filtered_models = []
         for model in model_files:
             if _matches_filter(os.path.basename(model), filter_pattern):
@@ -634,7 +1234,7 @@ def main():
         model_files = filtered_models
         print(f"Applied filter '{filter_pattern}', found {len(model_files)} matching models.")
 
-    if all_vs_all and len(model_files) < 2:
+    if all_vs_all and not use_two_sets and len(model_files) < 2:
         print("Error: All-vs-all requires at least 2 structure files.")
         sys.exit(1)
 
@@ -649,6 +1249,153 @@ def main():
             print("Mode: all-vs-all (explicit chains)")
         print()
 
+    # Convenience printer for structure lists (for user feedback)
+    def _print_structures(label, files):
+        print(f"{label} ({len(files)} structures):")
+        for f in files:
+            print(f"  - {os.path.basename(f)}")
+
+    if use_two_sets:
+        # AxB mode: one Coot script for all ref x model pairs (batch exits Coot unless --interactive)
+        _print_structures("Reference set (A)", ref_files)
+        _print_structures("Model set (B)", model_files_B)
+
+        ref_stems = [os.path.splitext(os.path.basename(p))[0] for p in ref_files]
+        stem_counts = {}
+        for s in ref_stems:
+            stem_counts[s] = stem_counts.get(s, 0) + 1
+
+        output_dirs_per_ref = []
+        for ref_path, ref_stem in zip(ref_files, ref_stems):
+            if stem_counts[ref_stem] > 1:
+                ref_name = "{}__{}".format(
+                    ref_stem,
+                    hashlib.sha256(os.path.abspath(ref_path).encode("utf-8")).hexdigest()[:8],
+                )
+            else:
+                ref_name = ref_stem
+            if output_dir_arg:
+                od = expand_output_dir_pattern(
+                    output_dir_arg, ref_name=ref_name, filter_pattern=None
+                )
+            else:
+                od = f"SSMaligned2_{ref_name}"
+            output_dirs_per_ref.append(od)
+
+        if any(stem_counts[s] > 1 for s in stem_counts):
+            print(
+                "Note: Duplicate reference basenames: each output dir uses the basename plus "
+                "__<8 hex chars> from the reference file path so directories stay distinct."
+            )
+
+        # One prompt if any output dir already exists
+        existing = [d for d in output_dirs_per_ref if os.path.exists(d)]
+        if existing:
+            response = input(
+                f"{len(existing)} output director(y/ies) already exist. "
+                "Files may be overwritten. Continue? (y/n): "
+            )
+            if response.lower() != 'y':
+                print("Operation cancelled.")
+                sys.exit(0)
+
+        for od in output_dirs_per_ref:
+            if not os.path.exists(od):
+                os.makedirs(od)
+
+        tag_parts = ["AxB"]
+        if ref_filter:
+            tag_parts.append(f"ref_{sanitize_pattern_for_filename(ref_filter)}")
+        if model_filter:
+            tag_parts.append(f"model_{sanitize_pattern_for_filename(model_filter)}")
+        log_suffix = "_".join(tag_parts)
+        log_basename = f"coot_log_{log_suffix}.txt"
+        log_file = log_basename
+        print(
+            "Mode: SSM AxB (non-interactive batch, Coot exits when done)"
+            if not axb_keep_coot_open
+            else "Mode: SSM AxB (interactive: Coot stays open after reload)"
+        )
+        print(f"Creating log file at: {log_file}")
+
+        script_file = "temp_coot_script.py"
+        if os.path.exists(script_file):
+            print(f"Warning: Temporary file '{script_file}' exists and will be overwritten")
+
+        if explicit_chains:
+            script_body = create_axb_ssm_explicit_chains_script(
+                ref_files,
+                model_files_B,
+                output_dirs_per_ref,
+                ref_chain,
+                model_chain,
+                keep_coot_open=axb_keep_coot_open,
+            )
+        else:
+            script_body = create_axb_ssm_script(
+                ref_files,
+                model_files_B,
+                output_dirs_per_ref,
+                keep_coot_open=axb_keep_coot_open,
+            )
+
+        with open(script_file, "w") as f:
+            f.write(script_body)
+
+        try:
+            print("Starting Coot process (SSM AxB)...")
+            with open(log_file, "w") as log:
+                log.write("# SSM AxB alignment log\n")
+                log.write("# Directories: {}\n".format(", ".join(directories)))
+                if explicit_chains:
+                    log.write(
+                        "# Ref chain: {}  Model chain: {}\n".format(ref_chain, model_chain)
+                    )
+                if ref_filter:
+                    log.write(f"# Ref filter: {ref_filter}\n")
+                if model_filter:
+                    log.write(f"# Model filter: {model_filter}\n")
+                log.write(
+                    f"# AxB keep_coot_open ( --interactive ): {axb_keep_coot_open}\n"
+                )
+                log.write(f"# References (A): {len(ref_files)}\n")
+                log.write(f"# Models (B): {len(model_files_B)}\n\n")
+
+            process = Popen(
+                ["coot", "--script", script_file],
+                stdout=PIPE,
+                stderr=STDOUT,
+                universal_newlines=True,
+                bufsize=1,
+            )
+            with open(log_file, "a") as log:
+                if process.stdout is not None:
+                    while True:
+                        output = process.stdout.readline()
+                        if output == "" and process.poll() is not None:
+                            break
+                        if output:
+                            log.write(output)
+                            log.flush()
+                else:
+                    print("Warning: process.stdout is None, cannot capture output.")
+            rc = process.wait()
+            _announce_superposition_finished(
+                log_file,
+                rc,
+                "SSM AxB: {} reference(s), {} model(s) in set B.".format(
+                    len(ref_files), len(model_files_B)
+                ),
+            )
+            print("\nTo extract RMSD values, run:")
+            print("python extract_rmsd.py --format ssm {}".format(log_file))
+        finally:
+            if os.path.exists(script_file):
+                os.remove(script_file)
+
+        return
+
+    # Legacy single-set modes (one-to-many and all-vs-all)
     print(f"Found {len(model_files)} structure files to align:")
     for f in model_files:
         print(f"  - {os.path.basename(f)}")
@@ -695,21 +1442,41 @@ def main():
             if explicit_chains:
                 f.write(
                     create_all_vs_all_ssm_explicit_chains(
-                        model_files, output_dir, ref_chain, model_chain
+                        model_files,
+                        output_dir,
+                        ref_chain,
+                        model_chain,
+                        keep_coot_open=legacy_keep_coot_open,
                     )
                 )
             else:
-                f.write(create_all_vs_all_ssm_script(model_files, output_dir))
+                f.write(
+                    create_all_vs_all_ssm_script(
+                        model_files, output_dir, keep_coot_open=legacy_keep_coot_open
+                    )
+                )
     else:
         with open(script_file, "w") as f:
             if explicit_chains:
                 f.write(
                     create_coot_script_explicit_chains(
-                        reference_file, model_files, output_dir, ref_chain, model_chain
+                        reference_file,
+                        model_files,
+                        output_dir,
+                        ref_chain,
+                        model_chain,
+                        keep_coot_open=legacy_keep_coot_open,
                     )
                 )
             else:
-                f.write(create_coot_script(reference_file, model_files, output_dir))
+                f.write(
+                    create_coot_script(
+                        reference_file,
+                        model_files,
+                        output_dir,
+                        keep_coot_open=legacy_keep_coot_open,
+                    )
+                )
 
     # Run Coot with the script and capture output
     try:
@@ -727,6 +1494,9 @@ def main():
                     )
                 if filter_pattern:
                     log.write("# Filter pattern: {}\n".format(filter_pattern))
+                log.write(
+                    "# Keep Coot open after run: {}\n".format(legacy_keep_coot_open)
+                )
                 log.write("# Number of models: {}\n\n".format(len(model_files)))
             else:
                 log.write("# SSM alignment log\n")
@@ -736,8 +1506,12 @@ def main():
                 else:
                     log.write("# Reference: {}\n".format(reference_file))
                 log.write("# Directories: {}\n".format(", ".join(directories)))
+                log.write("# Number of models: {}\n".format(len(model_files)))
                 if filter_pattern:
                     log.write("# Filter pattern: {}\n".format(filter_pattern))
+                log.write(
+                    "# Keep Coot open after run: {}\n".format(legacy_keep_coot_open)
+                )
                 log.write("\n")
         process = Popen(["coot", "--script", script_file], 
                        stdout=PIPE, stderr=STDOUT,
@@ -753,12 +1527,21 @@ def main():
                         log.flush()
             else:
                 print("Warning: process.stdout is None, cannot capture output.")
-        process.wait()
-        print("Coot process completed")
+        rc = process.wait()
+        if all_vs_all:
+            summ = "SSM all-vs-all: {} structures (pairwise alignments in log).".format(
+                len(model_files)
+            )
+        else:
+            summ = "SSM one-to-many: {} model(s) superposed to reference.".format(
+                len(model_files)
+            )
+        _announce_superposition_finished(log_file, rc, summ)
+        print("\nTo extract RMSD values, run:")
+        print("python extract_rmsd.py --format ssm {}".format(log_file))
     finally:
         if os.path.exists(script_file):
             os.remove(script_file)
-        print(f"Log file written to: {log_file}")
 
 if __name__ == "__main__":
     main()

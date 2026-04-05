@@ -13,7 +13,7 @@ All scripts live under `FoldKit/`. From the repository root run `python FoldKit/
 | [File management](#file-management) | Renaming files; PDB chain ID replacement and merge; residue-range trimming (no Coot) |
 | [Superimposition](#superimposition) | Coot SSM/LSQ and trim workflows; batch LSQ; DaliLite superposed coordinates; opening models in Coot |
 | [Ranking, scoring, phylogeny, and graphical outputs](#ranking-scoring-phylogeny-and-graphical-outputs) | RMSD from logs; RMSD tables and heatmaps; Dali Z-scores; neighbor-joining trees and plots |
-| [Metrics (crystal packing and lattice)](#metrics-crystal-packing-and-lattice) | Packing density, interfaces, contacts; optional batch JSON; R helpers (`visualization.py`) |
+| [Metrics (crystal packing and lattice)](#metrics-crystal-packing-and-lattice) | Packing density, interfaces, contacts; optional batch JSON |
 | [Appendix](#appendix) | General notes, output layout, troubleshooting |
 
 ## Prerequisites
@@ -23,7 +23,7 @@ All scripts live under `FoldKit/`. From the repository root run `python FoldKit/
 **Depending on what you run:**
 
 - **Coot** (command-line): for `superimpose_coot_*.py`, `trim_superimposeLSQ.py` (superposition modes), `open_models_in_coot.py`, and log parsing in `extract_rmsd.py`. Not needed for **`trim_models.py`** (trim-only).
-- **R** (optional): `create_rmsd_heatmap.R` and optional R plotting helpers in `visualization.py` (not invoked by the default `crystal_packing_analyzer` CLI).
+- **R** (optional): `create_rmsd_heatmap.R` and other `FoldKit/*.R` utilities where documented; not required for the default `crystal_packing_analyzer` CLI.
 - **DaliLite** + **`mkdssp`**: `dalilite_superpose_scores.py` and DaliLite-backed modes of `dali_score.py` (see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)).
 - **TM-align**: optional distance input for `structure_phylogeny.py --from-pdb`.
 - **`gemmi`** (`pip install gemmi`): helpful for some CIF handling in superposition workflows.
@@ -102,7 +102,43 @@ Output: `trimmed_<pattern>/` per filter, or `trimmed_all/` with no filter; trimm
 
 ## Superimposition
 
-These scripts align models to a reference or run all-vs-all jobs. **Coot-based** tools leave Coot running for inspection; **`dalilite_superpose_scores.py`** writes superposed coordinates using **DaliLite** (separate install).
+These scripts align models to a reference or run all-vs-all jobs. **Coot-based** tools default to **keeping Coot open** after one-to-many or single-set all-vs-all runs (use **`--not-interactive`** to exit instead); **two-set (AxB)** runs default to **batch exit** unless **`--interactive`**. **`dalilite_superpose_scores.py`** writes superposed coordinates using **DaliLite** (separate install).
+
+#### Main flows vs pattern mode (`--pattern`)
+
+`superimpose_coot_SSM.py` and `superimpose_coot_LSQ.py` expose two **separate** command-line shapes. In a **single** run you use **one or the other**; they are **not** combinable.
+
+| Goal | Invocation |
+|------|----------------|
+| One fixed reference, many models | Leading `reference.pdb` (and dirs), or `--reference=` / `--ref=` |
+| All-vs-all on one pool of structures | `--all-vs-all` and one or more directories; optional `--filter=` |
+| Two disjoint sets (A×B) | `--all-vs-all` with `--ref-filter=` and `--model-filter=` and two directory trees |
+| Pair reference and model files by **filenames** (and optional subdir names) across two roots | **`--pattern` must be the first argument** after the script name, then `reference_dir model_dir ref_pattern model_pattern [target_pattern]` |
+
+**Pattern mode rules**
+
+- **`--pattern` must be `argv[1]`** (the first token after the script). If it is not first, the script uses the main flow instead and will not treat the rest as pattern mode.
+- **Do not** combine `--pattern` with `--all-vs-all`, `--reference` / `--ref`, `--filter`, `--ref-filter`, `--model-filter`, or a leading reference positional in the same command.
+- Pairing is implemented in **`FoldKit/superimpose_pattern_match.py`** (`find_ref_model_matches`), shared by SSM and LSQ so neither script depends on the other.
+
+**Examples — pattern mode (correct)**
+
+```bash
+python FoldKit/superimpose_coot_SSM.py --pattern /path/to/refs /path/to/models proteinA fold1
+python FoldKit/superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models proteinA fold1
+python FoldKit/superimpose_coot_SSM.py --pattern --not-interactive /path/to/refs /path/to/models proteinA fold1
+```
+
+**Examples — invalid (do not use)**
+
+```bash
+# --pattern not first → not pattern mode; paths/options will be misread
+python FoldKit/superimpose_coot_SSM.py /path/to/refs /path/to/models --pattern proteinA fold1
+
+# cannot mix pattern mode with all-vs-all or filters
+python FoldKit/superimpose_coot_SSM.py --all-vs-all --pattern refs/ models/ id_a id_b
+python FoldKit/superimpose_coot_SSM.py --pattern --all-vs-all refs/ models/ id_a id_b
+```
 
 ### `superimpose_coot_SSM.py`
 
@@ -113,8 +149,9 @@ Secondary Structure Matching (SSM) superposition: one-to-many or all-vs-all.
 **Explicit chains:** pass **`--ref-chain`** and/or **`--model-chain`** to use mmdb-style selections (`/1/CHAIN/*`) and SSM with move flag `0`. If only one of the two is set, the other defaults to **`A`**.
 
 ```bash
-# One-to-many: align all models to a reference
+# One-to-many: align all models to a reference (reference is first positional, or use --reference= / --ref=)
 python FoldKit/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] reference.pdb dir1 [dir2 ...]
+python FoldKit/superimpose_coot_SSM.py [--filter=set_a] --reference=reference.pdb dir1 [dir2 ...]
 
 # All-vs-all: each structure used as reference in turn
 python FoldKit/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] --all-vs-all dir1 [dir2 ...]
@@ -122,7 +159,21 @@ python FoldKit/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] --all
 # Explicit chains (one-to-many or all-vs-all)
 python FoldKit/superimpose_coot_SSM.py --ref-chain=B --model-chain=B reference.pdb models/
 python FoldKit/superimpose_coot_SSM.py --all-vs-all --ref-chain=B --model-chain=B models/
+
+# All-vs-all between two sets (AxB), potentially from different trees
+python FoldKit/superimpose_coot_SSM.py --all-vs-all \
+  --ref-filter='*set_a*' --model-filter='*set_b*' \
+  --ref-chain=A --model-chain=B \
+  dir_for_set_a/ dir_for_set_b/
+
+# Same AxB run but keep the Coot window open after all superpositions (default is batch: Coot exits)
+python FoldKit/superimpose_coot_SSM.py --all-vs-all --interactive \
+  --ref-filter='*set_a*' --model-filter='*set_b*' \
+  --ref-chain=A --model-chain=B \
+  dir_for_set_a/ dir_for_set_b/
 ```
+
+**AxB mode:** one Coot session runs every reference in A against every structure in B (skipping a file paired with itself). The default is **non-interactive**: the generated Coot script ends with `coot_real_exit(0)  # AxB default: non-interactive batch (exit when done)` so the full matrix of alignments finishes without leaving a window open. Pass **`--interactive`** to reload inputs after the last alignment and keep Coot open (same idea as single-set all-vs-all, which stays open by default).
 
 Examples:
 
@@ -131,15 +182,25 @@ python FoldKit/superimpose_coot_SSM.py reference.pdb dir1 dir2 dir3
 python FoldKit/superimpose_coot_SSM.py --all-vs-all --filter=set_a models/
 python FoldKit/superimpose_coot_SSM.py --filter=set_a --output-dir=SSM_run reference.pdb models/
 python FoldKit/superimpose_coot_SSM.py --ref-chain=C --model-chain=B reference.pdb models/
+python FoldKit/superimpose_coot_SSM.py --all-vs-all --ref-filter=set_a --model-filter=set_b --ref-chain=A --model-chain=B models_a/ models_b/
 ```
 
-Options: `--filter` (substring or glob on basename, e.g. `set_a`), `--output-dir=DIR` (placeholders: `[reference_name]`, `[filter]`), `--ref-chain`, `--model-chain`, `--all-vs-all`
+Options: `--filter` (single-set substring or glob on basename, e.g. `set_a`), `--ref-filter` (reference set A), `--model-filter` (model set B; both require `--all-vs-all`), `--reference` / `--ref` (one-to-many: reference file instead of a leading positional), `--interactive` (AxB only: keep Coot open after reload), `--not-interactive` (one-to-many and single-set all-vs-all: exit Coot when done; default keeps Coot open), `--output-dir` / `--out-dir` (placeholders: `[reference_name]`, `[filter]`), `--ref-chain`, `--model-chain`, `--all-vs-all`
 
-Output: `SSMaligned2_[reference_name]` or `SSMaligned_all_vs_all[*]`; `[model]_SSMaligned2_[reference].pdb`; `coot_log.txt`; `rmsd_SSM_values.txt` (via `extract_rmsd.py --format ssm` or `--format auto`). Prior outputs whose paths contain `SSMaligned` or `LSQaligned` are skipped when collecting models.
+Output: `SSMaligned2_[reference_name]` or `SSMaligned_all_vs_all[*]`; `[model]_SSMaligned2_[reference].pdb`; `coot_log.txt` (AxB also writes `coot_log_AxB_*.txt` in the current working directory); `rmsd_SSM_values.txt` (via `extract_rmsd.py --format ssm` or `--format auto`). Prior outputs whose paths contain `SSMaligned` or `LSQaligned` are skipped when collecting models.
+
+**Pattern mode (`--pattern`):** a **separate** entry point from one-to-many / all-vs-all / AxB (see **Main flows vs pattern mode** above). Uses the same pairing rules as LSQ pattern mode via **`superimpose_pattern_match.find_ref_model_matches`**. Each run writes `coot_log.txt` with the same header fields as LSQ pattern mode (`# Reference:`, `# Models directory:`, `# Number of models:`) plus an SSM-specific mode line; Coot output includes **`Superposing … onto …`** lines before each superposition so `extract_rmsd.py --format ssm` can pair RMSD blocks with models. Output directories are `[subdir]_SSMaligned_[reference_stem]`; aligned filenames use `_SSMaligned_` between model and reference stems.
+
+```bash
+# --pattern must be first; optional flags can appear before the directories
+python FoldKit/superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]
+```
+
+Pattern-only options (same idea as LSQ): `--strict-position`, `--divider=`, `--ref-file-pattern=`, `--model-file-pattern=`, `--output-suffix=`, `--not-interactive`.
 
 ### `superimpose_coot_LSQ.py`
 
-Least Squares (LSQ) superposition: one-to-many or all-vs-all. Uses first chain only.
+Least Squares (LSQ) superposition: one-to-many or all-vs-all. By default uses the **first chain** in each structure. **`--ref-chain` / `--model-chain`** apply to **one-to-many** runs; **AxB mode** still uses the first chain per structure (explicit-chain LSQ for AxB is not implemented yet).
 
 ```bash
 # One-to-many: specify reference explicitly
@@ -150,23 +211,37 @@ python FoldKit/superimpose_coot_LSQ.py [--output-dir=DIR] dir1 [dir2 ...]
 
 # All-vs-all
 python FoldKit/superimpose_coot_LSQ.py --all-vs-all [--output-dir=DIR] dir1 [dir2 ...]
+
+# All-vs-all between two sets (AxB), potentially from different trees (first chain per structure)
+python FoldKit/superimpose_coot_LSQ.py --all-vs-all \
+  --ref-filter='*set_a*' --model-filter='*set_b*' \
+  dir_for_set_a/ dir_for_set_b/
+
+# AxB with Coot left open when finished
+python FoldKit/superimpose_coot_LSQ.py --all-vs-all --interactive \
+  --ref-filter='*set_a*' --model-filter='*set_b*' \
+  dir_for_set_a/ dir_for_set_b/
 ```
+
+**AxB (LSQ):** same behavior as SSM AxB: default **non-interactive** batch with explicit `coot_real_exit(0)` in the generated script; **`--interactive`** keeps Coot open after reload. Log file `coot_log_AxB_*.txt` in the current working directory.
 
 Examples:
 
 ```bash
 python FoldKit/superimpose_coot_LSQ.py --reference=reference.cif --filter=set_a models/
 python FoldKit/superimpose_coot_LSQ.py --all-vs-all --filter=set_a models/
+python FoldKit/superimpose_coot_LSQ.py --all-vs-all --ref-filter=set_a --model-filter=set_b models_a/ models_b/
 python FoldKit/superimpose_coot_LSQ.py dir1 dir2
 ```
 
-Options: `--reference=FILE`, `--filter` (substring match, e.g. `set_a`), `--output-dir=DIR`
+Options: `--reference` / `--ref`, `--filter` (single-set substring/glob match, e.g. `set_a`), `--ref-filter` (reference set A), `--model-filter` (model set B; both require `--all-vs-all`), `--interactive` (AxB only: keep Coot open after reload), `--not-interactive` (one-to-many and single-set all-vs-all: exit Coot when done; default keeps Coot open), `--ref-chain`, `--model-chain` (one-to-many explicit chains only), `--output-dir` / `--out-dir`
 
-Output: `LSQaligned2_[reference_name]` or `LSQaligned_all_vs_all[*]`; `coot_log.txt`; `rmsd_values.txt` (via `extract_rmsd.py`)
+Output: `LSQaligned2_[reference_name]` or `LSQaligned_all_vs_all[*]`; `coot_log.txt` (plus `coot_log_AxB_*.txt` in the working directory for AxB); `rmsd_values.txt` (via `extract_rmsd.py`)
 
-**Pattern mode (`--pattern`):** pair reference and model files by **filenames** (and optional subdirectory names), then run the same LSQ Coot job per match. This replaces the old standalone `trim_superimposeLSQ_pattern.py` script.
+**Pattern mode (`--pattern`):** a **separate** entry point from one-to-many / all-vs-all / AxB (see **Main flows vs pattern mode** above). Pairs reference and model files by **filenames** (and optional subdirectory names) via **`superimpose_pattern_match.find_ref_model_matches`**, then runs the same LSQ Coot job per match. This replaces the old standalone `trim_superimposeLSQ_pattern.py` script.
 
 ```bash
+# --pattern must be first; optional flags can appear before the directories
 python FoldKit/superimpose_coot_LSQ.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]
 ```
 
@@ -177,6 +252,7 @@ Options:
 - `--ref-file-pattern=GLOB` (default: `"*.pdb"`)
 - `--model-file-pattern=GLOB` (default: `"*.cif"`)
 - `--output-suffix=STRING`: output directory infix (default: `"_LSQaligned_"`)
+- `--not-interactive`: exit Coot after each alignment set (default: keep Coot open for inspection)
 
 Examples:
 
@@ -294,6 +370,21 @@ python FoldKit/extract_rmsd.py coot_log.txt --debug --format lsq
 ```
 
 Output: `rmsd_values*.txt` (LSQ) or `rmsd_SSM_values*.txt` (SSM).
+
+**Batch modes (same script):**
+
+```bash
+# File mode: single log with optional explicit output path
+python FoldKit/extract_rmsd.py file SSMaligned2_ref/coot_log.txt
+python FoldKit/extract_rmsd.py file SSMaligned2_ref/coot_log.txt -o /path/to/rmsd_output.txt
+
+# Dir mode: sweep all Coot logs under a base directory
+python FoldKit/extract_rmsd.py dir /path/to/base_dir
+python FoldKit/extract_rmsd.py dir /path/to/base_dir -o /path/to/rmsd_output_dir
+```
+
+- **Single-log mode (default)**: same as before; pick SSM vs LSQ automatically or via `--format`, with LSQ filters (`--aligned`, `--reference`, `--case-sensitive`, `--debug`), writing standard `rmsd_SSM_values*.txt` / `rmsd_values*.txt` next to the log.
+- **`file` / `dir` modes**: convenience wrappers around the same extractors, optionally mirroring results into a separate output root while keeping one invocation for many logs.
 
 ### `create_rmsd_table.py`
 
@@ -471,7 +562,6 @@ The pipeline implements established ways to quantify crystal packing differences
 
 - **Quantitative metrics:** packing density (Matthews coefficient, solvent content), interface and contact analysis.
 - **Batch export:** `--compare` writes `batch_analysis_results.json` with all per-structure outputs in one file.
-- **Visualization (optional):** `visualization.py` can generate R scripts for multi-metric plots if you build a compatible summary dict in your own workflow.
 
 ### Scientific background
 
@@ -504,15 +594,11 @@ crystal_analysis_env\Scripts\activate     # Windows
 
 Install packages needed for the crystal-packing stack (for example `biopython`, `numpy`, `scipy`, `pandas`; see script imports and error messages). If you maintain a project `requirements.txt`, use `pip install -r requirements.txt`.
 
-#### R visualization (optional)
-
-`visualization.py` can emit R scripts when you call it from Python with a dict shaped for `PackingVisualizer.create_comparison_plots`. It is not run automatically by `crystal_packing_analyzer.py`. Install R and packages (ggplot2, viridis, pheatmap, corrplot, RColorBrewer, reshape2, gridExtra, jsonlite) if you use that module.
-
 #### Core dependencies
 
 - **BioPython:** structure parsing
 - **NumPy, SciPy (optional), pandas**
-- **R** (optional; only if you use `visualization.py`)
+- **R** (optional; only for documented `FoldKit/*.R` scripts such as `create_rmsd_heatmap.R`)
 
 ### Crystal packing scripts
 
@@ -603,10 +689,6 @@ python FoldKit/contact_molecule_report_csv.py contact_results.txt -m A -m B --ou
 python FoldKit/contact_molecule_report_csv.py contact_results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
 python FoldKit/contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb --chains A,B -o model_01_contacts.csv
 ```
-
-#### `visualization.py`
-
-Optional R script generation for multi-metric plots. Call `PackingVisualizer.create_comparison_plots` from your own code with a suitable results dict; the default `crystal_packing_analyzer` CLI does not invoke it.
 
 ### Python API usage
 
@@ -729,13 +811,13 @@ python FoldKit/crystal_packing_analyzer.py --input model_01.pdb model_02.pdb mod
 
 1. **BioPython import errors:** `pip install biopython>=1.79`
 2. **Memory:** reduce contact distance cutoffs for large structures
-3. **R:** install from [r-project.org](https://www.r-project.org/) if you use `visualization.py`; on macOS ensure R is on `PATH` (e.g. `export PATH="/usr/local/bin:$PATH"`).
+3. **R:** install from [r-project.org](https://www.r-project.org/) only if you run documented `FoldKit/*.R` scripts; on macOS ensure R is on `PATH` (e.g. `export PATH="/usr/local/bin:$PATH"`).
 
 #### Features summary
 
 - Modular analyzers usable alone or via `crystal_packing_analyzer`
 - Metrics aligned with common crystallographic practice
-- Optional R layer for publication-style figures
+- Optional R utilities (e.g. RMSD heatmaps) where listed under superposition / ranking sections
 - Fits naturally after superposition or alongside external refinement workflows
 
 ---
@@ -745,7 +827,7 @@ python FoldKit/crystal_packing_analyzer.py --input model_01.pdb model_02.pdb mod
 ### General
 
 - Scripts accept **PDB and mmCIF** where not otherwise noted.
-- **Coot** superposition scripts keep Coot open for interactive review.
+- **Coot** superposition: single-set one-to-many and single-set all-vs-all **keep Coot open** by default; use **`--not-interactive`** to exit when done. **AxB** (two-set) mode is **non-interactive by default**; use **`--interactive`** to keep Coot open after reload.
 - Run **`extract_rmsd.py`** on `coot_log.txt` with **`--format auto`** to classify SSM vs LSQ logs.
 
 ### Output directory structure (Coot superposition)

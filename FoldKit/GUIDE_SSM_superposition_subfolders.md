@@ -144,10 +144,10 @@ Replace `REFNAME` with your reference base name (no extension).
 If you want the RMSD output in a different file or directory:
 
 ```bash
-python extract_rmsd_info.py file SSMaligned2_<ref_name>/coot_log.txt -o /path/to/rmsd_output.txt
+python extract_rmsd.py file SSMaligned2_<ref_name>/coot_log.txt -o /path/to/rmsd_output.txt
 ```
 
-`extract_rmsd_info.py` targets another log format; for **SSM** logs use **`extract_rmsd.py --format ssm`** to get molecule/superposition info plus RMSD.
+For SSM and LSQ logs use **`extract_rmsd.py`** (single-log mode or its `file`/`dir` batch modes) to get alignment and RMSD information into separate text files.
 
 ---
 
@@ -157,4 +157,5 @@ python extract_rmsd_info.py file SSMaligned2_<ref_name>/coot_log.txt -o /path/to
 - **Reference path:** Use an absolute path for `REFERENCE` so Coot can find it no matter where you run the script.
 - **Many models:** Coot may take a while if you have many CIFs; the log is updated as it runs.
 - **Chain choice:** Pass **`--ref-chain`** and **`--model-chain`** to **`superimpose_coot_SSM.py`** for explicit chains; omit both to use the first chain in each structure (default mode).
+- **Coot window:** One-to-many and single-set all-vs-all **keep Coot open** by default; use **`--not-interactive`** to exit when finished. **AxB** (two sets with **`--ref-filter`** / **`--model-filter`**) is **non-interactive by default** (full matrix without pausing); use **`--interactive`** if you want Coot to stay open after reload.
 - **Which mode:** For **SSM** runs use **`extract_rmsd.py --format ssm`** (or `--format auto`). For **LSQ** use **`--format lsq`** with optional `--aligned` / `--reference` filters.

@@ -51,8 +51,15 @@ def collect_from_directories(
     return sorted(found)
 
 
+def _pattern_has_glob_metachars(pattern: str) -> bool:
+    return any(ch in pattern for ch in "*?[")
+
+
 def find_matching_files(patterns: List[str], search_dirs: Optional[List[str]] = None) -> List[str]:
-    """Find files matching patterns under search_dirs (recursive rglob)."""
+    """Find files matching patterns under search_dirs (recursive rglob).
+
+    Glob patterns use shell-style matching (fnmatch) on each file basename.
+    """
     matching_files: Set[str] = set()
 
     if not search_dirs:
@@ -65,58 +72,21 @@ def find_matching_files(patterns: List[str], search_dirs: Optional[List[str]] = 
             continue
 
         for pattern in patterns:
-            parts = pattern.split("*")
-            model_name = None
-            protein_name = None
-            try:
-                if len(parts) > 2:
-                    model_name = parts[1]
-                    protein_name = parts[-2]
-                elif len(parts) == 2:
-                    model_name = None
-                    protein_name = parts[1]
-                else:
-                    print(
-                        f"Using pattern '{pattern}' without extracting specific model/protein names"
-                    )
-            except IndexError:
-                print(
-                    f"Warning: Could not extract model/protein name from pattern '{pattern}'. "
-                    "Using full pattern matching."
-                )
-
-            if model_name or protein_name:
-                print(f"Looking for model: {model_name}, protein: {protein_name}")
-
-            if "*" in pattern or "?" in pattern:
+            if _pattern_has_glob_metachars(pattern):
                 for file_path in search_path.rglob("*"):
                     if not file_path.is_file() or not is_structure_file(file_path):
                         continue
-                    file_str = str(file_path.absolute())
-                    if model_name and protein_name:
-                        if (
-                            model_name in file_str
-                            and "LSQ2" in file_str
-                            and protein_name in file_str
-                        ):
-                            print(f"Found LSQ2 file: {os.path.basename(file_str)}")
-                            matching_files.add(file_str)
-                        elif (
-                            protein_name in file_str
-                            and "LSQ2" not in file_str
-                            and "sd_" in file_str
-                        ):
-                            print(f"Found non-LSQ2 file: {os.path.basename(file_str)}")
-                            matching_files.add(file_str)
-                    else:
-                        basename = os.path.basename(file_str)
-                        if fnmatch.fnmatch(basename, pattern):
-                            print(f"Found matching file: {basename}")
-                            matching_files.add(file_str)
+                    file_str = str(file_path.resolve())
+                    basename = file_path.name
+                    # Match basename only: fnmatch on full paths fails for patterns like *.pdb
+                    # because * does not span '/' in shell-style globs.
+                    if fnmatch.fnmatch(basename, pattern):
+                        print(f"Found matching file: {basename}")
+                        matching_files.add(file_str)
             else:
                 file_path = search_path / pattern
                 if file_path.is_file() and is_structure_file(file_path):
-                    matching_files.add(str(file_path.absolute()))
+                    matching_files.add(str(file_path.resolve()))
 
     return sorted(matching_files)
 

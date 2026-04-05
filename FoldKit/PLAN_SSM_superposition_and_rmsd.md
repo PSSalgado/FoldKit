@@ -11,6 +11,8 @@ Use the existing scripts in this folder to:
 
 Scripts already collect **all `.pdb` and `.cif`** files from the given directory(ies) **and their subdirectories** (recursive), then run Coot with SSM superposition. The Coot stdout/stderr is captured into a log file.
 
+**Coot window:** For **one-to-many** and **single-set all-vs-all**, Coot **stays open** by default for inspection; pass **`--not-interactive`** to exit when finished. **AxB** (two sets via **`--ref-filter`** / **`--model-filter`**) is **non-interactive by default** so each reference-to-model pair runs in one session; pass **`--interactive`** to keep Coot open after reload.
+
 ### Option A: Use first chain of each structure (no chain option)
 
 Use **`superimpose_coot_SSM.py`**:
@@ -110,23 +112,23 @@ python extract_rmsd.py --format lsq LSQaligned2_ref/coot_log.txt --aligned=set_a
 
 ---
 
-### Option 2: `extract_rmsd_info.py` (single file or all logs under a dir)
+### Option 2: `extract_rmsd.py` (single file or all logs under a dir)
 
 - **Single log file** (output path optional):
 
   ```bash
-  python extract_rmsd_info.py file SSMaligned2_ref/coot_log.txt
-  python extract_rmsd_info.py file SSMaligned2_ref/coot_log.txt -o /path/to/rmsd_output.txt
+  python extract_rmsd.py file SSMaligned2_ref/coot_log.txt
+  python extract_rmsd.py file SSMaligned2_ref/coot_log.txt -o /path/to/rmsd_output.txt
   ```
 
 - **All `coot_log.txt` under a directory** (e.g. after several runs):
 
   ```bash
-  python extract_rmsd_info.py dir /path/to/base_dir
-  python extract_rmsd_info.py dir /path/to/base_dir -o /path/to/rmsd_output_dir
+  python extract_rmsd.py dir /path/to/base_dir
+  python extract_rmsd.py dir /path/to/base_dir -o /path/to/rmsd_output_dir
   ```
 
-Use **`extract_rmsd.py`** for a single SSM or LSQ run; use **`extract_rmsd_info.py`** if you need batch extraction or a custom output path.
+Use **`extract_rmsd.py`** in default (single-log) mode, or with the **`file`** / **`dir`** subcommands, for batch extraction and optional custom output paths.
 
 ---
 

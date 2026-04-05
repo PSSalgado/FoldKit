@@ -12,6 +12,16 @@ def _peek_log_head(path: str, max_bytes: int = 65536) -> str:
         return ""
 
 
+def is_standard_coot_log_basename(name: str) -> bool:
+    """
+    True for FoldKit/Coot log names: coot_log.txt or coot_log_<suffix>.txt.
+    Excludes unrelated names such as coot_logfiles.txt or coot_logged.txt.
+    """
+    if name == "coot_log.txt":
+        return True
+    return name.startswith("coot_log_") and name.endswith(".txt")
+
+
 def detect_rmsd_log_format(log_file: str) -> str:
     """
     Return 'ssm' if the log looks like Coot SSM (Superposing … onto …), else 'lsq'.
@@ -22,27 +32,65 @@ def detect_rmsd_log_format(log_file: str) -> str:
     return "lsq"
 
 
-def extract_ssm_rmsd_values(log_file: str) -> None:
+def _output_kwargs_from_o_flag(output_arg):
+    """
+    Map --output to extractor kwargs.
+
+    - Existing directory -> output_dir
+    - Trailing path separator (e.g. out/ or out\\) -> output_dir (created if missing)
+    - Otherwise -> rmsd_output_path (file path, extension optional; parent dirs created in extractors)
+
+    To target a new directory whose name has no extension, pass a trailing separator (e.g. out/results/).
+    """
+    if not output_arg:
+        return {}
+    expanded = os.path.expanduser(output_arg)
+    abs_norm = os.path.abspath(expanded)
+    if os.path.isdir(abs_norm):
+        return {"output_dir": abs_norm}
+    stripped = expanded.rstrip("/\\")
+    had_trailing_sep = len(stripped) < len(expanded)
+    if had_trailing_sep:
+        d = os.path.abspath(stripped) if stripped else abs_norm
+        os.makedirs(d, exist_ok=True)
+        return {"output_dir": d}
+    return {"rmsd_output_path": abs_norm}
+
+
+def extract_ssm_rmsd_values(log_file: str, output_dir=None, rmsd_output_path=None) -> None:
     """
     Extract molecule/superposition info and RMSD values from a Coot log for SSM.
     SSM logs use different wording than LSQ: scripts print "Superposing X onto …",
     and Coot may print "Aligning … to …". We capture whichever alignment line appears
     before each "INFO: core rmsd" block and write it together with the RMSD block.
+
+    output_dir: if set, RMSD text uses the standard basename under this directory.
+    rmsd_output_path: if set, write RMSD to this exact file (parent dirs created).
+    When both are set, rmsd_output_path wins.
     """
     if not os.path.exists(log_file):
         print(f"Error: Log file '{log_file}' not found.")
         return
 
-    output_dir = os.path.dirname(log_file)
-    base = os.path.basename(log_file)
-    if base == "coot_log.txt":
-        rmsd_basename = "rmsd_SSM_values.txt"
-    elif base.startswith("coot_log_") and base.endswith(".txt"):
-        suffix = base[9:-4]
-        rmsd_basename = "rmsd_SSM_values_{}.txt".format(suffix)
+    log_file = os.path.abspath(log_file)
+    if rmsd_output_path is not None:
+        rmsd_file = os.path.abspath(rmsd_output_path)
+        os.makedirs(os.path.dirname(rmsd_file), exist_ok=True)
     else:
-        rmsd_basename = "rmsd_SSM_values.txt"
-    rmsd_file = os.path.join(output_dir, rmsd_basename)
+        if output_dir is not None:
+            output_dir = os.path.abspath(output_dir)
+        else:
+            output_dir = os.path.dirname(log_file)
+        base = os.path.basename(log_file)
+        if base == "coot_log.txt":
+            rmsd_basename = "rmsd_SSM_values.txt"
+        elif base.startswith("coot_log_") and base.endswith(".txt"):
+            suffix = base[9:-4]
+            rmsd_basename = "rmsd_SSM_values_{}.txt".format(suffix)
+        else:
+            rmsd_basename = "rmsd_SSM_values.txt"
+        os.makedirs(output_dir, exist_ok=True)
+        rmsd_file = os.path.join(output_dir, rmsd_basename)
 
     print(f"Extracting RMSD values (SSM) from {log_file}")
     print(f"Writing to {rmsd_file}")
@@ -90,6 +138,8 @@ def extract_rmsd_values(
     reference_pattern=None,
     case_sensitive=False,
     debug=False,
+    output_dir=None,
+    rmsd_output_path=None,
 ):
     """
     Extract RMSD and related values from a Coot log file (LSQ-style: Aligning … to …).
@@ -100,12 +150,15 @@ def extract_rmsd_values(
     - reference_pattern: Pattern to match in the reference model name (optional)
     - case_sensitive: Whether to match case sensitively
     - debug: Whether to create a debug file with all decisions
+    - output_dir: if set, RMSD (and debug) use standard basenames under this directory
+    - rmsd_output_path: if set, write RMSD to this exact file (parent dirs created)
+    When rmsd_output_path is set, debug output (if any) is placed next to that file.
     """
     if not os.path.exists(log_file):
         print(f"Error: Log file '{log_file}' not found.")
         return
 
-    output_dir = os.path.dirname(log_file)
+    log_file = os.path.abspath(log_file)
     base = os.path.basename(log_file)
 
     suffix = ""
@@ -119,7 +172,18 @@ def extract_rmsd_values(
         if base.startswith("coot_log_") and base.endswith(".txt"):
             suffix = "_" + base[9:-4]
 
-    rmsd_file = os.path.join(output_dir, f"rmsd_values{suffix}.txt")
+    if rmsd_output_path is not None:
+        rmsd_file = os.path.abspath(rmsd_output_path)
+        os.makedirs(os.path.dirname(rmsd_file), exist_ok=True)
+        output_dir = os.path.dirname(rmsd_file)
+    else:
+        if output_dir is not None:
+            output_dir = os.path.abspath(output_dir)
+        else:
+            output_dir = os.path.dirname(log_file)
+        os.makedirs(output_dir, exist_ok=True)
+        rmsd_file = os.path.join(output_dir, f"rmsd_values{suffix}.txt")
+
     debug_file = os.path.join(output_dir, f"rmsd_debug{suffix}.txt") if debug else None
 
     print(f"Extracting RMSD values (LSQ) from {log_file}")
@@ -287,7 +351,13 @@ def extract_rmsd_values(
         print(f"Debug information written to {debug_file}")
 
 
-def main():
+def _run_single_log_mode(argv):
+    """
+    Legacy single-log mode (backwards compatible).
+
+    Usage:
+      extract_rmsd.py [--format auto|lsq|ssm] [LSQ options] coot_log.txt
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Extract RMSD blocks from Coot logs. LSQ logs use 'Aligning … to …'; "
@@ -310,9 +380,19 @@ def main():
     parser.add_argument(
         "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt"
     )
+    parser.add_argument(
+        "--output",
+        "-o",
+        help=(
+            "Output directory or RMSD file. "
+            "Existing dirs, or paths ending with a path separator, use standard rmsd_*.txt names "
+            "inside that directory; otherwise the path is the RMSD file (extension optional)."
+        ),
+    )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     log_file = os.path.abspath(args.log_file)
+    out_kw = _output_kwargs_from_o_flag(args.output)
 
     fmt = args.format
     if fmt == "auto":
@@ -325,7 +405,7 @@ def main():
                 "Warning: --aligned, --reference, and --debug apply to LSQ mode only; ignoring.",
                 file=sys.stderr,
             )
-        extract_ssm_rmsd_values(log_file)
+        extract_ssm_rmsd_values(log_file, **out_kw)
     else:
         extract_rmsd_values(
             log_file,
@@ -333,7 +413,212 @@ def main():
             args.reference,
             args.case_sensitive,
             args.debug,
+            **out_kw,
         )
+
+
+def _run_file_mode(argv):
+    """
+    New: file-mode wrapper around the single-log extractor, with optional output override.
+
+    Usage:
+      extract_rmsd.py file LOG [--format ... LSQ options ...] [--output PATH]
+    """
+    parser = argparse.ArgumentParser(
+        description="Extract RMSD from a single Coot log (file mode, with optional output override)."
+    )
+    parser.add_argument("log_file", help="Path to the Coot log file")
+    parser.add_argument(
+        "--format",
+        "-f",
+        choices=("auto", "lsq", "ssm"),
+        default="auto",
+        help="Log type: lsq, ssm, or auto (detect from content)",
+    )
+    parser.add_argument("--aligned", "-a", help="LSQ only: pattern for aligned model names")
+    parser.add_argument("--reference", "-r", help="LSQ only: pattern for reference model names")
+    parser.add_argument(
+        "--case-sensitive", "-c", action="store_true", help="LSQ only: case-sensitive pattern match"
+    )
+    parser.add_argument(
+        "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt"
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        help=(
+            "Output directory or RMSD file (same rules as single-log --output)."
+        ),
+    )
+
+    args = parser.parse_args(argv)
+    log_file = os.path.abspath(args.log_file)
+    out_kw = _output_kwargs_from_o_flag(args.output)
+
+    fmt = args.format
+    if fmt == "auto":
+        fmt = detect_rmsd_log_format(log_file)
+        print(f"Detected log format: {fmt}")
+
+    if fmt == "ssm":
+        if args.aligned or args.reference or args.debug:
+            print(
+                "Warning: --aligned, --reference, and --debug apply to LSQ mode only; ignoring.",
+                file=sys.stderr,
+            )
+        extract_ssm_rmsd_values(log_file, **out_kw)
+    else:
+        extract_rmsd_values(
+            log_file,
+            args.aligned,
+            args.reference,
+            args.case_sensitive,
+            args.debug,
+            **out_kw,
+        )
+
+
+def _run_dir_mode(argv):
+    """
+    New: directory mode – process all Coot logs under a base directory.
+
+    Usage:
+      extract_rmsd.py dir BASE_DIR [--format auto|lsq|ssm] [--output-dir PATH]
+    """
+    parser = argparse.ArgumentParser(
+        description=(
+            "Process all Coot logs under a base directory (dir mode). "
+            "Matches only coot_log.txt and coot_log_*.txt (not other coot_log*.txt names)."
+        ),
+    )
+    parser.add_argument("base_dir", help="Base directory to search for Coot logs")
+    parser.add_argument(
+        "--format",
+        "-f",
+        choices=("auto", "lsq", "ssm"),
+        default="auto",
+        help="Log type to assume for all logs (default: auto-detect per file)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        "-o",
+        help=(
+            "Optional root for RMSD outputs. "
+            "If omitted, outputs go next to each log (standard filenames)."
+        ),
+    )
+    parser.add_argument(
+        "--aligned", "-a", help="LSQ only: pattern for aligned model names (applied to each LSQ log)"
+    )
+    parser.add_argument(
+        "--reference",
+        "-r",
+        help="LSQ only: pattern for reference model names (applied to each LSQ log)",
+    )
+    parser.add_argument(
+        "--case-sensitive", "-c", action="store_true", help="LSQ only: case-sensitive pattern match"
+    )
+    parser.add_argument(
+        "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt per log"
+    )
+
+    args = parser.parse_args(argv)
+    base_dir = os.path.abspath(args.base_dir)
+
+    print(f"Searching for Coot logs under {base_dir}")
+    log_files = []
+    for root, _dirs, files in os.walk(base_dir):
+        for name in files:
+            if is_standard_coot_log_basename(name):
+                log_files.append(os.path.join(root, name))
+
+    print(f"Found {len(log_files)} log files")
+    for log_file in sorted(log_files):
+        # Decide format per file if auto
+        fmt = args.format
+        if fmt == "auto":
+            fmt = detect_rmsd_log_format(log_file)
+            print(f"\n[dir] {log_file}: detected format {fmt}")
+        else:
+            print(f"\n[dir] {log_file}: using format {fmt}")
+
+        # If output-dir is provided, mirror relative structure under that root
+        if args.output_dir:
+            rel = os.path.relpath(os.path.dirname(log_file), base_dir)
+            out_dir = os.path.join(os.path.abspath(args.output_dir), rel)
+            os.makedirs(out_dir, exist_ok=True)
+            if fmt == "ssm":
+                if args.aligned or args.reference:
+                    print(
+                        "Warning: --aligned/--reference apply to LSQ mode only; ignoring for SSM.",
+                        file=sys.stderr,
+                    )
+                extract_ssm_rmsd_values(log_file, output_dir=out_dir)
+            else:
+                extract_rmsd_values(
+                    log_file,
+                    args.aligned,
+                    args.reference,
+                    args.case_sensitive,
+                    args.debug,
+                    output_dir=out_dir,
+                )
+        else:
+            # Outputs written next to log (standard behavior)
+            if fmt == "ssm":
+                if args.aligned or args.reference:
+                    print(
+                        "Warning: --aligned/--reference apply to LSQ mode only; ignoring for SSM.",
+                        file=sys.stderr,
+                    )
+                extract_ssm_rmsd_values(log_file)
+            else:
+                extract_rmsd_values(
+                    log_file,
+                    args.aligned,
+                    args.reference,
+                    args.case_sensitive,
+                    args.debug,
+                )
+
+
+def _use_rmsd_file_or_dir_subcommand() -> bool:
+    """
+    True -> dispatch to `file` / `dir` subcommands; False -> legacy single-log mode.
+
+    Legacy allows a log path whose basename is literally `file` or `dir` (e.g. ./file).
+    Subcommands are `file LOG ...` and `dir BASE_DIR ...`.
+
+    If a path named `file` exists in cwd, `extract_rmsd.py file coot_log.txt` must still
+    use the subcommand (second token is the log), not legacy with argv [file, coot_log.txt].
+    """
+    if len(sys.argv) <= 1 or sys.argv[1] not in ("file", "dir"):
+        return False
+    if len(sys.argv) == 2:
+        # Only: script file|dir — subcommand unless this names an existing log file
+        return not os.path.isfile(sys.argv[1])
+    # Three or more tokens: if the next token is an option, legacy (log is argv[1])
+    # e.g. extract_rmsd.py file --format ssm
+    if sys.argv[2].startswith("-"):
+        return False
+    # e.g. extract_rmsd.py file path/to/coot_log.txt or extract_rmsd.py dir /data/runs
+    return True
+
+
+def main():
+    # Support new subcommands "file" and "dir" for batch workflows, while
+    # preserving the original single-log CLI.
+    if _use_rmsd_file_or_dir_subcommand():
+        mode = sys.argv[1]
+        argv = sys.argv[2:]
+        if mode == "file":
+            _run_file_mode(argv)
+        else:
+            _run_dir_mode(argv)
+        return
+
+    # Legacy behavior: treat the first non-option as a log file path.
+    _run_single_log_mode(sys.argv[1:])
 
 
 if __name__ == "__main__":

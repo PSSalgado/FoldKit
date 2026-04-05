@@ -37,8 +37,6 @@ def main():
     print("   python packing_metrics.py model_01.pdb")
     print("   python interface_analyzer.py model_01.pdb")
     
-    print("\n5. Optional: use visualization.py from Python for R script generation")
-    
     print("\n" + "="*50)
     print("INSTALLATION:")
     print("="*50)
@@ -48,8 +46,7 @@ def main():
     print("\n2. Required packages:")
     print("   • numpy, pandas, scipy")
     print("   • biopython")
-    print("   • R (optional; for visualization.py)")
-    print("   • R packages: ggplot2, viridis, pheatmap, etc.")
+    print("   • R (optional; only for documented FoldKit/*.R scripts)")
     
     print("\n" + "="*50)
     print("FILES CREATED:")
@@ -60,7 +57,6 @@ def main():
         "packing_metrics.py - Basic packing calculations",
         "interface_analyzer.py - Interface analysis",
         "contact_analyzer.py - Crystal contact analysis",
-        "visualization.py - Optional R plotting helpers",
         "requirements.txt - Required Python packages",
         "README.md - Comprehensive documentation"
     ]
@@ -76,11 +72,9 @@ def main():
     print("NEXT STEPS:")
     print("="*50)
     print("\n1. Install dependencies: pip install -r requirements.txt")
-    print("2. Install R from https://www.r-project.org/")
-    print("3. Test with your PDB files")
-    print("4. Optionally use visualization.py if you need R-generated plots")
-    print("5. Check README.md for detailed documentation")
-    print("6. Customize analysis parameters as needed")
+    print("2. Test with your PDB files")
+    print("3. Check README.md for detailed documentation")
+    print("4. Customize analysis parameters as needed")
     
     print("\nFor help: python crystal_packing_analyzer.py --help")
 
