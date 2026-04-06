@@ -24,9 +24,17 @@ def is_standard_coot_log_basename(name: str) -> bool:
 
 def detect_rmsd_log_format(log_file: str) -> str:
     """
-    Return 'ssm' if the log looks like Coot SSM (Superposing … onto …), else 'lsq'.
+    Return 'ssm' if the log looks like FoldKit/Coot SSM, else 'lsq'.
+
+    FoldKit writes '# SSM alignment log' (etc.) before Coot runs; prefer that so
+    --format auto works even if Coot output order differs. Also detect the
+    standard script lines 'Superposing … onto …'.
     """
     sample = _peek_log_head(log_file)
+    if "# SSM" in sample:
+        return "ssm"
+    if "# LSQ" in sample:
+        return "lsq"
     if "Superposing" in sample and " onto " in sample:
         return "ssm"
     return "lsq"

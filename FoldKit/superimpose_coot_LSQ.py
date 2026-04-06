@@ -32,280 +32,315 @@ def expand_output_dir_pattern(template, ref_name=None, filter_pattern=None):
     return s
 
 
-def _announce_superposition_finished(log_file, exit_code, summary=""):
+def _announce_superposition_finished(
+    log_file, exit_code, summary="", rmsd_format=None
+):
     """
-    Print a clear completion line to the terminal. While Coot runs, stdout/stderr
-    are only copied to the log file, so users otherwise see no progress until the end.
+    Announce completion on stderr and append the same text to the Coot log.
+
+    While Coot runs, its stdout is often only copied to the log file. Using stderr
+    avoids losing the message when Python stdout is fully buffered or redirected
+    (non-TTY, some IDEs, wrappers).
     """
-    print(flush=True)
-    print("=" * 72, flush=True)
+    lines = [
+        "",
+        "=" * 72,
+    ]
     if exit_code == 0:
-        print(
-            "Finished: all superpositions for this run are complete (Coot exit code 0).",
-            flush=True,
+        lines.append(
+            "Finished: all superpositions for this run are complete (Coot exit code 0)."
         )
     else:
-        print(
+        lines.append(
             "Coot process ended (exit code {}). Check the log if outputs look wrong.".format(
                 exit_code
-            ),
-            flush=True,
+            )
         )
     if summary:
-        print(summary, flush=True)
-    print("Log: {}".format(log_file), flush=True)
-    print("=" * 72, flush=True)
+        lines.append(summary)
+    lines.append("Log: {}".format(log_file))
+    lines.append("=" * 72)
+    if rmsd_format:
+        lines.append("")
+        lines.append("To extract RMSD values, run:")
+        lines.append(
+            "python extract_rmsd.py --format {} {}".format(rmsd_format, log_file)
+        )
+    text = "\n".join(lines) + "\n"
+    print(text, file=sys.stderr, end="", flush=True)
+    try:
+        with open(log_file, "a", encoding="utf-8", errors="replace") as logf:
+            logf.write(text)
+    except OSError:
+        pass
 
 
-# Function to create Coot script for superposition
-def create_coot_script(reference_file, model_files, output_dir, keep_coot_open=True):
+COOT_STDOUT_ALIGNMENTS_DONE_MARKER = "FOLDKIT_ALIGNMENTS_DONE"
+
+
+def _pipe_coot_stdout_line(line, log_f, echo_all_stdout=False):
+    """Append Coot stdout to the log; echo marker lines to stderr; optionally echo every line to stdout."""
+    log_f.write(line)
+    log_f.flush()
+    stripped = line.rstrip("\n\r")
+    if COOT_STDOUT_ALIGNMENTS_DONE_MARKER in line:
+        print(stripped, file=sys.stderr, flush=True)
+    if echo_all_stdout:
+        print(stripped)
+
+
+# Prepended to every generated Coot LSQ script. Matches Coot User Manual (Least-Squares Fitting) and
+# upstream python/coot_lsq.py: clear_lsq_matches + add_lsq_match + apply_lsq_matches.
+COOT_LSQ_HELPERS_PY = """
+def _foldkit_lsq_match_type_symbol(m):
+    if m in ("CA", "ca", "Ca"):
+        return 2
+    if m in ("main", "Main", "mainchain", "Mainchain"):
+        return 1
+    if m in ("all", "ALL", "All"):
+        return 0
+    return 1
+
+def foldkit_least_squares_superpose(imol_ref, imol_mov, ref_chain_id, mov_chain_id, match_type_str):
+    ref_lo = min_resno_in_chain(imol_ref, ref_chain_id)
+    ref_hi = max_resno_in_chain(imol_ref, ref_chain_id)
+    mov_lo = min_resno_in_chain(imol_mov, mov_chain_id)
+    mov_hi = max_resno_in_chain(imol_mov, mov_chain_id)
+    mt = _foldkit_lsq_match_type_symbol(match_type_str)
+    clear_lsq_matches()
+    add_lsq_match(ref_lo, ref_hi, ref_chain_id, mov_lo, mov_hi, mov_chain_id, mt)
+    try:
+        return apply_lsq_matches(imol_ref, imol_mov)
+    except NameError:
+        return apply_lsq_matches_simple(imol_ref, imol_mov)
+"""
+
+
+def _normalize_lsq_match_type(s):
+    """Return one of ca, main, all (default main)."""
+    if not s:
+        return "main"
+    x = str(s).strip().lower()
+    if x in ("ca", "main", "all"):
+        return x
+    return "main"
+
+
+# Legacy alternate template (reload-from-disk display). Same LSQ API as create_lsq_script.
+def create_coot_script(
+    reference_file,
+    model_files,
+    output_dir,
+    keep_coot_open=True,
+    lsq_match_type="main",
+):
     """Legacy one-to-many template. If keep_coot_open is False, skip reload-for-display and exit Coot."""
-    script_content = """
+    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    script_content = f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
 
-# Global setting for nomenclature errors
 set_nomenclature_errors_on_read("ignore")
-
-# Turn off symmetry display
 set_show_symmetry_master(0)
 
-# Load reference structure
-reference_mol = read_pdb("{0}")
+reference_mol = read_pdb({reference_file!r})
 reference_chain = chain_ids(reference_mol)[0]
-ref_name = os.path.splitext(os.path.basename("{0}"))[0]
+ref_name = os.path.splitext(os.path.basename({reference_file!r}))[0]
 
-# Create output directory if it doesn't exist
-if not os.path.exists("{1}"):
-    os.makedirs("{1}")
+if not os.path.exists({output_dir!r}):
+    os.makedirs({output_dir!r})
 
-# Process each model
-for model_path in {3}:
-    # Load model
+for model_path in {model_files!r}:
     model_mol = read_pdb(model_path)
     model_chain = chain_ids(model_mol)[0]
-    
+    model_name = os.path.splitext(os.path.basename(model_path))[0]
+    print("Aligning " + model_name + " to " + ref_name)
     try:
-        # Use LSQ superposition (0 for LSQ mode)
-        superpose_with_atom_selection(reference_mol, model_mol, 
-                                    "//" + reference_chain + "//", 
-                                    "//" + model_chain + "//",
-                                    0)
-            
+        foldkit_least_squares_superpose(reference_mol, model_mol, reference_chain, model_chain, {mt})
     except Exception as e:
         print("Error during superposition:", e)
         continue
-    
-    # Create output name with new format
-    model_name = os.path.splitext(os.path.basename(model_path))[0]
-    output_name = os.path.join("{1}", model_name + "_LSQaligned2_" + ref_name + ".pdb")
-    
-    # Save aligned structure
+    output_name = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
     write_pdb_file(model_mol, output_name)
 
-# Close all existing molecules
 for i in range(graphics_n_molecules()):
     close_molecule(i)
 
 __POST_CLOSE__
 """
-    post_open = """
-# Start new Coot window with reference structure
-handle_read_draw_molecule_with_recentre("{0}", 0)
+    post_open = f"""
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Reloading structures in Coot for inspection...")
+handle_read_draw_molecule_with_recentre({reference_file!r}, 0)
 ref_mol = graphics_n_molecules() - 1
 set_molecule_bonds_colour_map_rotation(ref_mol, 0)
 graphics_to_ca_representation(int(ref_mol))
 
-# Load and display all aligned structures
-for model_path in {3}:
+for model_path in {model_files!r}:
     model_name = os.path.splitext(os.path.basename(model_path))[0]
-    aligned_path = os.path.join("{1}", model_name + "_LSQaligned2_" + ref_name + ".pdb")
+    aligned_path = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
     handle_read_draw_molecule_with_recentre(aligned_path, 0)
     mol = graphics_n_molecules() - 1
     set_molecule_bonds_colour_map_rotation(mol, 21 * (mol - ref_mol))
     graphics_to_ca_representation(int(mol))
 
-# Get center coordinates of reference molecule
 x, y, z = molecule_centre(ref_mol)
 set_rotation_centre(x, y, z)
 
 # coot_real_exit(0)  # Comment out to keep Coot window open
 """
-    post_batch = """
-print("Aligned structures saved to: {1}")
+    post_batch = f"""
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Exiting Coot.")
+print("Aligned structures saved to: {output_dir}")
 coot_real_exit(0)
 """
     post_close = post_open if keep_coot_open else post_batch
-    tpl = script_content.replace("__POST_CLOSE__", post_close)
-    return tpl.format(
-        reference_file,  # {0}
-        output_dir,     # {1}
-        output_dir,     # {2} - for display purposes
-        model_files,    # {3}
-    )
+    return script_content.replace("__POST_CLOSE__", post_close)
 
 def create_lsq_script(
-    reference_file, model_files, output_dir, aligned_tag="_LSQaligned2_", keep_coot_open=True
+    reference_file,
+    model_files,
+    output_dir,
+    aligned_tag="_LSQaligned2_",
+    keep_coot_open=True,
+    ref_chain=None,
+    model_chain=None,
+    lsq_match_type="main",
 ):
-    """Create Coot script for LSQ superposition.
+    """Create Coot script for LSQ superposition (Coot manual: clear_lsq_matches / add_lsq_match / apply_lsq_matches).
 
     aligned_tag: substring between model basename and reference basename in output PDB names
     (default _LSQaligned2_; use _LSQaligned_ for --pattern mode compatibility).
     """
-    script_content = """
+    mt = _normalize_lsq_match_type(lsq_match_type)
+    mt_lit = repr(mt)
+    ref_chain_assign = (
+        "reference_chain = chain_ids(reference_mol)[0]"
+        if ref_chain is None
+        else f"reference_chain = {ref_chain!r}"
+    )
+    model_chain_assign = (
+        "model_chain = chain_ids(model_mol)[0]"
+        if model_chain is None
+        else f"model_chain = {model_chain!r}"
+    )
+    script_content = f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
 
-# Global setting for nomenclature errors
 set_nomenclature_errors_on_read("ignore")
-
-# Turn off symmetry display
 set_show_symmetry_master(0)
 
-# Load reference structure
-reference_mol = read_pdb("{0}")
-reference_chain = chain_ids(reference_mol)[0]
-ref_name = os.path.splitext(os.path.basename("{0}"))[0]
+reference_mol = read_pdb({reference_file!r})
+{ref_chain_assign}
+ref_name = os.path.splitext(os.path.basename({reference_file!r}))[0]
 
-# Set reference to C-alpha representation
 graphics_to_ca_representation(reference_mol)
 
-# Create output directory if it doesn't exist
-if not os.path.exists("{1}"):
-    os.makedirs("{1}")
+if not os.path.exists({output_dir!r}):
+    os.makedirs({output_dir!r})
 
-# Process each model
-loaded_molecules = [reference_mol]  # Keep track of loaded molecules for display
+loaded_molecules = [reference_mol]
 
-for model_path in {2}:
-    # Load model
+for model_path in {model_files!r}:
     model_mol = read_pdb(model_path)
-    model_chain = chain_ids(model_mol)[0]
-    
-    # Set model to C-alpha representation
+    {model_chain_assign}
     graphics_to_ca_representation(model_mol)
-    
-    # Add to loaded molecules list
     loaded_molecules.append(model_mol)
-    
+    model_name = os.path.splitext(os.path.basename(model_path))[0]
+    print("Aligning " + model_name + " to " + ref_name)
     try:
-        # Use LSQ superposition (0 for LSQ mode)
-        superpose_with_atom_selection(reference_mol, model_mol, 
-                                    "//" + reference_chain + "//", 
-                                    "//" + model_chain + "//",
-                                    0)
-            
+        foldkit_least_squares_superpose(reference_mol, model_mol, reference_chain, model_chain, {mt_lit})
     except Exception as e:
         print("Error during superposition:", e)
         continue
-    
-    # Create output name with new format
-    model_name = os.path.splitext(os.path.basename(model_path))[0]
-    output_name = os.path.join("{1}", model_name + "__ALIGNED_TAG__" + ref_name + ".pdb")
-    
-    # Save aligned structure
+    output_name = os.path.join({output_dir!r}, model_name + {aligned_tag!r} + ref_name + ".pdb")
     write_pdb_file(model_mol, output_name)
 
 __TAIL__
 """
-    tail_open = """
-# Set color rotation to make models visually distinguishable
+    tail_open = f"""
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Applying colors in Coot — structures are ready for inspection.")
 for i, mol in enumerate(loaded_molecules):
     set_molecule_bonds_colour_map_rotation(mol, 20 * i)
 
 print("Superposition complete. All structures loaded in Coot for visual inspection.")
 print("Reference: " + ref_name)
-print("Aligned structures saved to: {1}")
+print("Aligned structures saved to: {output_dir}")
 
 # Keep Coot open for manual visualization
 # coot_real_exit(0)  # Commented out to keep Coot window open
 """
-    tail_batch = """
+    tail_batch = f"""
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Exiting Coot.")
 for i in range(graphics_n_molecules()):
     close_molecule(i)
-print("Superposition complete (batch). Aligned structures saved to: {1}")
+print("Superposition complete (batch). Aligned structures saved to: {output_dir}")
 coot_real_exit(0)
 """
     tail = tail_open if keep_coot_open else tail_batch
-    script_content = script_content.replace("__TAIL__", tail)
-    script_content = script_content.replace("__ALIGNED_TAG__", aligned_tag)
-    return script_content.format(reference_file, output_dir, model_files)
+    return script_content.replace("__TAIL__", tail)
 
-def create_all_vs_all_lsq_script(model_files, output_dir, keep_coot_open=True):
-    """Create Coot script for all-vs-all LSQ superposition."""
-    script_content = """
+def create_all_vs_all_lsq_script(
+    model_files,
+    output_dir,
+    keep_coot_open=True,
+    ref_chain=None,
+    model_chain=None,
+    lsq_match_type="main",
+):
+    """Create Coot script for all-vs-all LSQ superposition (Coot manual LSQ API)."""
+    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    ref_assign = (
+        "reference_chain = chain_ids(reference_mol)[0]"
+        if ref_chain is None
+        else f"reference_chain = {ref_chain!r}"
+    )
+    mov_assign = (
+        "model_chain = chain_ids(model_mol)[0]"
+        if model_chain is None
+        else f"model_chain = {model_chain!r}"
+    )
+    script_content = f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
 
-# Global setting for nomenclature errors
 set_nomenclature_errors_on_read("ignore")
-
-# Turn off symmetry display
 set_show_symmetry_master(0)
 
-# Create output directory if it doesn't exist
-if not os.path.exists("{0}"):
-    os.makedirs("{0}")
+if not os.path.exists({output_dir!r}):
+    os.makedirs({output_dir!r})
 
-# Get all model files
-model_files = {1}
-
-# Keep track of loaded molecules for final display
+model_files = {model_files!r}
 final_molecules = []
 
-# Perform all-vs-all superposition
 for ref_path in model_files:
-    # Load reference structure
     reference_mol = read_pdb(ref_path)
-    reference_chain = chain_ids(reference_mol)[0]
+    {ref_assign}
     ref_name = os.path.splitext(os.path.basename(ref_path))[0]
-    
-    # Set reference to C-alpha representation
     graphics_to_ca_representation(reference_mol)
-    
     print("Using reference: " + ref_name)
-    
-    # Process each model against this reference
+
     for model_path in model_files:
-        # Skip if model is the same as reference
         if model_path == ref_path:
             continue
-            
         model_name = os.path.splitext(os.path.basename(model_path))[0]
         print("  Aligning " + model_name + " to " + ref_name)
-        
-        # Load model
         model_mol = read_pdb(model_path)
-        model_chain = chain_ids(model_mol)[0]
-        
-        # Set model to C-alpha representation
+        {mov_assign}
         graphics_to_ca_representation(model_mol)
-        
         try:
-            # Use LSQ superposition (0 for LSQ mode)
-            superpose_with_atom_selection(reference_mol, model_mol, 
-                                        "//" + reference_chain + "//", 
-                                        "//" + model_chain + "//",
-                                        0)
-                
+            foldkit_least_squares_superpose(reference_mol, model_mol, reference_chain, model_chain, {mt})
         except Exception as e:
             print("Error during superposition of " + model_name + " to " + ref_name + ": " + str(e))
             close_molecule(model_mol)
             continue
-        
-        # Create output name with new format
-        output_name = os.path.join("{0}", model_name + "_LSQaligned2_" + ref_name + ".pdb")
-        
-        # Save aligned structure
+        output_name = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
         write_pdb_file(model_mol, output_name)
-        
-        # Close model molecule to free memory (but keep one copy for final display)
         if model_path not in [mol[1] for mol in final_molecules]:
             final_molecules.append((model_mol, model_path))
         else:
             close_molecule(model_mol)
-    
-    # Close reference molecule to free memory (but keep one copy for final display)
+
     if ref_path not in [mol[1] for mol in final_molecules]:
         final_molecules.append((reference_mol, ref_path))
     else:
@@ -313,8 +348,8 @@ for ref_path in model_files:
 
 __ALL_VS_ALL_TAIL__
 """
-    tail_open = """
-# Reload final set for visual inspection (load original files)
+    tail_open = f"""
+print("FOLDKIT_ALIGNMENTS_DONE: All pairwise superpositions written to disk. Reloading structures in Coot for inspection...")
 print("\\nReloading structures for visual inspection...")
 loaded_for_display = []
 unique_files = list(set(model_files))
@@ -327,28 +362,34 @@ for i, file_path in enumerate(unique_files):
     print("Loaded for display: " + os.path.basename(file_path))
 
 print("\\nAll-vs-all superposition complete. All structures loaded in Coot for visual inspection.")
-print("Aligned structures saved to: {0}")
+print("Aligned structures saved to: {output_dir}")
 
 # Keep Coot open for manual visualization
 # coot_real_exit(0)  # Commented out to keep Coot window open
 """
-    tail_batch = """
+    tail_batch = f"""
+print("FOLDKIT_ALIGNMENTS_DONE: All pairwise superpositions written to disk. Exiting Coot.")
 for i in range(graphics_n_molecules()):
     close_molecule(i)
-print("\\nAll-vs-all superposition complete (batch). Aligned structures saved to: {0}")
+print("\\nAll-vs-all superposition complete (batch). Aligned structures saved to: {output_dir}")
 coot_real_exit(0)
 """
     tail = tail_open if keep_coot_open else tail_batch
-    script_content = script_content.replace("__ALL_VS_ALL_TAIL__", tail)
-    return script_content.format(output_dir, model_files)
+    return script_content.replace("__ALL_VS_ALL_TAIL__", tail)
 
 
 def create_axb_lsq_script(
-    ref_files, model_files_B, output_dirs_per_ref, keep_coot_open=False
+    ref_files,
+    model_files_B,
+    output_dirs_per_ref,
+    keep_coot_open=False,
+    ref_chain=None,
+    model_chain=None,
+    lsq_match_type="main",
 ):
     """
     AxB LSQ: for each reference in ref_files, least-squares align each model in model_files_B
-    (skipping same path). First chain per structure.
+    (skipping same path). Chains: --ref-chain/--model-chain when set, else first chain per structure.
     keep_coot_open False (default): call coot_real_exit(0) after all alignments (batch).
     keep_coot_open True (--interactive): reload inputs and leave Coot open.
     """
@@ -356,22 +397,34 @@ def create_axb_lsq_script(
     if not keep_coot_open:
         exit_line = "coot_real_exit(0)  # AxB default: non-interactive batch (exit when done)"
 
-    script_content = """
+    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    ref_assign = (
+        "reference_chain = chain_ids(reference_mol)[0]"
+        if ref_chain is None
+        else f"reference_chain = {ref_chain!r}"
+    )
+    mov_assign = (
+        "model_chain = chain_ids(model_mol)[0]"
+        if model_chain is None
+        else f"model_chain = {model_chain!r}"
+    )
+    ref_configs = list(zip(ref_files, output_dirs_per_ref))
+    script_content = f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
 
 set_nomenclature_errors_on_read("ignore")
 set_show_symmetry_master(0)
 
-ref_configs = {ref_configs}
-model_paths = {model_paths}
-keep_coot_open = {keep_coot_open_py}
+ref_configs = {repr(ref_configs)}
+model_paths = {repr(model_files_B)}
+keep_coot_open = {repr(bool(keep_coot_open))}
 
 for ref_path, out_dir in ref_configs:
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     reference_mol = read_pdb(ref_path)
-    reference_chain = chain_ids(reference_mol)[0]
+    {ref_assign}
     ref_name = os.path.splitext(os.path.basename(ref_path))[0]
     graphics_to_ca_representation(reference_mol)
     print("LSQ AxB: reference " + ref_name)
@@ -379,15 +432,12 @@ for ref_path, out_dir in ref_configs:
         if model_path == ref_path:
             continue
         model_mol = read_pdb(model_path)
-        model_chain = chain_ids(model_mol)[0]
+        {mov_assign}
         model_name = os.path.splitext(os.path.basename(model_path))[0]
         print("  Aligning " + model_name + " to " + ref_name)
         graphics_to_ca_representation(model_mol)
         try:
-            superpose_with_atom_selection(reference_mol, model_mol,
-                "//" + reference_chain + "//",
-                "//" + model_chain + "//",
-                0)
+            foldkit_least_squares_superpose(reference_mol, model_mol, reference_chain, model_chain, {mt})
         except Exception as e:
             print("Error LSQ " + model_name + " to " + ref_name + ": " + str(e))
             close_molecule(model_mol)
@@ -401,6 +451,7 @@ for i in range(graphics_n_molecules()):
     close_molecule(i)
 
 if keep_coot_open:
+    print("FOLDKIT_ALIGNMENTS_DONE: All AxB superpositions written to disk. Reloading structures in Coot for inspection...")
     print("\\nReloading structures for visual inspection (LSQ AxB)...")
     unique_paths = []
     seen = set()
@@ -420,16 +471,13 @@ if keep_coot_open:
         set_molecule_bonds_colour_map_rotation(mol, 20 * i)
         print("Loaded for display: " + os.path.basename(file_path))
     print("LSQ AxB complete.")
+else:
+    print("FOLDKIT_ALIGNMENTS_DONE: All AxB superpositions written to disk. Exiting Coot.")
 
 __EXIT_LINE__
 """.replace("__EXIT_LINE__", exit_line)
 
-    ref_configs = list(zip(ref_files, output_dirs_per_ref))
-    return script_content.format(
-        ref_configs=repr(ref_configs),
-        model_paths=repr(model_files_B),
-        keep_coot_open_py=repr(bool(keep_coot_open)),
-    )
+    return script_content
 
 
 def run_pattern_lsq_superposition(
@@ -444,6 +492,7 @@ def run_pattern_lsq_superposition(
     model_file_pattern="*.cif",
     output_suffix="_LSQaligned_",
     keep_coot_open=True,
+    lsq_match_type="main",
 ):
     """Pair reference and model files by patterns, then LSQ-superpose each match in Coot (legacy trim_superimposeLSQ_pattern behavior)."""
     matches = find_ref_model_matches(
@@ -484,6 +533,7 @@ def run_pattern_lsq_superposition(
                     output_dir,
                     aligned_tag="_LSQaligned_",
                     keep_coot_open=keep_coot_open,
+                    lsq_match_type=lsq_match_type,
                 )
             )
 
@@ -496,7 +546,8 @@ def run_pattern_lsq_superposition(
                 )
                 log.write(f"# Reference: {ref_file}\n")
                 log.write(f"# Models directory: {subdir}\n")
-                log.write(f"# Number of models: {len(model_files)}\n\n")
+                log.write(f"# Number of models: {len(model_files)}\n")
+                log.write(f"# LSQ match type: {lsq_match_type}\n\n")
 
             process = Popen(
                 ["coot", "--script", script_file],
@@ -512,8 +563,7 @@ def run_pattern_lsq_superposition(
                         if output == "" and process.poll() is not None:
                             break
                         if output:
-                            log.write(output)
-                            log.flush()
+                            _pipe_coot_stdout_line(output, log)
                 else:
                     print("Warning: process.stdout is None, cannot capture output.")
             rc = process.wait()
@@ -521,6 +571,7 @@ def run_pattern_lsq_superposition(
                 log_file,
                 rc,
                 "LSQ pattern mode — subdirectory: {}.".format(subdir_name),
+                rmsd_format="lsq",
             )
         except Exception as e:
             print(f"Error during superposition: {e}")
@@ -539,6 +590,7 @@ def main_pattern_mode():
     model_file_pattern = "*.cif"
     output_suffix = "_LSQaligned_"
     keep_coot_open = True
+    lsq_match_type = "main"
 
     i = 0
     while i < len(args):
@@ -560,6 +612,9 @@ def main_pattern_mode():
         elif args[i].startswith("--output-suffix="):
             output_suffix = args[i].split("=", 1)[1]
             args.pop(i)
+        elif args[i].startswith("--lsq-match-type="):
+            lsq_match_type = _normalize_lsq_match_type(args[i].split("=", 1)[1])
+            args.pop(i)
         else:
             i += 1
 
@@ -577,6 +632,7 @@ def main_pattern_mode():
         print("  --model-file-pattern=GLOB (default: \"*.cif\")")
         print("  --output-suffix=STRING   output dir suffix (default: \"_LSQaligned_\")")
         print("  --not-interactive        exit Coot after each alignment set (default: keep open)")
+        print("  --lsq-match-type=TYPE    ca | main | all (default: main)")
         print("\nExamples:")
         print("  python superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id")
         print(
@@ -611,6 +667,7 @@ def main_pattern_mode():
         model_file_pattern,
         output_suffix,
         keep_coot_open=keep_coot_open,
+        lsq_match_type=lsq_match_type,
     )
 
 
@@ -653,8 +710,9 @@ def main():
         print("  --ref=FILE           Same as --reference=")
         print("  --output-dir=DIR     Output dir; placeholders [reference_name], [filter], *filter*")
         print("  --out-dir=DIR        Alias for --output-dir=")
-        print("  --ref-chain=CHAIN    Explicit reference chain (one-to-many; AxB LSQ still uses first chain)")
+        print("  --ref-chain=CHAIN    Explicit reference chain (one-to-many, all-vs-all, AxB)")
         print("  --model-chain=CHAIN  Explicit model chain (same)")
+        print("  --lsq-match-type=TYPE  LSQ only: ca | main | all (default: main; Coot manual match types)")
         print("  --interactive        AxB only: after all alignments, reload structures and keep Coot open")
         print("  --not-interactive    One-to-many and single-set all-vs-all: exit Coot when done (default: keep open)")
         print("\nExamples:")
@@ -681,6 +739,7 @@ def main():
     model_chain = None
     axb_keep_coot_open = False
     legacy_keep_coot_open = True
+    lsq_match_type = "main"
 
     # Allow --output-dir anywhere (e.g. after positionals); only this pass sets it
     for a in sys.argv[1:]:
@@ -710,6 +769,8 @@ def main():
             ref_chain = arg.split("=", 1)[1]
         elif arg.startswith("--model-chain="):
             model_chain = arg.split("=", 1)[1]
+        elif arg.startswith("--lsq-match-type="):
+            lsq_match_type = _normalize_lsq_match_type(arg.split("=", 1)[1])
         elif arg.startswith("--output-dir=") or arg.startswith("--out-dir="):
             pass  # already collected above
         elif not arg.startswith("--"):
@@ -849,12 +910,6 @@ def main():
         _print_structures("Reference set (A)", ref_files)
         _print_structures("Model set (B)", model_files_B)
 
-        if explicit_chains:
-            print(
-                "Note: LSQ AxB uses the first chain in each structure; "
-                "--ref-chain/--model-chain are not applied in this mode yet."
-            )
-
         ref_stems = [os.path.splitext(os.path.basename(p))[0] for p in ref_files]
         stem_counts = {}
         for s in ref_stems:
@@ -921,6 +976,9 @@ def main():
             model_files_B,
             output_dirs_per_ref,
             keep_coot_open=axb_keep_coot_open,
+            ref_chain=ref_chain if explicit_chains else None,
+            model_chain=model_chain if explicit_chains else None,
+            lsq_match_type=lsq_match_type,
         )
 
         with open(script_file, "w") as f:
@@ -938,6 +996,9 @@ def main():
                 log.write(
                     f"# AxB keep_coot_open ( --interactive ): {axb_keep_coot_open}\n"
                 )
+                log.write(f"# LSQ match type: {lsq_match_type}\n")
+                if explicit_chains:
+                    log.write(f"# Ref chain: {ref_chain}  Model chain: {model_chain}\n")
                 log.write(f"# References (A): {len(ref_files)}\n")
                 log.write(f"# Models (B): {len(model_files_B)}\n\n")
 
@@ -955,8 +1016,7 @@ def main():
                         if output == "" and process.poll() is not None:
                             break
                         if output:
-                            log.write(output)
-                            log.flush()
+                            _pipe_coot_stdout_line(output, log)
                 else:
                     print("Warning: process.stdout is None, cannot capture output.")
             rc = process.wait()
@@ -966,6 +1026,7 @@ def main():
                 "LSQ AxB: {} reference(s), {} model(s) in set B.".format(
                     len(ref_files), len(model_files_B)
                 ),
+                rmsd_format="lsq",
             )
         finally:
             if os.path.exists(script_file):
@@ -1011,7 +1072,12 @@ def main():
         with open(script_file, "w") as f:
             f.write(
                 create_all_vs_all_lsq_script(
-                    model_files, output_dir, keep_coot_open=legacy_keep_coot_open
+                    model_files,
+                    output_dir,
+                    keep_coot_open=legacy_keep_coot_open,
+                    ref_chain=ref_chain if explicit_chains else None,
+                    model_chain=model_chain if explicit_chains else None,
+                    lsq_match_type=lsq_match_type,
                 )
             )
         
@@ -1028,6 +1094,11 @@ def main():
                 log.write(
                     "# Keep Coot open after run: {}\n".format(legacy_keep_coot_open)
                 )
+                log.write("# LSQ match type: {}\n".format(lsq_match_type))
+                if explicit_chains:
+                    log.write(
+                        "# Ref chain: {}  Model chain: {}\n".format(ref_chain, model_chain)
+                    )
                 log.write("# Number of models: {}\n\n".format(len(model_files)))
             
             # Run process and capture output
@@ -1043,8 +1114,7 @@ def main():
                         if output == '' and process.poll() is not None:
                             break
                         if output:
-                            log.write(output)
-                            log.flush()
+                            _pipe_coot_stdout_line(output, log)
                 else:
                     print("Warning: process.stdout is None, cannot capture output.")
             
@@ -1058,6 +1128,7 @@ def main():
                     num_alignments,
                     output_dir,
                 ),
+                rmsd_format="lsq",
             )
                 
         finally:
@@ -1131,6 +1202,9 @@ def main():
                     model_files,
                     output_dir,
                     keep_coot_open=legacy_keep_coot_open,
+                    ref_chain=ref_chain if explicit_chains else None,
+                    model_chain=model_chain if explicit_chains else None,
+                    lsq_match_type=lsq_match_type,
                 )
             )
         
@@ -1149,6 +1223,11 @@ def main():
                 log.write(
                     "# Keep Coot open after run: {}\n".format(legacy_keep_coot_open)
                 )
+                log.write("# LSQ match type: {}\n".format(lsq_match_type))
+                if explicit_chains:
+                    log.write(
+                        "# Ref chain: {}  Model chain: {}\n".format(ref_chain, model_chain)
+                    )
 
             # Run process and capture output
             process = Popen(["coot", "--script", script_file], 
@@ -1163,9 +1242,7 @@ def main():
                         if output == '' and process.poll() is not None:
                             break
                         if output:
-                            print(output.strip())
-                            log.write(output)
-                            log.flush()
+                            _pipe_coot_stdout_line(output, log, echo_all_stdout=True)
                 else:
                     print("Warning: process.stdout is None, cannot capture output.")
 
@@ -1174,9 +1251,8 @@ def main():
                 log_file,
                 rc,
                 "LSQ one-to-many: output directory {}.".format(output_dir),
+                rmsd_format="lsq",
             )
-            print("\nTo extract RMSD values, run:")
-            print("python extract_rmsd.py --format lsq {}".format(log_file))
 
         except Exception as e:
             print("Error running Coot: {}".format(e))

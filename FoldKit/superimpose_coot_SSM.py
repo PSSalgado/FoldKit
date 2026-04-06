@@ -31,29 +31,64 @@ def expand_output_dir_pattern(template, ref_name=None, filter_pattern=None):
     return s
 
 
-def _announce_superposition_finished(log_file, exit_code, summary=""):
+def _announce_superposition_finished(
+    log_file, exit_code, summary="", rmsd_format=None
+):
     """
-    Print a clear completion line to the terminal. While Coot runs, stdout/stderr
-    are only copied to the log file, so users otherwise see no progress until the end.
+    Announce completion on stderr and append the same text to the Coot log.
+
+    While Coot runs, its stdout is only copied to the log file (not echoed), so the
+    terminal can stay quiet. Using stderr here avoids losing the message when Python
+    stdout is fully buffered or redirected (non-TTY, some IDEs, wrappers).
     """
-    print(flush=True)
-    print("=" * 72, flush=True)
+    lines = [
+        "",
+        "=" * 72,
+    ]
     if exit_code == 0:
-        print(
-            "Finished: all superpositions for this run are complete (Coot exit code 0).",
-            flush=True,
+        lines.append(
+            "Finished: all superpositions for this run are complete (Coot exit code 0)."
         )
     else:
-        print(
+        lines.append(
             "Coot process ended (exit code {}). Check the log if outputs look wrong.".format(
                 exit_code
-            ),
-            flush=True,
+            )
         )
     if summary:
-        print(summary, flush=True)
-    print("Log: {}".format(log_file), flush=True)
-    print("=" * 72, flush=True)
+        lines.append(summary)
+    lines.append("Log: {}".format(log_file))
+    lines.append("=" * 72)
+    if rmsd_format:
+        lines.append("")
+        lines.append("To extract RMSD values, run:")
+        lines.append(
+            "python extract_rmsd.py --format {} {}".format(rmsd_format, log_file)
+        )
+    text = "\n".join(lines) + "\n"
+    print(text, file=sys.stderr, end="", flush=True)
+    try:
+        with open(log_file, "a", encoding="utf-8", errors="replace") as logf:
+            logf.write(text)
+    except OSError:
+        pass
+
+
+# Coot prints a line containing this marker when alignments are saved (before reload or exit).
+# SSM: Coot User Manual "Secondary Structure Matching (SSM)" — superpose_with_atom_selection
+# (last argument is move_copy_flag: 0 = transform moving molecule in place before write_pdb_file).
+COOT_STDOUT_ALIGNMENTS_DONE_MARKER = "FOLDKIT_ALIGNMENTS_DONE"
+
+
+def _pipe_coot_stdout_line(line, log_f, echo_all_stdout=False):
+    """Append Coot stdout to the log; echo marker lines to stderr; optionally echo every line to stdout."""
+    log_f.write(line)
+    log_f.flush()
+    stripped = line.rstrip("\n\r")
+    if COOT_STDOUT_ALIGNMENTS_DONE_MARKER in line:
+        print(stripped, file=sys.stderr, flush=True)
+    if echo_all_stdout:
+        print(stripped)
 
 
 # Function to create Coot script for SSM superposition
@@ -99,11 +134,12 @@ for model_path in {2}:
     graphics_to_ca_representation(model_mol)
 
     try:
-        # Use SSM superposition (1 for SSM mode)
+        # Coot: superpose_with_atom_selection is SSM (see manual). Last arg is move_copy_flag:
+        # 0 = transform moving mol in place (required before write_pdb_file on this handle).
         superpose_with_atom_selection(reference_mol, model_mol, 
                                     "//" + reference_chain + "//", 
                                     "//" + model_chain + "//",
-                                    1)
+                                    0)
             
     except Exception as e:
         print("Error during superposition:", e)
@@ -122,6 +158,7 @@ for i in range(graphics_n_molecules()):
 __POST_CLOSE__
 """
     post_open = """
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Reloading structures in Coot for inspection...")
 # Start new Coot window with reference structure
 handle_read_draw_molecule_with_recentre("{0}", 0)
 ref_mol = graphics_n_molecules() - 1
@@ -144,6 +181,7 @@ set_rotation_centre(x, y, z)
 # coot_real_exit(0)  # Comment out to keep Coot window open
 """
     post_batch = """
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Exiting Coot.")
 print("Aligned structures saved to: {1}")
 coot_real_exit(0)
 """
@@ -205,11 +243,10 @@ for ref_path in model_files:
         graphics_to_ca_representation(model_mol)
 
         try:
-            # Use SSM superposition (1 for SSM mode)
             superpose_with_atom_selection(reference_mol, model_mol,
                                         "//" + reference_chain + "//",
                                         "//" + model_chain + "//",
-                                        1)
+                                        0)
 
         except Exception as e:
             print("Error during SSM superposition of " + model_name + " onto " + ref_name + ": " + str(e))
@@ -235,6 +272,7 @@ for ref_path in model_files:
 __ALL_VS_ALL_TAIL__
 """
     tail_open = """
+print("FOLDKIT_ALIGNMENTS_DONE: All pairwise superpositions written to disk. Reloading structures in Coot for inspection...")
 # Reload final set for visual inspection
 print("\\nReloading structures for visual inspection...")
 unique_files = list(set(model_files))
@@ -251,6 +289,7 @@ print("Aligned structures saved to: {0}")
 # coot_real_exit(0)  # Comment out to keep Coot window open
 """
     tail_batch = """
+print("FOLDKIT_ALIGNMENTS_DONE: All pairwise superpositions written to disk. Exiting Coot.")
 for i in range(graphics_n_molecules()):
     close_molecule(i)
 print("\\nAll-vs-all SSM superposition complete (batch). Aligned structures saved to: {0}")
@@ -264,7 +303,7 @@ coot_real_exit(0)
 def create_coot_script_explicit_chains(
     reference_file, model_files, output_dir, ref_chain, model_chain, keep_coot_open=True
 ):
-    """One-to-many SSM with explicit reference/model chains (mmdb selections, move_copy_flag 0)."""
+    """One-to-many SSM with explicit reference/model chains (mmdb selections; in-place superposition)."""
     script_content = """
 import os
 import sys
@@ -400,6 +439,7 @@ for i in range(graphics_n_molecules()):
 __POST_CLOSE__
 """
     post_open = """
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Reloading structures in Coot for inspection...")
 handle_read_draw_molecule_with_recentre(r"{reference_file}", 0)
 ref_mol = graphics_n_molecules() - 1
 set_molecule_bonds_colour_map_rotation(ref_mol, 0)
@@ -419,6 +459,7 @@ set_rotation_centre(x, y, z)
 # coot_real_exit(0)
 """
     post_batch = """
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Exiting Coot.")
 print("Aligned structures saved to: " + r"{output_dir}")
 coot_real_exit(0)
 """
@@ -441,7 +482,7 @@ def create_axb_ssm_script(
 ):
     """
     AxB SSM: for each reference in ref_files, superpose each model in model_files_B
-    (skipping same path). Uses first chain per structure, SSM mode 1 (legacy).
+    (skipping same path). Uses first chain per structure; Coot SSM via superpose_with_atom_selection.
     output_dirs_per_ref[i] is the output directory for ref_files[i].
     keep_coot_open False (default): coot_real_exit(0) after all alignments (batch).
     keep_coot_open True (--interactive): reload inputs and leave Coot open.
@@ -479,7 +520,7 @@ for ref_path, out_dir in ref_configs:
             superpose_with_atom_selection(reference_mol, model_mol,
                 "//" + reference_chain + "//",
                 "//" + model_chain + "//",
-                1)
+                0)
         except Exception as e:
             print("Error SSM " + model_name + " onto " + ref_name + ": " + str(e))
             close_molecule(model_mol)
@@ -493,6 +534,7 @@ for i in range(graphics_n_molecules()):
     close_molecule(i)
 
 if keep_coot_open:
+    print("FOLDKIT_ALIGNMENTS_DONE: All AxB superpositions written to disk. Reloading structures in Coot for inspection...")
     print("\\nReloading structures for visual inspection (AxB)...")
     unique_paths = []
     seen = set()
@@ -512,6 +554,8 @@ if keep_coot_open:
         set_molecule_bonds_colour_map_rotation(mol, 20 * i)
         print("Loaded for display: " + os.path.basename(file_path))
     print("SSM AxB complete. Aligned PDBs under each reference output directory.")
+else:
+    print("FOLDKIT_ALIGNMENTS_DONE: All AxB superpositions written to disk. Exiting Coot.")
 
 __EXIT_LINE__
 """.replace("__EXIT_LINE__", exit_line)
@@ -532,7 +576,7 @@ def create_axb_ssm_explicit_chains_script(
     model_chain,
     keep_coot_open=False,
 ):
-    """AxB SSM with explicit chains (mmdb selections, move_copy_flag 0)."""
+    """AxB SSM with explicit chains (mmdb selections; superpose_with_atom_selection, move_copy_flag=0)."""
     exit_line = "# coot_real_exit(0)  # AxB --interactive: keep Coot open after reload"
     if not keep_coot_open:
         exit_line = "coot_real_exit(0)  # AxB default: non-interactive batch (exit when done)"
@@ -629,6 +673,7 @@ for i in range(graphics_n_molecules()):
     close_molecule(i)
 
 if keep_coot_open:
+    print("FOLDKIT_ALIGNMENTS_DONE: All AxB superpositions written to disk. Reloading structures in Coot for inspection...")
     print("\\nReloading structures for visual inspection (AxB explicit)...")
     unique_paths = []
     seen = set()
@@ -647,6 +692,8 @@ if keep_coot_open:
         graphics_to_ca_representation(mol)
         set_molecule_bonds_colour_map_rotation(mol, 20 * i)
     print("SSM AxB (explicit chains) complete.")
+else:
+    print("FOLDKIT_ALIGNMENTS_DONE: All AxB superpositions written to disk. Exiting Coot.")
 
 __EXIT_LINE__
 """.replace("__EXIT_LINE__", exit_line)
@@ -766,6 +813,7 @@ for ref_path in model_files:
 __ALL_VS_ALL_EXPLICIT_TAIL__
 """
     tail_open = """
+print("FOLDKIT_ALIGNMENTS_DONE: All pairwise superpositions written to disk. Reloading structures in Coot for inspection...")
 print("\\nReloading structures for visual inspection...")
 unique_files = list(set(model_files))
 for i, file_path in enumerate(unique_files):
@@ -775,6 +823,7 @@ for i, file_path in enumerate(unique_files):
 print("\\nAll-vs-all SSM (explicit chains) complete. Aligned structures saved to: " + r"{output_dir}")
 """
     tail_batch = """
+print("FOLDKIT_ALIGNMENTS_DONE: All pairwise superpositions written to disk. Exiting Coot.")
 for i in range(graphics_n_molecules()):
     close_molecule(i)
 print("\\nAll-vs-all SSM (explicit chains) complete (batch). Aligned structures saved to: " + r"{output_dir}")
@@ -889,8 +938,7 @@ def run_pattern_ssm_superposition(
                         if output == "" and process.poll() is not None:
                             break
                         if output:
-                            log.write(output)
-                            log.flush()
+                            _pipe_coot_stdout_line(output, log)
                 else:
                     print("Warning: process.stdout is None, cannot capture output.")
             rc = process.wait()
@@ -898,9 +946,8 @@ def run_pattern_ssm_superposition(
                 log_file,
                 rc,
                 "SSM pattern mode — subdirectory: {}.".format(subdir_name),
+                rmsd_format="ssm",
             )
-            print("\nTo extract RMSD values, run:")
-            print("python extract_rmsd.py --format ssm {}".format(log_file))
         except Exception as e:
             print("Error during superposition: {}".format(e))
         finally:
@@ -1030,7 +1077,7 @@ def main():
         print("  --all-vs-all         Each structure as reference in turn; with --ref-filter/--model-filter: AxB mode")
         print("  --interactive        AxB only: after all alignments, reload structures and keep Coot open")
         print("  --not-interactive    One-to-many and single-set all-vs-all: exit Coot when done (default: keep open)")
-        print("Without --ref-chain/--model-chain: first chain per structure, SSM mode 1 (legacy).")
+        print("Without --ref-chain/--model-chain: first chain per structure (Coot SSM superposition).")
         print("Examples:")
         print("  python superimpose_coot_SSM.py /path/to/reference.pdb dir1 dir2 dir3")
         print("  python superimpose_coot_SSM.py --reference=/path/to/reference.pdb dir1 dir2")
@@ -1375,8 +1422,7 @@ def main():
                         if output == "" and process.poll() is not None:
                             break
                         if output:
-                            log.write(output)
-                            log.flush()
+                            _pipe_coot_stdout_line(output, log)
                 else:
                     print("Warning: process.stdout is None, cannot capture output.")
             rc = process.wait()
@@ -1386,9 +1432,8 @@ def main():
                 "SSM AxB: {} reference(s), {} model(s) in set B.".format(
                     len(ref_files), len(model_files_B)
                 ),
+                rmsd_format="ssm",
             )
-            print("\nTo extract RMSD values, run:")
-            print("python extract_rmsd.py --format ssm {}".format(log_file))
         finally:
             if os.path.exists(script_file):
                 os.remove(script_file)
@@ -1523,8 +1568,7 @@ def main():
                     if output == '' and process.poll() is not None:
                         break
                     if output:
-                        log.write(output)
-                        log.flush()
+                        _pipe_coot_stdout_line(output, log)
             else:
                 print("Warning: process.stdout is None, cannot capture output.")
         rc = process.wait()
@@ -1536,9 +1580,7 @@ def main():
             summ = "SSM one-to-many: {} model(s) superposed to reference.".format(
                 len(model_files)
             )
-        _announce_superposition_finished(log_file, rc, summ)
-        print("\nTo extract RMSD values, run:")
-        print("python extract_rmsd.py --format ssm {}".format(log_file))
+        _announce_superposition_finished(log_file, rc, summ, rmsd_format="ssm")
     finally:
         if os.path.exists(script_file):
             os.remove(script_file)

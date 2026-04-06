@@ -4,200 +4,132 @@ from subprocess import Popen, PIPE, STDOUT
 
 from trim_models import collect_models_from_directories, matches_filter_ci, run_trim_job
 
-def create_coot_script(reference_file, model_files, output_dir):
-    """Create Coot script for superposition with visualization."""
-    script_content = """
+from superimpose_coot_LSQ import COOT_LSQ_HELPERS_PY, _normalize_lsq_match_type
+
+def create_coot_script(reference_file, model_files, output_dir, lsq_match_type="main"):
+    """Create Coot script for superposition with visualization (Coot manual LSQ API)."""
+    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    script_content = f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
 
-# Global setting for nomenclature errors
 set_nomenclature_errors_on_read("ignore")
-
-# Turn off symmetry display
 set_show_symmetry_master(0)
 
-# Load reference structure
-reference_mol = read_pdb("{0}")
+reference_mol = read_pdb({reference_file!r})
 reference_chain = chain_ids(reference_mol)[0]
-ref_name = os.path.splitext(os.path.basename("{0}"))[0]
+ref_name = os.path.splitext(os.path.basename({reference_file!r}))[0]
 
-# Create output directory if it doesn't exist
-if not os.path.exists("{1}"):
-    os.makedirs("{1}")
+if not os.path.exists({output_dir!r}):
+    os.makedirs({output_dir!r})
 
-# Process each model
-for model_path in {3}:
-    # Load model
+for model_path in {model_files!r}:
     model_mol = read_pdb(model_path)
     model_chain = chain_ids(model_mol)[0]
-    
+    model_name = os.path.splitext(os.path.basename(model_path))[0]
+    print("Aligning " + model_name + " to " + ref_name)
     try:
-        # Use LSQ superposition (0 for LSQ mode)
-        superpose_with_atom_selection(reference_mol, model_mol, 
-                                    "//" + reference_chain + "//", 
-                                    "//" + model_chain + "//",
-                                    0)
-            
+        foldkit_least_squares_superpose(reference_mol, model_mol, reference_chain, model_chain, {mt})
     except Exception as e:
         print("Error during superposition:", e)
         continue
-    
-    # Create output name with new format
-    model_name = os.path.splitext(os.path.basename(model_path))[0]
-    output_name = os.path.join("{1}", model_name + "_LSQaligned2_" + ref_name + ".pdb")
-    
-    # Save aligned structure
+    output_name = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
     write_pdb_file(model_mol, output_name)
 
-# Close all existing molecules
 for i in range(graphics_n_molecules()):
     close_molecule(i)
 
-# Start new Coot window with reference structure
-handle_read_draw_molecule_with_recentre("{0}", 0)
+handle_read_draw_molecule_with_recentre({reference_file!r}, 0)
 ref_mol = graphics_n_molecules() - 1
 set_molecule_bonds_colour_map_rotation(ref_mol, 0)
 graphics_to_ca_representation(int(ref_mol))
 
-# Load and display all aligned structures
-for model_path in {3}:
+for model_path in {model_files!r}:
     model_name = os.path.splitext(os.path.basename(model_path))[0]
-    aligned_path = os.path.join("{1}", model_name + "_LSQaligned2_" + ref_name + ".pdb")
+    aligned_path = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
     handle_read_draw_molecule_with_recentre(aligned_path, 0)
     mol = graphics_n_molecules() - 1
     set_molecule_bonds_colour_map_rotation(mol, 21 * (mol - ref_mol))
     graphics_to_ca_representation(int(mol))
 
-# Get center coordinates of reference molecule
 x, y, z = molecule_centre(ref_mol)
 set_rotation_centre(x, y, z)
 
-# Exit Coot
 # coot_real_exit(0)  # Comment out to keep Coot window open
-""".format(
-        reference_file,  # {0}
-        output_dir,     # {1}
-        output_dir,     # {2} (unused)
-        model_files,    # {3}
-    )
-    
+"""
     return script_content
 
-def create_lsq_script(reference_file, model_files, output_dir):
-    """Create Coot script for LSQ superposition."""
-    script_content = """
+def create_lsq_script(reference_file, model_files, output_dir, lsq_match_type="main"):
+    """Create Coot script for LSQ superposition (Coot manual LSQ API)."""
+    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    return f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
 
-# Global setting for nomenclature errors
 set_nomenclature_errors_on_read("ignore")
-
-# Turn off symmetry display
 set_show_symmetry_master(0)
 
-# Load reference structure
-reference_mol = read_pdb("{0}")
+reference_mol = read_pdb({reference_file!r})
 reference_chain = chain_ids(reference_mol)[0]
-ref_name = os.path.splitext(os.path.basename("{0}"))[0]
+ref_name = os.path.splitext(os.path.basename({reference_file!r}))[0]
 
-# Create output directory if it doesn't exist
-if not os.path.exists("{1}"):
-    os.makedirs("{1}")
+if not os.path.exists({output_dir!r}):
+    os.makedirs({output_dir!r})
 
-# Process each model
-for model_path in {2}:
-    # Load model
+for model_path in {model_files!r}:
     model_mol = read_pdb(model_path)
     model_chain = chain_ids(model_mol)[0]
-    
+    model_name = os.path.splitext(os.path.basename(model_path))[0]
+    print("Aligning " + model_name + " to " + ref_name)
     try:
-        # Use LSQ superposition (0 for LSQ mode)
-        superpose_with_atom_selection(reference_mol, model_mol, 
-                                    "//" + reference_chain + "//", 
-                                    "//" + model_chain + "//",
-                                    0)
-            
+        foldkit_least_squares_superpose(reference_mol, model_mol, reference_chain, model_chain, {mt})
     except Exception as e:
         print("Error during superposition:", e)
         continue
-    
-    # Create output name with new format
-    model_name = os.path.splitext(os.path.basename(model_path))[0]
-    output_name = os.path.join("{1}", model_name + "_LSQaligned2_" + ref_name + ".pdb")
-    
-    # Save aligned structure
+    output_name = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
     write_pdb_file(model_mol, output_name)
 
-# Exit Coot
 coot_real_exit(0)
 """
-    return script_content.format(reference_file, output_dir, model_files)
 
-def create_all_vs_all_lsq_script(model_files, output_dir):
+def create_all_vs_all_lsq_script(model_files, output_dir, lsq_match_type="main"):
     """Create Coot script for all-vs-all LSQ superposition."""
-    script_content = """
+    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    return f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
 
-# Global setting for nomenclature errors
 set_nomenclature_errors_on_read("ignore")
-
-# Turn off symmetry display
 set_show_symmetry_master(0)
 
-# Create output directory if it doesn't exist
-if not os.path.exists("{0}"):
-    os.makedirs("{0}")
+if not os.path.exists({output_dir!r}):
+    os.makedirs({output_dir!r})
 
-# Get all model files
-model_files = {1}
+model_files = {model_files!r}
 
-# Perform all-vs-all superposition
 for ref_path in model_files:
-    # Load reference structure
     reference_mol = read_pdb(ref_path)
     reference_chain = chain_ids(reference_mol)[0]
     ref_name = os.path.splitext(os.path.basename(ref_path))[0]
-    
     print("Using reference: " + ref_name)
-    
-    # Process each model against this reference
     for model_path in model_files:
-        # Skip if model is the same as reference
         if model_path == ref_path:
             continue
-            
         model_name = os.path.splitext(os.path.basename(model_path))[0]
         print("  Aligning " + model_name + " to " + ref_name)
-        
-        # Load model
         model_mol = read_pdb(model_path)
         model_chain = chain_ids(model_mol)[0]
-        
         try:
-            # Use LSQ superposition (0 for LSQ mode)
-            superpose_with_atom_selection(reference_mol, model_mol, 
-                                        "//" + reference_chain + "//", 
-                                        "//" + model_chain + "//",
-                                        0)
-                
+            foldkit_least_squares_superpose(reference_mol, model_mol, reference_chain, model_chain, {mt})
         except Exception as e:
             print("Error during superposition of " + model_name + " to " + ref_name + ": " + str(e))
             continue
-        
-        # Create output name with new format
-        output_name = os.path.join("{0}", model_name + "_LSQaligned2_" + ref_name + ".pdb")
-        
-        # Save aligned structure
+        output_name = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
         write_pdb_file(model_mol, output_name)
-    
-    # Close reference molecule to free memory
     close_molecule(reference_mol)
 
-# Exit Coot
 coot_real_exit(0)
 """
-    return script_content.format(output_dir, model_files)
 
 def main():
     # Check for minimum arguments
