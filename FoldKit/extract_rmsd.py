@@ -287,7 +287,7 @@ def extract_rmsd_values(
         if include:
             filtered_blocks.append(block)
 
-    # Normalized patterns for debug output (do not reuse loop locals — some iterations `continue` early)
+    # Normalised patterns for debug output (do not reuse loop locals — some iterations `continue` early)
     dbg_aligned_pat = (
         aligned_pattern.lower()
         if aligned_pattern and not case_sensitive
@@ -372,28 +372,28 @@ def _run_single_log_mode(argv):
             "SSM logs use 'Superposing … onto …'. Use --format or rely on --format auto."
         )
     )
-    parser.add_argument("log_file", help="Path to the Coot log file")
+    parser.add_argument("log_file", help="Path to the Coot log file.")
     parser.add_argument(
         "--format",
         "-f",
         choices=("auto", "lsq", "ssm"),
         default="auto",
-        help="Log type: lsq (filtered LSQ blocks), ssm (SSM alignment + RMSD), or auto (detect)",
+        help="Log type: lsq (filtered LSQ blocks), ssm (SSM alignment + RMSD), or auto (detect).",
     )
-    parser.add_argument("--aligned", "-a", help="LSQ only: pattern for aligned model names")
-    parser.add_argument("--reference", "-r", help="LSQ only: pattern for reference model names")
+    parser.add_argument("--aligned", "-a", help="LSQ only: pattern for aligned model names.")
+    parser.add_argument("--reference", "-r", help="LSQ only: pattern for reference model names.")
     parser.add_argument(
-        "--case-sensitive", "-c", action="store_true", help="LSQ only: case-sensitive pattern match"
+        "--case-sensitive", "-c", action="store_true", help="LSQ only: case-sensitive pattern match."
     )
     parser.add_argument(
-        "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt"
+        "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt."
     )
     parser.add_argument(
         "--output",
         "-o",
         help=(
             "Output directory or RMSD file. "
-            "Existing dirs, or paths ending with a path separator, use standard rmsd_*.txt names "
+            "Existing directories, or paths ending with a path separator, use standard rmsd_*.txt names "
             "inside that directory; otherwise the path is the RMSD file (extension optional)."
         ),
     )
@@ -435,21 +435,21 @@ def _run_file_mode(argv):
     parser = argparse.ArgumentParser(
         description="Extract RMSD from a single Coot log (file mode, with optional output override)."
     )
-    parser.add_argument("log_file", help="Path to the Coot log file")
+    parser.add_argument("log_file", help="Path to the Coot log file.")
     parser.add_argument(
         "--format",
         "-f",
         choices=("auto", "lsq", "ssm"),
         default="auto",
-        help="Log type: lsq, ssm, or auto (detect from content)",
+        help="Log type: lsq, ssm, or auto (detect from content).",
     )
-    parser.add_argument("--aligned", "-a", help="LSQ only: pattern for aligned model names")
-    parser.add_argument("--reference", "-r", help="LSQ only: pattern for reference model names")
+    parser.add_argument("--aligned", "-a", help="LSQ only: pattern for aligned model names.")
+    parser.add_argument("--reference", "-r", help="LSQ only: pattern for reference model names.")
     parser.add_argument(
-        "--case-sensitive", "-c", action="store_true", help="LSQ only: case-sensitive pattern match"
+        "--case-sensitive", "-c", action="store_true", help="LSQ only: case-sensitive pattern match."
     )
     parser.add_argument(
-        "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt"
+        "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt."
     )
     parser.add_argument(
         "--output",
@@ -499,13 +499,13 @@ def _run_dir_mode(argv):
             "Matches only coot_log.txt and coot_log_*.txt (not other coot_log*.txt names)."
         ),
     )
-    parser.add_argument("base_dir", help="Base directory to search for Coot logs")
+    parser.add_argument("base_dir", help="Base directory to search for Coot logs.")
     parser.add_argument(
         "--format",
         "-f",
         choices=("auto", "lsq", "ssm"),
         default="auto",
-        help="Log type to assume for all logs (default: auto-detect per file)",
+        help="Log type to assume for all logs (default: auto-detect per file).",
     )
     parser.add_argument(
         "--output-dir",
@@ -516,18 +516,18 @@ def _run_dir_mode(argv):
         ),
     )
     parser.add_argument(
-        "--aligned", "-a", help="LSQ only: pattern for aligned model names (applied to each LSQ log)"
+        "--aligned", "-a", help="LSQ only: pattern for aligned model names (applied to each LSQ log)."
     )
     parser.add_argument(
         "--reference",
         "-r",
-        help="LSQ only: pattern for reference model names (applied to each LSQ log)",
+        help="LSQ only: pattern for reference model names (applied to each LSQ log).",
     )
     parser.add_argument(
-        "--case-sensitive", "-c", action="store_true", help="LSQ only: case-sensitive pattern match"
+        "--case-sensitive", "-c", action="store_true", help="LSQ only: case-sensitive pattern match."
     )
     parser.add_argument(
-        "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt per log"
+        "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt per log."
     )
 
     args = parser.parse_args(argv)
@@ -572,7 +572,7 @@ def _run_dir_mode(argv):
                     output_dir=out_dir,
                 )
         else:
-            # Outputs written next to log (standard behavior)
+            # Outputs written next to log (standard behaviour)
             if fmt == "ssm":
                 if args.aligned or args.reference:
                     print(
@@ -625,7 +625,7 @@ def main():
             _run_dir_mode(argv)
         return
 
-    # Legacy behavior: treat the first non-option as a log file path.
+    # Legacy behaviour: treat the first non-option as a log file path.
     _run_single_log_mode(sys.argv[1:])
 
 

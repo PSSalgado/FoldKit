@@ -117,13 +117,13 @@ def main() -> None:
     ap.add_argument(
         "--filter",
         metavar="SUBSTRING",
-        help="Directory mode only: keep only files whose basename contains this substring",
+        help="Directory mode only: keep only files whose basename contains this substring.",
     )
     ap.add_argument(
         "paths",
         nargs="+",
         metavar="PATH",
-        help="Directories (all top-level structures) and/or glob patterns",
+        help="Directories (all top-level structures) and/or glob patterns.",
     )
     args = ap.parse_args()
 

@@ -125,7 +125,7 @@ def _pair_result_from_biotite_fallback(
     coords_B = _ds.get_ca_coords_biopython(sb, chain_b)
     equivs = _ds.normalize_equivalences(equiv_raw, coords_A, coords_B)
     if len(equivs) < 3:
-        return None, f"biotite fallback: only {len(equivs)} matched residues after normalization"
+        return None, f"biotite fallback: only {len(equivs)} matched residues after normalisation"
     np = _ds.np
     P = np.stack([coords_A[ka] for ka, _ in equivs])
     Q = np.stack([coords_B[kb] for _, kb in equivs])
@@ -562,7 +562,11 @@ must exist (symlink a compatible mkdssp to the expected path, or edit mpidali.pm
 Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install.
 """,
     )
-    ap.add_argument("paths", nargs="*", help="Pairwise: model_01.pdb model_02.pdb. All-vs-all: dirs/files.")
+    ap.add_argument(
+        "paths",
+        nargs="*",
+        help="Pairwise: model_01.pdb model_02.pdb. All-vs-all: directories or files.",
+    )
     ap.add_argument(
         "-d",
         "--output-dir",
@@ -576,12 +580,12 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         help="All unordered pairs from collected PDB/CIF paths.",
     )
     ap.add_argument("--filter", metavar="PATTERN", help="Filename filter (see dali_score.py).")
-    ap.add_argument("--chain-a", metavar="ID", help="Chain ID for structure A (first/query)")
-    ap.add_argument("--chain-b", metavar="ID", help="Chain ID for structure B (second/target)")
+    ap.add_argument("--chain-a", metavar="ID", help="Chain ID for structure A (first/query).")
+    ap.add_argument("--chain-b", metavar="ID", help="Chain ID for structure B (second/target).")
     ap.add_argument(
         "--dalilite-path",
         metavar="DIR",
-        help="DaliLite install dir (else DALILITE_HOME); mkdssp must satisfy bin/mpidali.pm.",
+        help="DaliLite installation directory (else DALILITE_HOME); mkdssp must satisfy bin/mpidali.pm.",
     )
     ap.add_argument(
         "--no-superpose-pdb",
@@ -601,35 +605,46 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
             "Z in CSV is empirical (not Dali Z). Requires biotite."
         ),
     )
-    ap.add_argument("-o", "--output", metavar="FILE", help="Pairwise results CSV basename")
+    ap.add_argument("-o", "--output", metavar="FILE", help="Pairwise results CSV basename.")
     ap.add_argument(
         "--output-tree",
         metavar="FILE",
         default="dali_tree.nwk",
-        help="Newick tree (default: dali_tree.nwk in output dir)",
+        help="Newick tree (default: dali_tree.nwk in output directory).",
     )
-    ap.add_argument("--output-plot", metavar="FILE", help="Dendrogram image path")
-    ap.add_argument("--output-matrix", metavar="FILE", help="Z-score matrix CSV path")
+    ap.add_argument("--output-plot", metavar="FILE", help="Dendrogram image path.")
+    ap.add_argument("--output-matrix", metavar="FILE", help="Z-score matrix CSV path.")
     ap.add_argument(
         "--output-ranking",
         metavar="FILE",
         default="dali_ranking.csv",
-        help="Ranking CSV (default: dali_ranking.csv in output dir)",
+        help="Ranking CSV (default: dali_ranking.csv in output directory).",
     )
     ap.add_argument(
         "--transform",
         choices=["inv", "maxminus", "exp"],
         default="inv",
-        help="Z to distance for NJ tree (default: inv)",
+        help="Z to distance for NJ tree (default: inv).",
     )
-    ap.add_argument("--exp-scale", type=float, default=10.0)
-    ap.add_argument("--root", metavar="LABEL", help="Outgroup label for rooting")
+    ap.add_argument(
+        "--exp-scale",
+        type=float,
+        default=10.0,
+        metavar="SCALE",
+        help="Scale for exp transform: d=exp(-Z/scale).",
+    )
+    ap.add_argument("--root", metavar="LABEL", help="Outgroup label for rooting.")
     ap.add_argument(
         "--no-midpoint-root",
         action="store_true",
-        help="Disable midpoint rooting when no --root",
+        help="Disable midpoint rooting when no --root.",
     )
-    ap.add_argument("-q", "--quiet", action="store_true")
+    ap.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Reduce console output.",
+    )
     ap.add_argument(
         "--debug-dalilite",
         action="store_true",

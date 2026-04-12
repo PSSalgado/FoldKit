@@ -174,7 +174,7 @@ for model_path in {2}:
     set_molecule_bonds_colour_map_rotation(mol, 21 * (mol - ref_mol))
     graphics_to_ca_representation(int(mol))
 
-# Get center coordinates of reference molecule
+# Get centre coordinates of reference molecule
 x, y, z = molecule_centre(ref_mol)
 set_rotation_centre(x, y, z)
 
@@ -846,7 +846,7 @@ def _matches_filter(basename: str, pattern: str) -> bool:
     """
     Match `pattern` against a file basename.
     - If pattern contains glob chars (* ? [), use shell-style wildcard matching.
-    - Otherwise, preserve legacy behavior: substring match.
+    - Otherwise, preserve legacy behaviour: substring match.
     Also matches against the filename stem (without extension) for convenience.
     """
     stem, _ = os.path.splitext(basename)

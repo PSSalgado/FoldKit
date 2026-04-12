@@ -47,14 +47,14 @@ load_packages <- function() {
   if (requireNamespace("RColorBrewer", quietly = TRUE)) {
     library(RColorBrewer)
   } else {
-    cat("Warning: RColorBrewer package is missing. Will use default color palette.\n")
+    cat("Warning: RColorBrewer package is missing. Will use default colour palette.\n")
   }
 }
 
 # Load packages
 load_packages()
 
-# Function to create a more gradual color palette
+# Function to create a more gradual colour palette
 # palette: RColorBrewer name (e.g. RdYlBu, RdYlGn, YlOrRd) or "viridis"/"plasma"
 create_gradient_palette <- function(n = 100, palette = "RdYlBu") {
   if (palette %in% c("viridis", "plasma", "inferno", "magma", "cividis") && requireNamespace("viridis", quietly = TRUE)) {
@@ -73,7 +73,7 @@ create_gradient_palette <- function(n = 100, palette = "RdYlBu") {
   if (requireNamespace("RColorBrewer", quietly = TRUE)) {
     return(colorRampPalette(rev(brewer.pal(11, "RdYlBu")))(n))
   }
-  stop("Need viridis or RColorBrewer for color palettes")
+  stop("Need viridis or RColorBrewer for colour palettes")
 }
 
 # Function to process a single CSV file
@@ -94,7 +94,7 @@ process_rmsd_file <- function(csv_file, color_palette_name = "RdYlBu") {
     # Create output filename
     output_file <- file.path(dirname(csv_file), paste0("rmsd_heatmap_", subdomain, ".pdf"))
     
-    # Create color palette
+    # Create colour palette
     color_palette <- create_gradient_palette(100, palette = color_palette_name)
     
     # Create heatmap
@@ -132,7 +132,7 @@ process_combined_file <- function(combined_file, color_palette_name = "RdYlBu") 
         return(FALSE)
     }
     
-    # Define the preferred group/subdomain order (customize for your CSV's group labels)
+    # Define the preferred group/subdomain order (customise for your CSV's group labels)
     subdomain_order <- c("sd", "D1", "D2", "ID", "ad")
     
     # Extract the protein name prefix from model names
@@ -173,7 +173,7 @@ process_combined_file <- function(combined_file, color_palette_name = "RdYlBu") 
     # Create output filename
     output_file <- file.path(dirname(combined_file), "combined_rmsd_heatmap.pdf")
     
-    # Create color palette
+    # Create colour palette
     color_palette <- create_gradient_palette(100, palette = color_palette_name)
     
     # Create a list to store protein names for each subdomain
@@ -238,7 +238,7 @@ process_combined_file <- function(combined_file, color_palette_name = "RdYlBu") 
     )
     rownames(annotation_col) <- colnames(rmsd_matrix)
     
-    # Create subdomain colors with matching order
+    # Create subdomain colours with matching order
     subdomain_colors <- colorRampPalette(brewer.pal(8, "Dark2"))(length(subdomains))
     names(subdomain_colors) <- subdomains
     annotation_colors <- list(Subdomain = subdomain_colors)
@@ -341,7 +341,7 @@ if (interactive()) {
   }
   base_dir <- args[1]
   color_palette_name <- if (length(args) >= 2) args[2] else "RdYlBu"
-  cat("Using color palette:", color_palette_name, "\n")
+  cat("Using colour palette:", color_palette_name, "\n")
 }
 
 # Find all rmsd_table_*.csv files
@@ -369,5 +369,5 @@ if (file.exists(combined_file)) {
   process_combined_file(combined_file, color_palette_name = color_palette_name)
 } else {
   cat("No combined RMSD table found at", combined_file, "\n")
-  cat("Run create_rmsd_table.py first to generate the combined table.\n")
+  cat("Run rmsd_to_csv.py --scan-dir <base> first to generate the combined table.\n")
 } 

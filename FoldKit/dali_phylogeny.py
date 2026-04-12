@@ -18,13 +18,13 @@ Input:
     Comment lines beginning with '#' are ignored.
 
 Outputs:
-  - A ranking table (CSV) summarizing average/max Z per structure.
+  - A ranking table (CSV) summarising average/max Z per structure.
   - A Newick tree inferred from a Z-score-derived distance matrix.
   - Optional plot if ete3 or biopython+matplotlib are installed.
 
 Distance transforms (Z -> distance):
   - inv:        d = 1 / (1 + Z)
-  - maxminus:   d = (Zmax - Z) / max(1e-9, Zmax)   (normalized to [0,1] roughly)
+  - maxminus:   d = (Zmax - Z) / max(1e-9, Zmax)   (normalised to [0,1] roughly)
   - exp:        d = exp(-Z / scale)                (scale configurable)
 
 Notes:
@@ -233,7 +233,7 @@ def _upgma_newick(labels: list[str], matrix: list[list[float]]) -> str:
 
 def build_tree_newick(labels: list[str], matrix: list[list[float]], root: str | None, midpoint_root: bool) -> str:
     """
-    Prefer neighbor-joining if available; otherwise UPGMA fallback.
+    Prefer neighbour-joining if available; otherwise UPGMA fallback.
     Rooting:
       - scikit-bio: supports midpoint and root_at(outgroup set)
       - biopython: supports outgroup rooting; midpoint rooting not implemented here
@@ -319,14 +319,49 @@ def main() -> None:
         description="DALI-style analysis from all-vs-all Z-scores: ranking + tree (Newick).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    ap.add_argument("zscores", help="Pairwise Z-score table: label_a label_b zscore (TSV/CSV/space)")
-    ap.add_argument("-o", "--output-tree", default="dali_tree.nwk", help="Output Newick tree path")
-    ap.add_argument("--output-ranking", default="dali_ranking.csv", help="Output ranking CSV path")
-    ap.add_argument("--transform", choices=["inv", "maxminus", "exp"], default="inv", help="Z -> distance transform")
-    ap.add_argument("--exp-scale", type=float, default=10.0, help="Scale for exp transform: d=exp(-Z/scale)")
-    ap.add_argument("--root", default=None, help="Outgroup label to root on (if supported by tree builder)")
-    ap.add_argument("--no-midpoint-root", action="store_true", help="Disable midpoint rooting (NJ only)")
-    ap.add_argument("--plot", default=None, metavar="PATH", help="Write a tree plot to PATH")
+    ap.add_argument(
+        "zscores",
+        help="Pairwise Z-score table: label_a label_b zscore (TSV/CSV/space-delimited).",
+    )
+    ap.add_argument(
+        "-o",
+        "--output-tree",
+        default="dali_tree.nwk",
+        help="Output Newick tree path.",
+    )
+    ap.add_argument(
+        "--output-ranking",
+        default="dali_ranking.csv",
+        help="Output ranking CSV path.",
+    )
+    ap.add_argument(
+        "--transform",
+        choices=["inv", "maxminus", "exp"],
+        default="inv",
+        help="Z-score to distance transform.",
+    )
+    ap.add_argument(
+        "--exp-scale",
+        type=float,
+        default=10.0,
+        help="Scale for exp transform: d=exp(-Z/scale).",
+    )
+    ap.add_argument(
+        "--root",
+        default=None,
+        help="Outgroup label to root on (if supported by tree builder).",
+    )
+    ap.add_argument(
+        "--no-midpoint-root",
+        action="store_true",
+        help="Disable midpoint rooting (NJ only).",
+    )
+    ap.add_argument(
+        "--plot",
+        default=None,
+        metavar="PATH",
+        help="Write a tree plot to PATH.",
+    )
     ap.add_argument(
         "--log",
         metavar="FILE",

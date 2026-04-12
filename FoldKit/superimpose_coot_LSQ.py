@@ -259,7 +259,7 @@ for model_path in {model_files!r}:
 __TAIL__
 """
     tail_open = f"""
-print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Applying colors in Coot — structures are ready for inspection.")
+print("FOLDKIT_ALIGNMENTS_DONE: All superpositions written to disk. Applying colours in Coot — structures are ready for inspection.")
 for i, mol in enumerate(loaded_molecules):
     set_molecule_bonds_colour_map_rotation(mol, 20 * i)
 
@@ -267,7 +267,7 @@ print("Superposition complete. All structures loaded in Coot for visual inspecti
 print("Reference: " + ref_name)
 print("Aligned structures saved to: {output_dir}")
 
-# Keep Coot open for manual visualization
+# Keep Coot open for manual visualisation
 # coot_real_exit(0)  # Commented out to keep Coot window open
 """
     tail_batch = f"""
@@ -364,7 +364,7 @@ for i, file_path in enumerate(unique_files):
 print("\\nAll-vs-all superposition complete. All structures loaded in Coot for visual inspection.")
 print("Aligned structures saved to: {output_dir}")
 
-# Keep Coot open for manual visualization
+# Keep Coot open for manual visualisation
 # coot_real_exit(0)  # Commented out to keep Coot window open
 """
     tail_batch = f"""
@@ -494,7 +494,7 @@ def run_pattern_lsq_superposition(
     keep_coot_open=True,
     lsq_match_type="main",
 ):
-    """Pair reference and model files by patterns, then LSQ-superpose each match in Coot (legacy trim_superimposeLSQ_pattern behavior)."""
+    """Pair reference and model files by patterns, then LSQ-superpose each match in Coot (legacy trim_superimposeLSQ_pattern behaviour)."""
     matches = find_ref_model_matches(
         ref_dir,
         model_dir,
@@ -678,7 +678,7 @@ def _matches_filter(basename: str, pattern: str) -> bool:
     """
     Match `pattern` against a file basename.
     - If pattern contains glob chars (* ? [), use shell-style wildcard matching.
-    - Otherwise, preserve legacy behavior: substring match.
+    - Otherwise, preserve legacy behaviour: substring match.
     Also matches against the filename stem (without extension) for convenience.
     """
     stem, _ = os.path.splitext(basename)
@@ -1085,7 +1085,7 @@ def main():
         try:
             print("Starting Coot process...")
             
-            # Initialize main log file with header
+            # Initialise main log file with header
             with open(log_file, 'w') as log:
                 log.write("# LSQ all-vs-all alignment log\n")
                 log.write("# Directories: {}\n".format(", ".join(directories)))
@@ -1149,7 +1149,7 @@ def main():
                 print("Error: No model files remain after removing reference file.")
                 sys.exit(1)
         else:
-            # Original behavior - ask for reference file
+            # Original behaviour - ask for reference file
             print("\nPlease select a reference file from the list above (enter the number):")
             for i, f in enumerate(model_files):
                 print("  {}. {}".format(i+1, os.path.basename(f)))
@@ -1212,7 +1212,7 @@ def main():
         try:
             print("Starting Coot process...")
             
-            # Initialize main log file with header
+            # Initialise main log file with header
             with open(log_file, 'w') as log:
                 log.write("# LSQ alignment log\n")
                 log.write("# Reference: {}\n".format(reference_file))

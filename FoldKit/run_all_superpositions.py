@@ -154,17 +154,17 @@ def main() -> None:
         "--conditions",
         nargs="+",
         metavar="NAME",
-        help=f"Condition subdirs to process (default: {CONDITIONS})",
+        help=f"Condition subdirectories to process (default: {CONDITIONS}).",
     )
     parser.add_argument(
         "--ref-base",
         dest="ref_base",
-        help=f"Base directory for reference trees (default: {REF_STRUCTURES_BASE})",
+        help=f"Base directory for reference trees (default: {REF_STRUCTURES_BASE}).",
     )
     parser.add_argument(
         "--models-base",
         dest="models_base",
-        help=f"Base directory for model trees (default: {MODELS_BASE})",
+        help=f"Base directory for model trees (default: {MODELS_BASE}).",
     )
     args = parser.parse_args()
 

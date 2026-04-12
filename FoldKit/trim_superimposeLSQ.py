@@ -7,7 +7,7 @@ from trim_models import collect_models_from_directories, matches_filter_ci, run_
 from superimpose_coot_LSQ import COOT_LSQ_HELPERS_PY, _normalize_lsq_match_type
 
 def create_coot_script(reference_file, model_files, output_dir, lsq_match_type="main"):
-    """Create Coot script for superposition with visualization (Coot manual LSQ API)."""
+    """Create Coot script for superposition with visualisation (Coot manual LSQ API)."""
     mt = repr(_normalize_lsq_match_type(lsq_match_type))
     script_content = f"""{COOT_LSQ_HELPERS_PY}
 import os
@@ -246,7 +246,7 @@ def main():
         try:
             print("Starting Coot process for all-vs-all superposition...")
             
-            # Initialize main log file with header
+            # Initialise main log file with header
             with open(log_file, 'w') as log:
                 log.write("# LSQ all-vs-all alignment log\n")
                 log.write(f"# Directories: {', '.join(directories)}\n")
@@ -287,7 +287,7 @@ def main():
         print(f"Output files saved to: {output_dir}")
         
     else:
-        # Original behavior - ask for reference file
+        # Original behaviour - ask for reference file
         print("\nPlease select a reference file from the list above (enter the number):")
         for i, f in enumerate(trimmed_files):
             print(f"  {i+1}. {os.path.basename(f)}")
@@ -335,7 +335,7 @@ def main():
             try:
                 print("Starting Coot process...")
                 
-                # Initialize main log file with header
+                # Initialise main log file with header
                 with open(log_file, 'w') as log:
                     log.write("# LSQ alignment log\n")
                     log.write(f"# Reference: {reference_file}\n")

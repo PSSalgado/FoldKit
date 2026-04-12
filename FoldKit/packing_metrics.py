@@ -27,7 +27,7 @@ class PackingMetricsCalculator:
     """Calculator for basic crystal packing metrics."""
     
     def __init__(self):
-        """Initialize the calculator."""
+        """Initialise the calculator."""
         if BIOPYTHON_AVAILABLE and PDBParser is not None:
             self.parser = PDBParser(QUIET=True)
         else:
@@ -78,7 +78,7 @@ class PackingMetricsCalculator:
             results['unit_cell_volume'] = self._calculate_unit_cell_volume(unit_cell_params)
             
             # Molecular weight and composition
-            molecular_data = self._analyze_molecular_content(structure)
+            molecular_data = self._analyse_molecular_content(structure)
             results.update(molecular_data)
             
             # Matthews coefficient and solvent content
@@ -93,7 +93,7 @@ class PackingMetricsCalculator:
             results.update(packing_data)
             
             # Void volume analysis
-            void_data = self._analyze_void_spaces(structure, results['unit_cell_volume'])
+            void_data = self._analyse_void_spaces(structure, results['unit_cell_volume'])
             results.update(void_data)
             
             return results
@@ -134,8 +134,8 @@ class PackingMetricsCalculator:
         
         return volume
     
-    def _analyze_molecular_content(self, structure):
-        """Analyze molecular weight and atomic composition."""
+    def _analyse_molecular_content(self, structure):
+        """Analyse molecular weight and atomic composition."""
         results = {}
         
         total_atoms = 0
@@ -222,8 +222,8 @@ class PackingMetricsCalculator:
         
         return results
     
-    def _analyze_void_spaces(self, structure, unit_cell_volume):
-        """Analyze void spaces and their distribution."""
+    def _analyse_void_spaces(self, structure, unit_cell_volume):
+        """Analyse void spaces and their distribution."""
         results = {}
         
         # Get all atom coordinates
@@ -255,7 +255,7 @@ class PackingMetricsCalculator:
         
         # Basic void analysis
         if len(coords) > 0:
-            # Calculate average nearest neighbor distance
+            # Calculate average nearest-neighbour distance
             try:
                 from scipy.spatial.distance import pdist
                 distances = pdist(coords)
@@ -343,12 +343,12 @@ def main():
     parser.add_argument(
         'input',
         nargs='+',
-        help='PDB/CIF file(s), directory (all *.pdb/*.cif inside), or glob pattern (e.g. *.pdb)',
+        help='PDB/CIF file(s), directory (all *.pdb/*.cif inside), or glob pattern (e.g. *.pdb).',
     )
     parser.add_argument(
         '--quiet', '-q',
         action='store_true',
-        help='One-line summary per file only',
+        help='One-line summary per file only.',
     )
     parser.add_argument(
         '--output', '-o',
@@ -476,7 +476,7 @@ def _run_analysis(paths, quiet, out_stream):
         if not quiet and len(paths) > 1:
             print(f"\n{'='*50}\n[{i+1}/{len(paths)}] {os.path.basename(pdb_file)}\n{'='*50}", file=out_stream)
         elif not quiet:
-            print(f"Analyzing {pdb_file}...", file=out_stream)
+            print(f"Analysing {pdb_file}...", file=out_stream)
 
         results = calculator.calculate_metrics(pdb_file)
 

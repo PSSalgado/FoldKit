@@ -9,7 +9,7 @@ import re
 
 
 def _normalize_ref_model_pattern(pattern):
-    """Normalize a pattern by removing special characters, converting to lowercase."""
+    """Normalise a pattern by removing special characters, converting to lowercase."""
     if pattern is None:
         return None
     return re.sub(r"[_\-\s]", "", pattern.lower())

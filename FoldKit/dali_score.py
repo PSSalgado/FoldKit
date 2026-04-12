@@ -1281,7 +1281,7 @@ def _plot_tree(newick: str, out_path: str, title: str) -> bool:
 
 def main():
     ap = argparse.ArgumentParser(
-        description='Compute Dali-like structural similarity score. Pairwise or all-vs-all with tree output.',
+        description='Compute Dali-like structural similarity score; pairwise or all-vs-all with optional tree output.',
         epilog='''
 Pairwise: dali_score.py model_01.pdb model_02.pdb [OPTIONS]
 All-vs-all: dali_score.py --all-vs-all dir_or_file [dir_or_file ...] [OPTIONS]
@@ -1292,41 +1292,41 @@ Alignment sources: DaliLite -> alignment file -> biotite -> sequence-order.
 Tree/dendrogram (all-vs-all only): --output-tree, --output-plot, --output-matrix, --output-ranking.
 ''')
     ap.add_argument('paths', nargs='*', metavar='PATH',
-                    help='Pairwise: model_01.pdb model_02.pdb. All-vs-all: dir(s) or file(s)')
+                    help='Pairwise: model_01.pdb model_02.pdb. All-vs-all: directories or files.')
     ap.add_argument('--all-vs-all', action='store_true',
-                    help='Compare all structures (from dirs/files) pairwise; enable tree outputs')
+                    help='Compare all structures (from directories or files) pairwise; enable tree outputs.')
     ap.add_argument('--filter', metavar='PATTERN',
-                    help='Filter files by name (substring or glob) in all-vs-all mode')
+                    help='Filter files by name (substring or glob) in all-vs-all mode.')
     ap.add_argument('-a', '--alignment', metavar='FILE',
-                    help='Alignment file with residue equivalences (TSV/CSV) [pairwise only]')
-    ap.add_argument('--chain-a', metavar='ID', help='Chain ID for structure A (optional)')
-    ap.add_argument('--chain-b', metavar='ID', help='Chain ID for structure B (optional)')
+                    help='Alignment file with residue equivalences (TSV/CSV); pairwise mode only.')
+    ap.add_argument('--chain-a', metavar='ID', help='Chain ID for structure A (optional).')
+    ap.add_argument('--chain-b', metavar='ID', help='Chain ID for structure B (optional).')
     ap.add_argument('--no-dalilite', action='store_true',
-                    help='Skip DaliLite (use biotite/alignment/sequence-order)')
+                    help='Skip DaliLite (use biotite, alignment file, or sequence order).')
     ap.add_argument('--dalilite-path', metavar='DIR',
-                    help='DaliLite installation directory (or set DALILITE_HOME); mkdssp must match bin/mpidali.pm')
+                    help='DaliLite installation directory (or set DALILITE_HOME); mkdssp must match bin/mpidali.pm.')
     ap.add_argument('--no-biotite', action='store_true',
-                    help='Skip biotite structural alignment')
+                    help='Skip biotite structural alignment.')
     ap.add_argument('--no-sequence-order', action='store_true',
-                    help='Do not fall back to sequence-order matching')
+                    help='Do not fall back to sequence-order matching.')
     ap.add_argument('-o', '--output', metavar='FILE',
-                    help='Pairwise: write pair result CSV. All-vs-all: write pairwise table CSV')
+                    help='Pairwise: write pair result CSV. All-vs-all: write pairwise table CSV.')
     ap.add_argument('--output-tree', metavar='FILE', default='dali_tree.nwk',
-                    help='All-vs-all: write Newick tree (default: dali_tree.nwk)')
+                    help='All-vs-all: write Newick tree (default: dali_tree.nwk).')
     ap.add_argument('--output-plot', metavar='FILE',
-                    help='All-vs-all: write dendrogram plot (requires ete3 or biopython+matplotlib)')
+                    help='All-vs-all: write dendrogram plot (requires ete3 or biopython+matplotlib).')
     ap.add_argument('--output-matrix', metavar='FILE',
-                    help='All-vs-all: write Z-score matrix CSV')
+                    help='All-vs-all: write Z-score matrix CSV.')
     ap.add_argument('--output-ranking', metavar='FILE', default='dali_ranking.csv',
-                    help='All-vs-all: write ranking CSV (default: dali_ranking.csv)')
+                    help='All-vs-all: write ranking CSV (default: dali_ranking.csv).')
     ap.add_argument('--transform', choices=['inv', 'maxminus', 'exp'], default='inv',
-                    help='Z-score to distance transform for tree (default: inv)')
+                    help='Z-score to distance transform for tree (default: inv).')
     ap.add_argument('--exp-scale', type=float, default=10.0,
-                    help='Scale for exp transform: d=exp(-Z/scale)')
-    ap.add_argument('--root', metavar='LABEL', help='Outgroup label to root tree on')
+                    help='Scale for exp transform: d=exp(-Z/scale).')
+    ap.add_argument('--root', metavar='LABEL', help='Outgroup label to root tree on.')
     ap.add_argument('--no-midpoint-root', action='store_true',
-                    help='Disable midpoint rooting (when no --root specified)')
-    ap.add_argument('-q', '--quiet', action='store_true', help='Reduce progress output (all-vs-all)')
+                    help='Disable midpoint rooting when no --root is specified.')
+    ap.add_argument('-q', '--quiet', action='store_true', help='Reduce progress output (all-vs-all).')
     ap.add_argument(
         '--log',
         metavar='FILE',

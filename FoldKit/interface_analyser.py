@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Interface Analyzer
+Interface Analyser
 =================
 
-Analyze interfaces between molecules in crystal structures using the approach
+Analyse interfaces between molecules in crystal structures using the approach
 described in Biopython's Interface Analysis wiki:
 https://biopython.org/wiki/Interface_Analysis
 
@@ -67,12 +67,12 @@ def _contact_within_limit(contact_type: str, distance: float) -> bool:
     return False
 
 
-class InterfaceAnalyzer:
-    """Analyzer for protein-protein interfaces in crystal structures."""
+class InterfaceAnalyser:
+    """Analyser for protein-protein interfaces in crystal structures."""
 
     def __init__(self, contact_distance=5.0):
         """
-        Initialize the interface analyzer.
+        Initialise the interface analyser.
 
         Parameters:
         -----------
@@ -94,9 +94,9 @@ class InterfaceAnalyzer:
             'Na': 2.27, 'K': 2.75, 'Cl': 1.75, 'Br': 1.85
         }
     
-    def analyze_interfaces(self, pdb_file):
+    def analyse_interfaces(self, pdb_file):
         """
-        Analyze all interfaces in a crystal structure.
+        Analyse all interfaces in a crystal structure.
         
         Parameters:
         -----------
@@ -124,7 +124,7 @@ class InterfaceAnalyzer:
             if len(chains) < 2:
                 return {'error': 'Need at least 2 chains for interface analysis'}
             
-            # Analyze all pairwise interfaces
+            # Analyse all pairwise interfaces
             total_buried_area = 0
             total_contact_area = 0
             total_interface_rmsd = 0.0
@@ -139,7 +139,7 @@ class InterfaceAnalyzer:
                     if chain1.parent is not chain2.parent:
                         continue
                     model = chain1.parent
-                    interface_data = self._analyze_pairwise_interface(chain1, chain2, model)
+                    interface_data = self._analyse_pairwise_interface(chain1, chain2, model)
                     
                     if interface_data['contact_count'] > 0 or interface_data.get('buried_surface_area', 0) > 0:
                         interface_data['chain_pair'] = f"{chain1.id}-{chain2.id}"
@@ -166,11 +166,11 @@ class InterfaceAnalyzer:
             return results
             
         except Exception as e:
-            return {'error': f"Failed to analyze interfaces: {str(e)}"}
+            return {'error': f"Failed to analyse interfaces: {str(e)}"}
     
-    def _analyze_pairwise_interface(self, chain1, chain2, model):
+    def _analyse_pairwise_interface(self, chain1, chain2, model):
         """
-        Analyze interface between two chains using Biopython wiki approach:
+        Analyse interface between two chains using Biopython wiki approach:
         - Interface residues from NeighborSearch (residue pairs within threshold, different chains).
         - BSA from ShrakeRupley SASA when available: BSA = SASA(c1) + SASA(c2) - SASA(complex).
         - Polarity and accessibility summaries for contact residues.
@@ -252,8 +252,8 @@ class InterfaceAnalyzer:
             results.update(self._summarize_polarity_and_accessibility(contact_residues1, contact_residues2, residue_sasa, chain1.id, chain2.id))
             return results
 
-        # Analyze contact details (on filtered contacts)
-        contact_analysis = self._analyze_contacts(contacts)
+        # Analyse contact details (on filtered contacts)
+        contact_analysis = self._analyse_contacts(contacts)
         results.update(contact_analysis)
 
         # Contact area (unchanged)
@@ -321,7 +321,7 @@ class InterfaceAnalyzer:
         return contacts
 
     def _classify_contact_type(self, atom1, atom2):
-        """Classify contact type from atom elements (same scheme as contact_analyzer)."""
+        """Classify contact type from atom elements (same scheme as contact_analyser)."""
         element1 = atom1.element.strip().upper() or atom1.name[0].upper()
         element2 = atom2.element.strip().upper() or atom2.name[0].upper()
         h_bond_elements = {'N', 'O', 'S'}
@@ -346,8 +346,8 @@ class InterfaceAnalyzer:
                 type_counts[contact_type] = type_counts.get(contact_type, 0) + 1
         return filtered, type_counts
 
-    def _analyze_contacts(self, contacts):
-        """Analyze contact statistics."""
+    def _analyse_contacts(self, contacts):
+        """Analyse contact statistics."""
         if not contacts:
             return {'average_contact_distance': 0}
         
@@ -457,7 +457,7 @@ class InterfaceAnalyzer:
         
         # Convert to complementarity score (0-1, higher is better)
         avg_deviation = np.mean(deviations)
-        complementarity = max(0.0, float(1.0 - avg_deviation / 2.0))  # Normalize
+        complementarity = max(0.0, float(1.0 - avg_deviation / 2.0))  # Normalise
         
         return complementarity
 
@@ -625,7 +625,7 @@ class InterfaceAnalyzer:
 
     def _summarize_polarity_and_accessibility(self, contact_residues1, contact_residues2, residue_sasa, chain1_id, chain2_id):
         """
-        Summarize polarity and accessibility for contact residues on both chains.
+        Summarise polarity and accessibility for contact residues on both chains.
 
         Accessibility is reported as:
         - average_sasa: mean SASA over contact residues with SASA information
@@ -719,15 +719,15 @@ def filter_paths_by_patterns(paths, patterns):
     return result
 
 
-def _run_analysis(analyzer, paths, out_stream):
+def _run_analysis(analyser, paths, out_stream):
     """Run interface analysis on paths and write results to out_stream."""
     for i, pdb_file in enumerate(paths):
         if len(paths) > 1:
             print(f"\n{'='*50}\n[{i+1}/{len(paths)}] {os.path.basename(pdb_file)}\n{'='*50}", file=out_stream)
         else:
-            print(f"Analyzing interfaces in {pdb_file}...", file=out_stream)
+            print(f"Analysing interfaces in {pdb_file}...", file=out_stream)
 
-        results = analyzer.analyze_interfaces(pdb_file)
+        results = analyser.analyse_interfaces(pdb_file)
 
         if 'error' in results:
             print(f"Error: {results['error']}", file=out_stream)
@@ -788,16 +788,16 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Analyze interfaces between molecules in crystal structures.",
+        description="Analyse interfaces between molecules in crystal structures.",
         epilog="""Examples:
-  python interface_analyzer.py model_01.pdb
-  python interface_analyzer.py dir/
-  python interface_analyzer.py *.pdb -o results.txt
-  python interface_analyzer.py *.pdb --set set_a,set_b -o by_set.txt
-  python interface_analyzer.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
-  python interface_analyzer.py *.pdb --per-structure -o "{}_interface.txt"
-  python interface_analyzer.py *.pdb --per-structure --sets set_a set_b -o "{}_interface.txt"
-  python interface_analyzer.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
+  python interface_analyser.py model_01.pdb
+  python interface_analyser.py dir/
+  python interface_analyser.py *.pdb -o results.txt
+  python interface_analyser.py *.pdb --set set_a,set_b -o by_set.txt
+  python interface_analyser.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
+  python interface_analyser.py *.pdb --per-structure -o "{}_interface.txt"
+  python interface_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_interface.txt"
+  python interface_analyser.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
 
 Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
   python interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv
@@ -815,7 +815,7 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
     parser.add_argument(
         'input',
         nargs='+',
-        help='PDB/CIF file(s), directory, or glob pattern (e.g. *.pdb)',
+        help='PDB/CIF file(s), directory, or glob pattern (e.g. *.pdb).',
     )
     parser.add_argument(
         '--set', '-s',
@@ -844,7 +844,7 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='Print which files would be processed for each set and exit without running. Writes summary to interface_analyzer_dryrun.txt in the current directory.',
+        help='Print which files would be processed for each set and exit without running. Writes summary to interface_analyser_dryrun.txt in the current directory.',
     )
     args = parser.parse_args()
 
@@ -880,7 +880,7 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
                 lines.append(f"  {os.path.basename(path)} -> {dest}")
             lines.append("")
             out_text = "\n".join(lines)
-            dryrun_file = os.path.join(os.getcwd(), "interface_analyzer_dryrun.txt")
+            dryrun_file = os.path.join(os.getcwd(), "interface_analyser_dryrun.txt")
             try:
                 with open(dryrun_file, "w") as f:
                     f.write(out_text)
@@ -890,12 +890,12 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
                 print(out_text, file=sys.stderr, flush=True)
                 print(f"Could not write {dryrun_file}: {e}", file=sys.stderr, flush=True)
             return
-        analyzer = InterfaceAnalyzer()
+        analyser = InterfaceAnalyser()
         for stem, [path] in structure_list:
             out_path = args.output.replace('{}', stem)
             print(f"Writing {os.path.basename(path)} -> {out_path}", file=sys.stderr)
             with open(out_path, 'w') as out:
-                _run_analysis(analyzer, [path], out)
+                _run_analysis(analyser, [path], out)
         return
 
     # Build list of (label, filtered_paths). If --set/--sets not used, one set with all paths.
@@ -942,7 +942,7 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
             lines.append("")
         out_text = "\n".join(lines)
         # Always write to a file so output is visible even if stderr is not
-        dryrun_file = os.path.join(os.getcwd(), "interface_analyzer_dryrun.txt")
+        dryrun_file = os.path.join(os.getcwd(), "interface_analyser_dryrun.txt")
         try:
             with open(dryrun_file, "w") as f:
                 f.write(out_text)
@@ -965,7 +965,7 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
         out = open(args.output, 'w')
         print(f"Writing all sets to {args.output}", file=sys.stderr)
 
-    analyzer = InterfaceAnalyzer()
+    analyser = InterfaceAnalyser()
     for idx, (label, patterns, filtered) in enumerate(set_list):
         if not filtered:
             print(f"No files match set {label!r} (patterns: {patterns}), skipping.", file=sys.stderr)
@@ -983,7 +983,7 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
         try:
             if len(set_list) > 1 and (single_output_file or not args.output):
                 print(f"\n{'='*50}\nSet {label!r} (patterns: {patterns})\n{'='*50}", file=out)
-            _run_analysis(analyzer, filtered, out)
+            _run_analysis(analyser, filtered, out)
         finally:
             if args.output and not single_output_file:
                 out.close()

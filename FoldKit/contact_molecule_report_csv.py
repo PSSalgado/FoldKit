@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Extract atom–atom contact rows from ``contact_analyzer.py`` text output (and
+Extract atom–atom contact rows from ``contact_analyser.py`` text output (and
 optional ``*_asu_contacts.txt`` sidecar files), filter by structure basename
 and/or chain ID, and write CSV table(s).
 
@@ -37,7 +37,7 @@ from interface_molecule_report_csv import (  # noqa: E402
 _RE_SET = re.compile(r"^Set '([^']*)' \(patterns:")
 _RE_SET_DQ = re.compile(r'^Set "([^"]*)" \(patterns:')
 _RE_PROGRESS = re.compile(r"^\[(\d+)/(\d+)\]\s+(.+?)\s*$")
-_RE_ANALYZING = re.compile(r"^Analyzing contacts in (.+?)\.\.\.\s*$")
+_RE_ANALYSING = re.compile(r"^(?:Analysing|Analyzing) contacts in (.+?)\.\.\.\s*$")
 
 _RE_CONTACT_HEADER = re.compile(
     r"^Contact details \(chain1 chain2 res1 atom1 res2 atom2 distance type\)", re.I
@@ -45,7 +45,7 @@ _RE_CONTACT_HEADER = re.compile(
 _RE_ASU_SIDECAR_HDR = re.compile(r"^#\s*All\s+\d+\s+ASU\s+contacts", re.I)
 
 _RE_BLOCK_BREAK = re.compile(
-    r"^(={10,}|\[\d+/\d+\]|Analyzing contacts in |CONTACT ANALYSIS RESULTS:|"
+    r"^(={10,}|\[\d+/\d+\]|Analysing contacts in |Analyzing contacts in |CONTACT ANALYSIS RESULTS:|"
     r"Set ['\"]|Done\.|Error:|===\s*$)"
 )
 
@@ -94,11 +94,11 @@ def _parse_contact_data_line(line: str) -> dict[str, Any] | None:
     }
 
 
-def parse_contact_analyzer_text(
+def parse_contact_analyser_text(
     text: str, *, default_structure: str = ""
 ) -> list[dict[str, Any]]:
     """
-    Parse contact_analyzer output into contact records with set_label and
+    Parse contact_analyser output into contact records with set_label and
     structure_basename context.
     """
     lines = text.splitlines()
@@ -145,7 +145,7 @@ def parse_contact_analyzer_text(
             i += 1
             continue
 
-        ma = _RE_ANALYZING.match(line)
+        ma = _RE_ANALYSING.match(line)
         if ma:
             structure = os.path.basename(ma.group(1).strip())
             in_details = False
@@ -266,7 +266,7 @@ def _collect_chains_and_patterns(args: argparse.Namespace) -> tuple[set[str], li
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
-            "Filter contact_analyzer.py text output by optional structure name "
+            "Filter contact_analyser.py text output by optional structure name "
             "and/or chain ID(s), and write CSV of matching atom–atom contacts."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -280,7 +280,7 @@ Use --structure-basename when the input is only an *_asu_contacts.txt sidecar
     )
     ap.add_argument(
         "report",
-        help="Text report path (contact_analyzer.py -o); use - for stdin",
+        help="Text report path (contact_analyser.py -o); use - for stdin.",
     )
     ap.add_argument(
         "--pdb",
@@ -288,13 +288,13 @@ Use --structure-basename when the input is only an *_asu_contacts.txt sidecar
         action="append",
         default=[],
         metavar="PATTERN",
-        help="Only contacts from this structure basename/stem (repeat or use --pdbs)",
+        help="Only contacts from this structure basename/stem (repeat or use --pdbs).",
     )
     ap.add_argument(
         "--pdbs",
         dest="pdbs_csv",
         metavar="LIST",
-        help="Comma-separated structure names/patterns",
+        help="Comma-separated structure names/patterns.",
     )
     ap.add_argument(
         "-m",
@@ -302,39 +302,39 @@ Use --structure-basename when the input is only an *_asu_contacts.txt sidecar
         action="append",
         default=[],
         metavar="CHAIN",
-        help="Chain ID: keep contacts touching this chain (repeat for more)",
+        help="Chain ID: keep contacts touching this chain (repeat for more).",
     )
     ap.add_argument(
         "--chains",
         metavar="LIST",
-        help="Comma-separated chain IDs (alternative to repeating -m)",
+        help="Comma-separated chain IDs (alternative to repeating -m).",
     )
     ap.add_argument(
         "--structure-basename",
         metavar="NAME",
         help=(
             "Assign this basename (e.g. model_01.pdb) to rows with no structure "
-            "context (sidecar-only files)"
+            "context (sidecar-only files)."
         ),
     )
     ap.add_argument(
         "-o",
         "--output",
         metavar="PATH",
-        help="CSV path, '-' for stdout, or template 'out/{}.csv' per structure stem",
+        help="CSV path, '-' for stdout, or template 'out/{}.csv' per structure stem.",
     )
     ap.add_argument(
         "-d",
         "--output-dir",
         metavar="DIR",
-        help="One CSV per structure: DIR/<stem>.csv",
+        help="One CSV per structure: DIR/<stem>.csv.",
     )
     ap.add_argument(
         "--combine-regex",
         metavar="REGEX",
         help=(
             "Merge structures whose stem shares the same first capturing group "
-            "(same as interface_molecule_report_csv.py)"
+            "(same as interface_molecule_report_csv.py)."
         ),
     )
     ap.add_argument(
@@ -343,7 +343,7 @@ Use --structure-basename when the input is only an *_asu_contacts.txt sidecar
         default=[],
         dest="combine_globs",
         metavar="PATTERN",
-        help="Shell-style combine groups (repeat); mutually exclusive with --combine-regex",
+        help="Shell-style combine groups (repeat); mutually exclusive with --combine-regex.",
     )
     args = ap.parse_args()
 
@@ -388,7 +388,7 @@ Use --structure-basename when the input is only an *_asu_contacts.txt sidecar
                     stem = stem.rsplit("_", 1)[-1]
                 default_st = f"{stem}.pdb"
 
-    all_recs = parse_contact_analyzer_text(text, default_structure=default_st)
+    all_recs = parse_contact_analyser_text(text, default_structure=default_st)
     filtered = filter_by_structures(all_recs, pdb_patterns)
     filtered = filter_by_molecules(filtered, chains)
     by_st = group_by_structure(filtered)

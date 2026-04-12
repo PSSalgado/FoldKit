@@ -4,13 +4,14 @@ Structure-based phylogenetic tree from RMSD distances.
 
 Reads pairwise RMSD values (from Coot LSQ/SSM superpositions or from rmsd_table_*.csv),
 builds a symmetric distance matrix, and constructs a phylogenetic tree (rooted or unrooted) using
-neighbor-joining (NJ). Optionally computes pairwise distances from PDB files using
+neighbour-joining (NJ). Optionally computes pairwise distances from PDB files using
 TM-align (if installed).
 
 Input formats supported:
   - rmsd_values_*.txt (LSQ): "Alignment: Aligning A to B" then "core rmsd achieved: X.XX"
-  - rmsd_SSM_values*.txt (SSM): alignment line then "INFO: core rmsd" block with number
-  - rmsd_table_*.csv: CSV with Model column and one column per model (from create_rmsd_table.py)
+  - rmsd_SSM_values*.txt (SSM): "Superposing … onto …" then "INFO: core rmsd" block with number
+  - Other *.txt names: format is detected from file content (SSM vs LSQ) when the basename is ambiguous
+  - rmsd_table_*.csv: CSV with Model column and one column per model (from rmsd_to_csv.py)
 """
 
 from __future__ import annotations
@@ -233,7 +234,7 @@ def zscore_distance_matrix(
     Build a distance matrix for tree construction.
 
     If z_mode == 'off': returns the original RMSD matrix and empty ranking.
-    If z_mode == 'per_query': RMSD -> similarity -> per-query z -> symmetrize -> z->distance.
+    If z_mode == 'per_query': RMSD -> similarity -> per-query z -> symmetrise -> z->distance.
 
     Returns: (distance_matrix, ranking_rows)
     """
@@ -247,7 +248,7 @@ def zscore_distance_matrix(
     z_asym = _per_query_zscores(ids, sim)
     z_sym = _symmetrize_matrix(z_asym)
 
-    # zmax over off-diagonal (after clamp) for maxminus normalization
+    # zmax over off-diagonal (after clamp) for maxminus normalisation
     zmax = 0.0
     n = len(ids)
     for i in range(n):
@@ -598,21 +599,29 @@ def plot_tree(
                 )
 
 
+def _sniff_rmsd_text_sample(sample: str) -> str | None:
+    """Return 'ssm_txt' or 'lsq_txt' from the start of a file, or None."""
+    if "Superposing" in sample and " onto " in sample:
+        return "ssm_txt"
+    if "Alignment:" in sample and "Aligning" in sample:
+        return "lsq_txt"
+    return None
+
+
 def detect_format(path: str) -> str:
     b = os.path.basename(path).lower()
     if path.lower().endswith(".csv"):
         return "csv"
     if "rmsd_ssm" in b or "ssm_values" in b:
         return "ssm_txt"
-    # Coot log files (e.g. coot_log.txt, coot_log_suffix.txt): detect from content
-    if "coot_log" in b or b.endswith("_log.txt"):
+    # Peek generic .txt (custom names like rmsd_1m*.txt, coot_log_*.txt, etc.)
+    if path.lower().endswith(".txt"):
         try:
             with open(path, "r") as f:
                 head = f.read(8192)
-            if "Superposing" in head and " onto " in head:
-                return "ssm_txt"
-            if "Alignment:" in head and "Aligning" in head:
-                return "lsq_txt"
+            sniffed = _sniff_rmsd_text_sample(head)
+            if sniffed:
+                return sniffed
         except OSError:
             pass
     return "lsq_txt"
@@ -625,27 +634,27 @@ def main() -> None:
     ap.add_argument(
         "input",
         nargs="?",
-        help="RMSD file: rmsd_values_*.txt, rmsd_SSM_values*.txt, or rmsd_table_*.csv",
+        help="RMSD file: rmsd_values_*.txt, rmsd_SSM_values*.txt, or rmsd_table_*.csv.",
     )
     ap.add_argument(
         "-o",
         "--output",
         default="structure_tree.nwk",
-        help="Output Newick path",
+        help="Output Newick path.",
     )
-    ap.add_argument("--plot", metavar="PATH", help="Save tree figure")
+    ap.add_argument("--plot", metavar="PATH", help="Save tree figure.")
     ap.add_argument(
-        "--root", metavar="LABEL", help="Root on this tip (outgroup)"
+        "--root", metavar="LABEL", help="Root on this tip (outgroup)."
     )
     ap.add_argument(
         "--unrooted",
         action="store_true",
-        help="Build an unrooted tree (no midpoint or outgroup rooting)",
+        help="Build an unrooted tree (no midpoint or outgroup rooting).",
     )
     ap.add_argument(
         "--no-midpoint-root",
         action="store_true",
-        help="Do not midpoint-root (same as --unrooted)",
+        help="Do not midpoint-root (same as --unrooted).",
     )
     ap.add_argument(
         "--from-pdb",
@@ -653,12 +662,13 @@ def main() -> None:
         nargs="?",
         const=".",
         default=None,
-        help="Compute distances from PDBs in DIR with TM-align",
+        help="Compute distances from PDBs in DIR with TM-align.",
     )
     ap.add_argument(
         "--format",
         choices=["auto", "lsq_txt", "ssm_txt", "csv"],
         default="auto",
+        help="RMSD input format (default: auto-detect from filename and content).",
     )
     ap.add_argument(
         "--pseudo-z",

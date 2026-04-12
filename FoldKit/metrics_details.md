@@ -1,12 +1,12 @@
 # Metrics Details: Formulas and Script Calculations
 
-This document lists all metrics computed by the FoldKit analyzer and metrics scripts, with:
+This document lists all metrics computed by the FoldKit analyser and metrics scripts, with:
 
-**Related (not covered below):** `**trim_models.py`** only harmonizes residue ranges (standalone script; shared with `**trim_superimposeLSQ.py**` trimming); it does not compute packing or similarity metrics. See the main **README.md** (File management). **Post-processing CSV tools** `interface_molecule_report_csv.py` and `contact_molecule_report_csv.py` do not compute new metrics; they parse analyzer text reports into tables (§2.10, §3.5). Example filenames in this repo use **`model_01`**, **`results.txt`** (interface / packing merged output), **`contact_results.txt`** (`contact_analyzer.py -o`), **`set_a`** / **`set_b`** (`--sets`), and **`./out`**; see **README.md** (opening “Example naming” paragraph).
+**Related (not covered below):** `**trim_models.py`** only harmonises residue ranges (standalone script; shared with `**trim_superimposeLSQ.py**` trimming); it does not compute packing or similarity metrics. See the main **README.md** (File management). **Post-processing CSV tools** `interface_molecule_report_csv.py` and `contact_molecule_report_csv.py` do not compute new metrics; they parse analyser text reports into tables (§2.10, §3.5). Example filenames in this repo use **`model_01`**, **`results.txt`** (interface / packing merged output), **`contact_results.txt`** (`contact_analyser.py -o`), **`set_a`** / **`set_b`** (`--sets`), and **`./out`**; see **README.md** (opening “Example naming” paragraph).
 
 - **Mathematical definition** and **script calculation** for each metric.
 - **Reader-friendly formula**: a short, plain-language description of what is being computed and how.
-- **Libraries and functions**: BioPython, NumPy, SciPy (optional), pandas (where used), **biotite** (optional in Dali workflows), as summarized in the table below.
+- **Libraries and functions**: BioPython, NumPy, SciPy (optional), pandas (where used), **biotite** (optional in Dali workflows), as summarised in the table below.
 - **Derivation / references** where applicable.
 
 ---
@@ -17,8 +17,8 @@ This document lists all metrics computed by the FoldKit analyzer and metrics scr
 | Script                  | Libraries                                                                                                                        | Main functions used                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | packing_metrics.py      | **BioPython** (Bio.PDB.PDBParser, PDBIO, PDBExceptions), **NumPy**, **SciPy** (optional)                                         | `PDBParser.get_structure()`, manual CRYST1 read; `structure` → model → chain → residue → atom; `atom.coord`, `atom.element`, `atom.name`; `np.radians`, `np.sqrt`, `np.cos`; `scipy.spatial.distance.pdist()` or fallback loop with `np.linalg.norm`                                                                                                                                                   |
-| interface_analyzer.py   | **BioPython** (PDBParser, NeighborSearch, Structure, Model, PDBExceptions), **Bio.PDB.SASA** (ShrakeRupley, optional), **NumPy** | `parser.get_structure()`, `structure.get_chains()`, `chain.get_atoms()`; `NeighborSearch(atom_list).search_all(threshold, 'R')` → interface residues; contact residues = interface residues filtered by same criteria (distance + type) via `_residue_passes_contact_criteria()`; `ShrakeRupley().compute()` for BSA; `np.linalg.norm`, `np.mean`, etc. Text report → CSV: §2.10.                                                |
-| contact_analyzer.py     | **BioPython** (PDBParser, PDBExceptions), **NumPy**                                                                              | Same structure traversal; `chain.get_atoms()`, `atom.coord`; `np.linalg.norm`; manual contact loop and type classification; optional full ASU contact list in text / `*_asu_contacts.txt`. Text report → CSV: §3.5.                                                                                                                                                                                                                                                                             |
+| interface_analyser.py   | **BioPython** (PDBParser, NeighborSearch, Structure, Model, PDBExceptions), **Bio.PDB.SASA** (ShrakeRupley, optional), **NumPy** | `parser.get_structure()`, `structure.get_chains()`, `chain.get_atoms()`; `NeighborSearch(atom_list).search_all(threshold, 'R')` → interface residues; contact residues = interface residues filtered by same criteria (distance + type) via `_residue_passes_contact_criteria()`; `ShrakeRupley().compute()` for BSA; `np.linalg.norm`, `np.mean`, etc. Text report → CSV: §2.10.                                                |
+| contact_analyser.py     | **BioPython** (PDBParser, PDBExceptions), **NumPy**                                                                              | Same structure traversal; `chain.get_atoms()`, `atom.coord`; `np.linalg.norm`; manual contact loop and type classification; optional full ASU contact list in text / `*_asu_contacts.txt`. Text report → CSV: §3.5.                                                                                                                                                                                                                                                                             |
 | dali_score.py           | **BioPython** (PDBParser), **NumPy**, **biotite** (optional)                                                                     | `PDBParser.get_structure()`, structure traversal for CA atoms; `np.linalg.norm`, `np.exp` for distance matrices and Dali formula; `biotite.structure.superimpose_structural_homologs()` for automatic residue equivalences when available                                                                                                                                                              |
 
 
@@ -28,15 +28,15 @@ This document lists all metrics computed by the FoldKit analyzer and metrics scr
 
 **Function selection / usage**
 
-- These metrics are computed in `packing_metrics.py`, typically called by `crystal_packing_analyzer.py` for each structure.
+- These metrics are computed in `packing_metrics.py`, typically called by `crystal_packing_analyser.py` for each structure.
 - At the CLI level, you select whether to run packing metrics by:
   - Running `packing_metrics.py` directly on one or more PDB/CIF files, or
-  - Enabling the “packing” stage in `crystal_packing_analyzer.py` (it runs packing by default unless explicitly skipped in that orchestrator).
-- Within `packing_metrics.py`, the main driver function (e.g. `analyze_packing_for_structure`) calls:
+  - Enabling the “packing” stage in `crystal_packing_analyser.py` (it runs packing by default unless explicitly skipped in that orchestrator).
+- Within `packing_metrics.py`, the main driver function `calculate_metrics()` calls:
   - `_calculate_unit_cell_volume()` → §1.1
-  - `_analyze_molecular_content()` → §1.2
+  - `_analyse_molecular_content()` → §1.2
   - `_calculate_matthews_metrics()` → §1.3
-  - `_calculate_packing_density()` and `_analyze_void_spaces()` → §1.4–1.5
+  - `_calculate_packing_density()` and `_analyse_void_spaces()` → §1.4–1.5
 
 ### 1.1 Unit cell volume
 
@@ -57,7 +57,7 @@ V = abc\sqrt{1 + 2\cos\alpha\cos\beta\cos\gamma - \cos^2\alpha - \cos^2\beta - \
 - Unit cell parameters are read from the PDB `CRYST1` line (defaults: a=b=c=1, α=β=γ=90°, space_group P1 if missing).
 - Angles are converted to radians, then:
   - `volume = a * b * c * np.sqrt(1 + 2*cos(α)*cos(β)*cos(γ) - cos(α)**2 - cos(β)**2 - cos(γ)**2)`
-- Implemented in `_calculate_unit_cell_volume()` (and similarly in `contact_analyzer._calculate_cell_volume()`).
+- Implemented in `_calculate_unit_cell_volume()` (and similarly in `contact_analyser._calculate_cell_volume()`).
 
 **Libraries / functions used**
 
@@ -83,7 +83,7 @@ V = abc\sqrt{1 + 2\cos\alpha\cos\beta\cos\gamma - \cos^2\alpha - \cos^2\beta - \
 | **residue_count**       | Number of residues                              | Count of residues across all models.                                    |
 
 
-- Implemented in `_analyze_molecular_content()`.
+- Implemented in `_analyse_molecular_content()`.
 - Atomic weights (Da): C 12.011, N 14.007, O 15.999, S 32.06, P 30.974, H 1.008, etc.
 
 **Libraries / functions used**
@@ -160,7 +160,7 @@ V = abc\sqrt{1 + 2\cos\alpha\cos\beta\cos\gamma - \cos^2\alpha - \cos^2\beta - \
 
 ---
 
-### 1.5 Void / interatomic metrics (_analyze_void_spaces)
+### 1.5 Void / interatomic metrics (_analyse_void_spaces)
 
 **Reader-friendly formula**  
 Each atom is assigned a *radius* from its element’s volume assuming a sphere (V = ⁴⁄₃πr³ → r = (3V/(4π))^(1/3)). *Average interatomic distance* is the mean of all pairwise distances between atoms; *minimum* is the smallest such distance. *Atom density* is number of atoms divided by unit-cell volume. The script collects all atom coordinates, then either uses SciPy’s `pdist` for pairwise distances or a double loop with `np.linalg.norm`.
@@ -186,20 +186,20 @@ Each atom is assigned a *radius* from its element’s volume assuming a sphere (
 **Derivation / references**
 
 - The atomic radius from volume assumes a **spherical atom model**: V = \frac{4}{3}\pi r^3 → r = (3V/4\pi)^{1/3}.
-- Average and minimum interatomic distances are standard descriptors of packing tightness and are analogous to nearest-neighbor statistics in condensed-matter physics.
-- Atom-density measures mirror typical crystallographic discussions of packing fraction and nearest-neighbor spacing in protein crystals.
+- Average and minimum interatomic distances are standard descriptors of packing tightness and are analogous to nearest-neighbour statistics in condensed-matter physics.
+- Atom-density measures mirror typical crystallographic discussions of packing fraction and nearest-neighbour spacing in protein crystals.
 
 ---
 
-## 2. interface_analyzer.py
+## 2. interface_analyser.py
 
 **Function selection / usage**
 
-- Interface metrics are computed in `interface_analyzer.py`, usually via a top-level function like `analyze_interfaces(structure)` that is called by `crystal_packing_analyzer.py`.
+- Interface metrics are computed in `interface_analyser.py`, usually via a method like `InterfaceAnalyser.analyse_interfaces(pdb_file)` that is called by `crystal_packing_analyser.py`.
 - At the CLI level, you select these metrics by:
-  - Running `interface_analyzer.py` directly on a PDB/CIF (specifying chains or letting the script enumerate interfaces), or
-  - Allowing `crystal_packing_analyzer.py` to run the interface stage on each structure.
-- Within `interface_analyzer.py`, the main pipeline:
+  - Running `interface_analyser.py` directly on a PDB/CIF (specifying chains or letting the script enumerate interfaces), or
+  - Allowing `crystal_packing_analyser.py` to run the interface stage on each structure.
+- Within `interface_analyser.py`, the main pipeline:
   - **Interface residues:** `NeighborSearch(atom_list).search_all(contact_distance, 'R')` → residue pairs within threshold, different chains.
   - **Contact residues:** Those interface residues filtered by applying the same criteria (distance + type-specific limits) as the contact list: keep residue iff it has ≥1 atom that forms a pair with the other chain satisfying those criteria.
   - Calls `_find_contacts()` and `_filter_contacts_by_limits()` → §§2.1–2.4, 2.6.
@@ -220,7 +220,7 @@ Each atom is assigned a *radius* from its element’s volume assuming a sphere (
 
 - Contacts are classified by atom types (N/O/S–N/O/S → H-bond; C–C → hydrophobic; N/O/S/P → electrostatic; else van der Waals), then only kept if distance is within the limit for that type. All downstream metrics (BSA, contact area, complementarity) use only these filtered contacts.
 
-**Libraries / functions used (interface_analyzer)**
+**Libraries / functions used (interface_analyser)**
 
 - **BioPython:** `PDBParser.get_structure('crystal', pdb_file)`; `structure.get_chains()` → list of chains; `chain.get_atoms()` for each chain. **Interface residues:** `NeighborSearch(atom_list).search_all(threshold, 'R')` → residue pairs within threshold, different chains. **Contact residues:** interface residues filtered by applying the same criteria (distance + type-specific limits) to each residue’s atoms vs the other chain (`_residue_passes_contact_criteria`). **BSA:** when `Bio.PDB.SASA.ShrakeRupley` is available: `Structure`, `Model` to build single-chain structures; `ShrakeRupley(...).compute(entity, level='S')`; BSA = SASA(chain1 alone) + SASA(chain2 alone) − SASA(model). Fallback: per-atom estimate (~15 Å² per contact atom). Per atom: `atom.coord`, `atom.element`, `atom.name`, `atom.parent`.
 - **NumPy:** `np.linalg.norm()`, `np.mean()`, `np.min()`, `np.max()`, `np.std()` on distance lists.
@@ -280,7 +280,7 @@ These are standard statistics over the list of contact distances (after type fil
 - **min_contact_distance:** `np.min(distances)`.  
 - **max_contact_distance:** `np.max(distances)`.  
 - **contact_distance_std:** `np.std(distances)`.  
-- In `_analyze_contacts()`.
+- In `_analyse_contacts()`.
 
 ### 2.5 Interface complementarity
 
@@ -336,7 +336,7 @@ Unit: per Å² (e.g. 0.05 → 0.05 opposite-sign contacts per Å²).
 Also stored: charge_complementarity_density_denominator = 'contact_area' or 'buried_surface_area' so you know which area was used.
 If both contact area and BSA are 0, charge_complementarity_density is None.
 
-It's a size-normalized measure: interfaces with the same fraction of opposite-sign contacts can be distinguished by how many such contacts there are per Å² (e.g. 2 vs 20 opposite contacts on a 100 Å² interface).
+It's a size-normalised measure: interfaces with the same fraction of opposite-sign contacts can be distinguished by how many such contacts there are per Å² (e.g. 2 vs 20 opposite contacts on a 100 Å² interface).
 
 **Why contact area vs BSA:** The denominator is **contact area** when it is ≥ 0.01 Å² (same contact-based definition as the contact list and contact area). When contact area is zero or negligible, **buried surface area (BSA)** is used so the metric remains defined. Contact area is preferred because it is derived from the same atom–atom contacts that define the charged-contact counts; BSA is a different measure (solvent-accessible surface buried) but is a sensible fallback when there is no overlap-based contact area.
 
@@ -407,10 +407,10 @@ For each interface between two chains, a simple **interface RMSD** is computed b
 
 **Mathematical definition**
 
-Let \mathcal{M} be the set of matched contact residues between chain 1 and chain 2. For each matched pair i \in \mathcal{M}, take the CA coordinates \mathbf{x}_i (chain 1) and \mathbf{y}*i (chain 2). After optimal rigid-body superposition (rotation R, translation \mathbf{t}) that minimizes RMSD:
+Let \mathcal{M} be the set of matched contact residues between chain 1 and chain 2. For each matched pair i \in \mathcal{M}, take the CA coordinates \mathbf{x}_i (chain 1) and \mathbf{y}*i (chain 2). After optimal rigid-body superposition (rotation R, translation \mathbf{t}) that minimises RMSD:
 \mathrm{RMSD} = \sqrt{\frac{1}{|\mathcal{M}|} \sum*{i \in \mathcal{M}} \left R\mathbf{y}_i + \mathbf{t} - \mathbf{x}_i \right^2}
 
-**Implementation (simplified):** Match contact residues between the two chains by (resname, residue number, insertion code). For each matched pair, take the CA atom coordinates. If there are at least 3 matched CA pairs, use BioPython Superimposer to find the rotation and translation that minimize RMSD; RMSD = sqrt(mean of squared distances between superposed CA pairs). If fewer than 3 pairs or superposition unavailable, report N/A (or 0 in the summary).
+**Implementation (simplified):** Match contact residues between the two chains by (resname, residue number, insertion code). For each matched pair, take the CA atom coordinates. If there are at least 3 matched CA pairs, use BioPython Superimposer to find the rotation and translation that minimise RMSD; RMSD = sqrt(mean of squared distances between superposed CA pairs). If fewer than 3 pairs or superposition unavailable, report N/A (or 0 in the summary).
 
 **Script calculation**
 
@@ -440,7 +440,7 @@ If there are no valid matches or the superposition fails, `interface_rmsd_ca` an
 
 ### 2.10 Post-processing: interface_molecule_report_csv.py
 
-The CLI of `interface_analyzer.py` can write a merged text report (conventionally **`results.txt`** via `-o`). **`interface_molecule_report_csv.py`** parses that report and emits CSV rows for each interface block, with the same numeric summaries as in §2 (contact counts, BSA, complementarity, polarity, accessibility, etc.). It does **not** re-read PDB files or recompute metrics. Optional filters: structure basename (as printed in the report, e.g. **`model_01.pdb`**), chain IDs (**`A`**, **`B`**), **`--group-by-chain`**, and merge options **`--combine-regex`** / **`--combine-glob`** (see **README.md**). For **atom-level** ASU contact rows (chain/residue/atom pairs), use **`contact_molecule_report_csv.py`** on **`contact_analyzer.py`** output (§3.5).
+The CLI of `interface_analyser.py` can write a merged text report (conventionally **`results.txt`** via `-o`). **`interface_molecule_report_csv.py`** parses that report and emits CSV rows for each interface block, with the same numeric summaries as in §2 (contact counts, BSA, complementarity, polarity, accessibility, etc.). It does **not** re-read PDB files or recompute metrics. Optional filters: structure basename (as printed in the report, e.g. **`model_01.pdb`**), chain IDs (**`A`**, **`B`**), **`--group-by-chain`**, and merge options **`--combine-regex`** / **`--combine-glob`** (see **README.md**). For **atom-level** ASU contact rows (chain/residue/atom pairs), use **`contact_molecule_report_csv.py`** on **`contact_analyser.py`** output (§3.5).
 
 **Derivation / references**
 
@@ -448,24 +448,24 @@ The CLI of `interface_analyzer.py` can write a merged text report (conventionall
   - P. Chakrabarti & J. Janin, “Dissecting protein–protein recognition sites”, *Proteins* **47**, 334–343 (2002). DOI: `10.1002/prot.10085`.
   - J. Janin & B. Séraphin, “Genome-wide studies of protein–protein interaction”, *Curr. Opin. Struct. Biol.* **13**, 383–388 (2003). DOI: `10.1016/S0959-440X(03)00064-2`.
 - **Interface definition and BSA** follow the Biopython Interface Analysis wiki ([https://biopython.org/wiki/Interface_Analysis](https://biopython.org/wiki/Interface_Analysis)): interface residues from NeighborSearch residue pairs within threshold; BSA = SASA(chain1) + SASA(chain2) − SASA(complex). The implementation uses `Bio.PDB.SASA.ShrakeRupley` (Shrake & Rupley, *J. Mol. Biol.* **79**, 351–371, 1973). DOI: `10.1016/0022-2836(73)90011-9` when available; otherwise a 15 Å² per contact-atom fallback.
-- The simple complementarity score is a normalized measure of how close contact distances are to an “ideal” 3.5 Å, analogous to empirical interface “tightness” measures used in docking and packing quality checks.
+- The simple complementarity score is a normalised measure of how close contact distances are to an “ideal” 3.5 Å, analogous to empirical interface “tightness” measures used in docking and packing quality checks.
 
 ---
 
-## 3. contact_analyzer.py
+## 3. contact_analyser.py
 
 **Function selection / usage**
 
-- Contact metrics are computed in `contact_analyzer.py`, which can be:
-  - Run directly on a PDB/CIF to analyze ASU contacts and crude crystal contacts, or
-  - Invoked by `crystal_packing_analyzer.py` for each structure.
-- The main API entry is **`ContactAnalyzer.analyze_contacts(pdb_file)`** (CLI uses **`_run_analysis()`** over input paths). It calls:
+- Contact metrics are computed in `contact_analyser.py`, which can be:
+  - Run directly on a PDB/CIF to analyse ASU contacts and crude crystal contacts, or
+  - Invoked by `crystal_packing_analyser.py` for each structure.
+- The main API entry is **`ContactAnalyser.analyse_contacts(pdb_file)`** (CLI uses **`_run_analysis()`** over input paths). It calls:
   - `_find_chain_contacts()` → ASU contacts (§3.1).
   - `_calculate_contact_density()` → §3.2.
   - `_estimate_crystal_contacts()` and `_calculate_cell_volume()` → §§3.3–3.4.
-- **Contact distance:** Default 4.5 Å (candidate pairs); only contacts within the same **type-specific distance limits** as interface_analyzer (H-bonds ≤3.5 Å, electrostatic ≤5 Å, hydrophobic 3.5–4.5 Å, van der Waals ≤5 Å) are kept.
+- **Contact distance:** Default 4.5 Å (candidate pairs); only contacts within the same **type-specific distance limits** as interface_analyser (H-bonds ≤3.5 Å, electrostatic ≤5 Å, hydrophobic 3.5–4.5 Å, van der Waals ≤5 Å) are kept.
 
-**Libraries / functions used (contact_analyzer)**
+**Libraries / functions used (contact_analyser)**
 
 - **BioPython:** `PDBParser.get_structure()`, `structure.get_chains()`, `chain.get_atoms()`; `atom.coord`, `atom.element`, `atom.name`, `atom.parent` (residue). Distance: `np.linalg.norm(atom.coord - other_atom.coord)`.
 - **NumPy:** `np.linalg.norm`, `np.mean`, `np.min`, `np.max` on distance lists; sum over chain atom counts for contact density.
@@ -483,7 +483,7 @@ The CLI of `interface_analyzer.py` can write a merged text report (conventionall
 - **average_distance, min_distance, max_distance:** From the filtered contact distances.  
 - **contact_type_distribution:** Counts per `contact_type`.
 
-**CLI text listing:** For each structure, the analyzer can print a **Contact details** block: one line per kept contact with `chain1`, `chain2`, residue labels, atom names, distance (Å), and `contact_type`. If there are more than 200 contacts, the full list is written to a sidecar file **`{output_stem}_{structure_stem}_asu_contacts.txt`** (when `-o` is set, `{output_stem}` is derived from that path; otherwise the structure stem only). The sidecar header line starts with `# All N ASU contacts:`.
+**CLI text listing:** For each structure, the analyser can print a **Contact details** block: one line per kept contact with `chain1`, `chain2`, residue labels, atom names, distance (Å), and `contact_type`. If there are more than 200 contacts, the full list is written to a sidecar file **`{output_stem}_{structure_stem}_asu_contacts.txt`** (when `-o` is set, `{output_stem}` is derived from that path; otherwise the structure stem only). The sidecar header line starts with `# All N ASU contacts:`.
 
 ### 3.2 Contact density
 
@@ -498,11 +498,11 @@ The CLI of `interface_analyzer.py` can write a merged text report (conventionall
 ### 3.3 Crystal contact estimates (simplified)
 
 **Reader-friendly formula**  
-*Surface atoms* are those with fewer than 12 neighbors within 5.0 Å (low coordination). The number of *potential crystal contacts* is set equal to the number of surface atoms. *Estimated contact area* is surface_atoms × 4 Å². *Packing efficiency* is (molecular volume) / (cell volume), with molecular volume ≈ atom_count × 20 Å³.
+*Surface atoms* are those with fewer than 12 neighbours within 5.0 Å (low coordination). The number of *potential crystal contacts* is set equal to the number of surface atoms. *Estimated contact area* is surface_atoms × 4 Å². *Packing efficiency* is (molecular volume) / (cell volume), with molecular volume ≈ atom_count × 20 Å³.
 
 **Implementation (simplified):** For each atom, count how many other atoms are within 5.0 Å. If count < 12, it is a surface atom. surface_atoms = number of such atoms. potential_crystal_contacts = surface_atoms. estimated_contact_area = surface_atoms × 4.0 (Å²). molecular_volume = atom_count × 20.0 (Å³); packing_efficiency = molecular_volume / cell_volume.
 
-- **surface_atoms:** Atoms with < 12 neighbors within 5.0 Å (neighbor count over all atoms).  
+- **surface_atoms:** Atoms with < 12 neighbours within 5.0 Å (neighbour count over all atoms).  
 - **potential_crystal_contacts:** Set equal to number of surface atoms.  
 - **estimated_contact_area:** `surface_atoms * 4.0` (Å²).  
 - **packing_efficiency:**  
@@ -510,30 +510,30 @@ The CLI of `interface_analyzer.py` can write a merged text report (conventionall
   - Molecular volume ≈ `atom_count * 20.0` (Å³).  
   - `packing_efficiency = molecular_volume / cell_volume`.
 
-### 3.4 Unit cell volume (contact_analyzer)
+### 3.4 Unit cell volume (contact_analyser)
 
 - Same parallelepiped formula as in §1.1; implemented in `_calculate_cell_volume()`.
 
 ### 3.5 Post-processing: contact_molecule_report_csv.py
 
-The CLI of `contact_analyzer.py` can write a merged text report (conventionally **`contact_results.txt`** via `-o`, distinct from **`results.txt`** from `interface_analyzer.py` or `packing_metrics.py`). **`contact_molecule_report_csv.py`** parses that report (and optionally a standalone **`contact_results_model_01_asu_contacts.txt`**-style sidecar) into CSV with one row per atom–atom contact: **`chain1`**, **`chain2`**, **`res1`**, **`atom1`**, **`res2`**, **`atom2`**, **`distance_A`**, **`contact_type`**, plus context columns **`set_label`** and **`structure_basename`**. It does **not** re-read PDB files or recompute distances. Filters and merge options mirror **`interface_molecule_report_csv.py`** (structure basename patterns, **`-m` / `--chains`**). Sidecar-only files lack progress lines; use **`--structure-basename model_01.pdb`** or the filename heuristic described in **README.md**. Multi-set output uses the same **`Set 'label' (patterns: …)`** headers as other analyzers.
+The CLI of `contact_analyser.py` can write a merged text report (conventionally **`contact_results.txt`** via `-o`, distinct from **`results.txt`** from `interface_analyser.py` or `packing_metrics.py`). **`contact_molecule_report_csv.py`** parses that report (and optionally a standalone **`contact_results_model_01_asu_contacts.txt`**-style sidecar) into CSV with one row per atom–atom contact: **`chain1`**, **`chain2`**, **`res1`**, **`atom1`**, **`res2`**, **`atom2`**, **`distance_A`**, **`contact_type`**, plus context columns **`set_label`** and **`structure_basename`**. It does **not** re-read PDB files or recompute distances. Filters and merge options mirror **`interface_molecule_report_csv.py`** (structure basename patterns, **`-m` / `--chains`**). Sidecar-only files lack progress lines; use **`--structure-basename model_01.pdb`** or the filename heuristic described in **README.md**. Multi-set output uses the same **`Set 'label' (patterns: …)`** headers as other analysers.
 
 **Derivation / references**
 
 - The ASU contact criteria mirror the interface criteria in §2 with a slightly smaller candidate distance (4.5 Å) to focus on proximate contacts; this is similar in spirit to contact definitions in crystallographic tools such as PISA.
 - The **crystal contact estimates** are heuristic:
-  - “Surface atoms” are identified via reduced neighbor counts (cf. solvent-exposed residues defined by low coordination in packing analyses).
+  - “Surface atoms” are identified via reduced neighbour counts (cf. solvent-exposed residues defined by low coordination in packing analyses).
   - Per-atom area (~~4 Å²) and per-atom volume (~~20 Å³) reflect average SASA and volume for protein atoms in crystal structures.
 
 ---
 
-## 4. crystal_packing_analyzer.py
+## 4. crystal_packing_analyser.py
 
-This script orchestrates `packing_metrics`, `interface_analyzer`, and `contact_analyzer` on each structure. With `--compare`, it writes `batch_analysis_results.json` combining all per-structure outputs. It does not define new formulas; all metrics are as in §§1–3.
+This script orchestrates `packing_metrics`, `interface_analyser`, and `contact_analyser` on each structure. With `--compare`, it writes `batch_analysis_results.json` combining all per-structure outputs. It does not define new formulas; all metrics are as in §§1–3.
 
 **Function selection / usage**
 
-- When you run `crystal_packing_analyzer.py` from the command line, you choose which input structures (files or directories) to analyze and optional `--compare` for a single combined JSON file.
+- When you run `crystal_packing_analyser.py` from the command line, you choose which input structures (files or directories) to analyse and optional `--compare` for a single combined JSON file.
 - Internally, it iterates over structures and calls the per-structure modules from §§1–3.
 
 ---
@@ -565,7 +565,7 @@ D_{ij}, & i\neq j
 
 **Tree construction**
 
-The script feeds this distance matrix to neighbor-joining (NJ) when available (otherwise it uses an internal UPGMA fallback).
+The script feeds this distance matrix to neighbour-joining (NJ) when available (otherwise it uses an internal UPGMA fallback).
 
 ---
 
@@ -595,7 +595,7 @@ S_{ij}=
 \exp\left(-D_{ij}/\tau\right) & \text{(exp)}
 \end{cases}
 
-#### Step 2: per-query z-score standardization
+#### Step 2: per-query z-score standardisation
 
 For each query `i`, compute the mean and population standard deviation over all `j != i`:
 
@@ -615,9 +615,9 @@ Then define the (asymmetric) query-centric z-score:
 \sigma_i=\sqrt{\frac{1}{m_i}\sum_{j\neq i}\left(S_{ij}-\mu_i\right)^2},\quad
 z_{ij}=\frac{S_{ij}-\mu_i}{\sigma_i}.
 
-#### Step 3: symmetrize the z-score matrix
+#### Step 3: symmetrise the z-score matrix
 
-The code symmetrizes z-scores by averaging:
+The code symmetrises z-scores by averaging:
 
 `z^sym_ij = (z_ij + z_ji) / 2`
 
@@ -671,7 +671,7 @@ d_{ij}=
 
 #### Query-centric ranking (optional)
 
-When `--ranking-csv` is provided, the script also writes a ranking table per structure `i` computed from the *asymmetric* z-scores `z_ij` (before symmetrization):
+When `--ranking-csv` is provided, the script also writes a ranking table per structure `i` computed from the *asymmetric* z-scores `z_ij` (before symmetrisation):
 
 `avg_z_i = mean_{j != i}( z_ij )`
 
@@ -692,7 +692,7 @@ z^{\max}*i=\max*{j\neq i} z_{ij}.
   - Micchelli, C. *Interpolation of scattered data: Distance matrices and conditionally positive definite functions.* *Constructive Approx.* (1986). DOI: `10.1007/BF01893414`
 - Neighbor-joining is the primary tree-building method:
   - Saitou, N.; Nei, M. *The neighbor-joining method: a new method for reconstructing phylogenetic trees.* *Mol. Biol. Evol.* (1987). DOI: `10.1093/oxfordjournals.molbev.a040454`
-- The per-query z-score standardization uses conventional z-score definitions. The final `z^+ -> distance` mapping is a practical heuristic to produce non-negative distances usable by NJ/UPGMA.
+- The per-query z-score standardisation uses conventional z-score definitions. The final `z^+ -> distance` mapping is a practical heuristic to produce non-negative distances usable by NJ/UPGMA.
 
 ---
 
@@ -733,7 +733,7 @@ Only terms with φ > 0 contribute. d_{ij}^A and d_{ij}^B are intramolecular Cα�
 ### 6.2 Z-score
 
 **Reader-friendly formula**  
-The *Z-score* normalizes the raw score for protein length so that scores are comparable across pairs of different sizes. It uses empirically fitted mean m(L) and standard deviation σ(L) for random structure pairs of effective length L = √(L_A × L_B).
+The *Z-score* normalises the raw score for protein length so that scores are comparable across pairs of different sizes. It uses empirically fitted mean m(L) and standard deviation σ(L) for random structure pairs of effective length L = √(L_A × L_B).
 
 **Mathematical definition**
 
@@ -787,10 +787,10 @@ When `--all-vs-all` is used with one or more directories or PDB/CIF files, the s
 - **Pairwise table** (`-o`): CSV with pdb_a, pdb_b, raw_score, z_score, n_core, alignment_source, dalilite_rmsd, lali, nres, pct_id, dalilite_hit_id, description (DaliLite summary fields empty when alignment is not from DaliLite)
 - **Ranking** (`--output-ranking`, default `dali_ranking.csv`): structures ranked by average and max Z-score
 - **Z-score matrix** (`--output-matrix`): symmetric matrix CSV for downstream use
-- **Newick tree** (`--output-tree`, default `dali_tree.nwk`): phylogenetic tree from Z-score–derived distances (neighbor-joining or UPGMA)
-- **Dendrogram plot** (`--output-plot`): PNG/SVG tree visualization (requires ete3 or biopython+matplotlib)
+- **Newick tree** (`--output-tree`, default `dali_tree.nwk`): phylogenetic tree from Z-score–derived distances (neighbour-joining or UPGMA)
+- **Dendrogram plot** (`--output-plot`): PNG/SVG tree visualisation (requires ete3 or biopython+matplotlib)
 
-**Z-score → distance transform** (`--transform`): Higher Z = more similar. For trees, Z is converted to distance: `inv` (d = 1/(1+Z)), `maxminus` (normalized), or `exp` (d = exp(-Z/scale)). Tree building uses scikit-bio or Biopython for neighbor-joining when available, else a pure-Python UPGMA fallback. See Saitou & Nei (1987) for NJ.
+**Z-score → distance transform** (`--transform`): Higher Z = more similar. For trees, Z is converted to distance: `inv` (d = 1/(1+Z)), `maxminus` (normalised), or `exp` (d = exp(-Z/scale)). Tree building uses scikit-bio or Biopython for neighbour-joining when available, else a pure-Python UPGMA fallback. See Saitou & Nei (1987) for NJ.
 
 **Filtering:** `--filter` limits which files are included: plain text matches as a substring on the basename; patterns with `*`, `?`, or `[` use `fnmatch` on basename or stem (see `_collect_pdb_files` in `dali_score.py`).
 
@@ -810,7 +810,7 @@ Lines starting with `#` are comments. Header row is auto-skipped.
 
 **Derivation / references**
 
-- Holm, L.; Sander, C. *Protein structure comparison by alignment of distance matrices.* *J. Mol. Biol.* **233**, 123–138 (1993). DOI: [10.1006/jmbi.1993.1489](https://doi.org/10.1006/jmbi.1993.1489) — Original Dali method: raw score φ(i,j), Z-score normalization, empirical m(L) and σ(L).
+- Holm, L.; Sander, C. *Protein structure comparison by alignment of distance matrices.* *J. Mol. Biol.* **233**, 123–138 (1993). DOI: [10.1006/jmbi.1993.1489](https://doi.org/10.1006/jmbi.1993.1489) — Original Dali method: raw score φ(i,j), Z-score normalisation, empirical m(L) and σ(L).
 - Holm, L. *Dali and the persistence of protein shape.* *Protein Sci.* **29**, 128–140 (2020; first published online 2019). DOI: [10.1002/pro.3749](https://doi.org/10.1002/pro.3749) — DaliLite standalone implementation.
 - The Dali score uses intramolecular Cα–Cα distances only; superposition is not required. Equivalences can come from DaliLite, Coot/SSM (export alignment if available), biotite, or any structural alignment tool.
 
@@ -821,17 +821,17 @@ Lines starting with `#` are comments. Header row is auto-skipped.
 
 | Script / class                       | Parameter                                             | Default                         |
 | ------------------------------------ | ----------------------------------------------------- | ------------------------------- |
-| interface_analyzer                   | contact_distance                                      | 5.0 Å                           |
-| contact_analyzer                     | contact_distance                                      | 4.5 Å                           |
+| interface_analyser                   | contact_distance                                      | 5.0 Å                           |
+| contact_analyser                     | contact_distance                                      | 4.5 Å                           |
 | packing_metrics                      | protein density (for solvent)                         | 0.81 Da/Å³                      |
-| interface_analyzer                   | BSA (fallback when SASA unavailable)                  | 15 Å² per contact atom          |
-| contact_analyzer                     | surface neighbor cutoff                               | 5.0 Å; < 12 neighbors → surface |
-| contact_analyzer                     | estimated area per contact                            | 4 Å²                            |
-| contact_analyzer                     | avg atomic volume (packing)                           | 20 Å³                           |
-| interface_analyzer, contact_analyzer | H-bond max distance                                   | 3.5 Å                           |
-| interface_analyzer, contact_analyzer | Electrostatic max distance                            | 5.0 Å                           |
-| interface_analyzer, contact_analyzer | Hydrophobic range                                     | 3.5–4.5 Å                       |
-| interface_analyzer, contact_analyzer | Van der Waals max distance                            | 5.0 Å                           |
+| interface_analyser                   | BSA (fallback when SASA unavailable)                  | 15 Å² per contact atom          |
+| contact_analyser                     | surface neighbour cutoff                               | 5.0 Å; < 12 neighbours → surface |
+| contact_analyser                     | estimated area per contact                            | 4 Å²                            |
+| contact_analyser                     | avg atomic volume (packing)                           | 20 Å³                           |
+| interface_analyser, contact_analyser | H-bond max distance                                   | 3.5 Å                           |
+| interface_analyser, contact_analyser | Electrostatic max distance                            | 5.0 Å                           |
+| interface_analyser, contact_analyser | Hydrophobic range                                     | 3.5–4.5 Å                       |
+| interface_analyser, contact_analyser | Van der Waals max distance                            | 5.0 Å                           |
 
 
 ---

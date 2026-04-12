@@ -3,7 +3,7 @@
 Crystal Packing Analysis Pipeline
 =================================
 
-A comprehensive tool for analyzing crystal lattice packing differences
+A comprehensive tool for analysing crystal lattice packing differences
 with focus on 12-molecule arrangements (4x3 grids).
 
 Author: Crystal Analysis Pipeline
@@ -50,41 +50,41 @@ except ImportError:
     PackingMetricsCalculator = None
 
 try:
-    from interface_analyzer import InterfaceAnalyzer
+    from interface_analyser import InterfaceAnalyser
 except ImportError:
-    print("Warning: interface_analyzer module not available")
-    InterfaceAnalyzer = None
+    print("Warning: interface_analyser module not available")
+    InterfaceAnalyser = None
 
 try:
-    from contact_analyzer import ContactAnalyzer
+    from contact_analyser import ContactAnalyser
 except ImportError:
-    print("Warning: contact_analyzer module not available")
-    ContactAnalyzer = None
+    print("Warning: contact_analyser module not available")
+    ContactAnalyser = None
 
-class CrystalPackingAnalyzer:
+class CrystalPackingAnalyser:
     """Main class for crystal packing analysis pipeline."""
     
     def __init__(self, output_dir="crystal_analysis_output"):
-        """Initialize the analyzer with output directory."""
+        """Initialise the analyser with output directory."""
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         
-        # Initialize analyzers (handle cases where modules are not available)
+        # Initialise analysers (handle cases where modules are not available)
         self.packing_calc = PackingMetricsCalculator() if PackingMetricsCalculator else None
-        self.interface_analyzer = InterfaceAnalyzer() if InterfaceAnalyzer else None
-        self.contact_analyzer = ContactAnalyzer() if ContactAnalyzer else None
+        self.interface_analyser = InterfaceAnalyser() if InterfaceAnalyser else None
+        self.contact_analyser = ContactAnalyser() if ContactAnalyser else None
         
         self.results = {}
         
-        # Log which analyzers are available
+        # Log which analysers are available
         available = []
         if self.packing_calc: available.append("packing_metrics")
-        if self.interface_analyzer: available.append("interface_analyzer")
-        if self.contact_analyzer: available.append("contact_analyzer")
+        if self.interface_analyser: available.append("interface_analyser")
+        if self.contact_analyser: available.append("contact_analyser")
         
-        print(f"Available analyzers: {', '.join(available) if available else 'None'}")
+        print(f"Available analysers: {', '.join(available) if available else 'None'}")
     
-    def analyze_single_structure(self, pdb_file, structure_id=None):
+    def analyse_single_structure(self, pdb_file, structure_id=None):
         """
         Perform comprehensive analysis on a single crystal structure.
         
@@ -102,7 +102,7 @@ class CrystalPackingAnalyzer:
         if structure_id is None:
             structure_id = Path(pdb_file).stem
             
-        print(f"Analyzing structure: {structure_id}")
+        print(f"Analysing structure: {structure_id}")
         
         results = {
             'structure_id': structure_id,
@@ -120,22 +120,22 @@ class CrystalPackingAnalyzer:
                 results['packing_metrics'] = {'error': 'packing_metrics module not available'}
             
             # Phase 2: Interface analysis
-            if self.interface_analyzer:
-                print("  - Analyzing interfaces...")
-                interface_data = self.interface_analyzer.analyze_interfaces(pdb_file)
+            if self.interface_analyser:
+                print("  - Analysing interfaces...")
+                interface_data = self.interface_analyser.analyse_interfaces(pdb_file)
                 results['interface_analysis'] = interface_data
             else:
                 print("  - Skipping interface analysis (module not available)")
-                results['interface_analysis'] = {'error': 'interface_analyzer module not available'}
+                results['interface_analysis'] = {'error': 'interface_analyser module not available'}
             
             # Phase 3: Contact analysis
-            if self.contact_analyzer:
-                print("  - Analyzing crystal contacts...")
-                contact_data = self.contact_analyzer.analyze_contacts(pdb_file)
+            if self.contact_analyser:
+                print("  - Analysing crystal contacts...")
+                contact_data = self.contact_analyser.analyse_contacts(pdb_file)
                 results['contact_analysis'] = contact_data
             else:
                 print("  - Skipping contact analysis (module not available)")
-                results['contact_analysis'] = {'error': 'contact_analyzer module not available'}
+                results['contact_analysis'] = {'error': 'contact_analyser module not available'}
             
             # Save individual results
             self._save_single_results(results, structure_id)
@@ -153,7 +153,7 @@ class CrystalPackingAnalyzer:
         Parameters
         ----------
         structure_results : list
-            List of dicts from ``analyze_single_structure``.
+            List of dicts from ``analyse_single_structure``.
 
         Returns
         -------
@@ -199,22 +199,22 @@ class CrystalPackingAnalyzer:
 def main():
     """Main function for command-line interface."""
     parser = argparse.ArgumentParser(
-        description="Crystal Packing Analysis Pipeline",
+        description="Crystal packing analysis pipeline (packing metrics, interfaces, contacts).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Analyze single structure
-  python crystal_packing_analyzer.py --input model_01.pdb
+  # Analyse single structure
+  python crystal_packing_analyser.py --input model_01.pdb
 
-  # Analyze all PDBs in a directory
-  python crystal_packing_analyzer.py --input models/
+  # Analyse all PDBs in a directory
+  python crystal_packing_analyser.py --input models/
 
   # Combine per-structure JSON into one file (batch export)
-  python crystal_packing_analyzer.py --input *.pdb --compare
+  python crystal_packing_analyser.py --input *.pdb --compare
 
   # Filter by set(s): one output dir per set (use {} in --output)
-  python crystal_packing_analyzer.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
-  python crystal_packing_analyzer.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
+  python crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
+  python crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
         """
     )
 
@@ -222,7 +222,7 @@ Examples:
         '--input', '-i',
         nargs='+',
         required=True,
-        help='Input PDB/CIF file(s), directory (all *.pdb/*.cif inside), or glob (e.g. *.pdb)'
+        help='Input PDB/CIF file(s), directory (all *.pdb/*.cif inside), or glob (e.g. *.pdb).'
     )
 
     parser.add_argument(
@@ -249,19 +249,19 @@ Examples:
     parser.add_argument(
         '--compare', '-c',
         action='store_true',
-        help='After processing, write batch_analysis_results.json (all structures in one file)'
+        help='After processing, write batch_analysis_results.json (all structures in one file).'
     )
 
     parser.add_argument(
         '--verbose', '-v',
         action='store_true',
-        help='Verbose output'
+        help='Verbose output.'
     )
 
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='Print which files would be processed per set and output dir(s), then exit.'
+        help='Print which files would be processed per set and target output directories, then exit.'
     )
 
     args = parser.parse_args()
@@ -318,20 +318,20 @@ Examples:
             out_dir = args.output
         if args.verbose:
             print(f"Processing set {label!r}: {len(filtered)} structure(s) -> {out_dir}")
-        analyzer = CrystalPackingAnalyzer(out_dir)
+        analyser = CrystalPackingAnalyser(out_dir)
         all_results = []
         for pdb_file in filtered:
             if not os.path.exists(pdb_file):
                 print(f"Warning: File {pdb_file} not found, skipping...", file=sys.stderr)
                 continue
-            result = analyzer.analyze_single_structure(pdb_file)
+            result = analyser.analyse_single_structure(pdb_file)
             all_results.append(result)
 
         if args.compare and all_results:
-            analyzer.compare_structures(all_results)
+            analyser.compare_structures(all_results)
 
         print(f"\nSet {label!r} complete. Results saved to: {out_dir}")
-        print(f"Number of structures analyzed: {len(all_results)}")
+        print(f"Number of structures analysed: {len(all_results)}")
 
 if __name__ == "__main__":
     main() 

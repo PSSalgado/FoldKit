@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Extract interface rows from ``interface_analyzer.py`` text output, optionally
+Extract interface rows from ``interface_analyser.py`` text output, optionally
 restricting to specific structure files (PDB basenames) and/or chain IDs, and
 write CSV table(s).
 
-The analyzer labels each interface with a chain pair like ``A-B``. With a chain
+The analyser labels each interface with a chain pair like ``A-B``. With a chain
 filter, rows are kept where either side matches a requested chain (case-sensitive).
 With a structure filter, only rows from matching PDB sections are kept. You can
 use **chains only**, **PDBs only**, or **both**.
@@ -37,7 +37,7 @@ from typing import Any
 _RE_SET = re.compile(r"^Set '([^']*)' \(patterns:")
 _RE_SET_DQ = re.compile(r'^Set "([^"]*)" \(patterns:')
 _RE_PROGRESS = re.compile(r"^\[(\d+)/(\d+)\]\s+(.+?)\s*$")
-_RE_ANALYZING = re.compile(r"^Analyzing interfaces in (.+?)\.\.\.\s*$")
+_RE_ANALYSING = re.compile(r"^(?:Analysing|Analyzing) interfaces in (.+?)\.\.\.\s*$")
 
 # --- interface block ---
 _RE_INTERFACE_START = re.compile(r"^Interface\s+(\d+):\s*(.+?)\s*$")
@@ -73,7 +73,7 @@ _RE_ACCESS = re.compile(
 )
 
 _RE_BLOCK_BREAK = re.compile(
-    r"^(={10,}|\[\d+/\d+\]|Analyzing interfaces in |INTERFACE ANALYSIS RESULTS:|Set ['\"]|Done\.|Error:)"
+    r"^(={10,}|\[\d+/\d+\]|Analysing interfaces in |Analyzing interfaces in |INTERFACE ANALYSIS RESULTS:|Set ['\"]|Done\.|Error:)"
 )
 
 
@@ -212,7 +212,7 @@ def _parse_interface_block(lines: list[str]) -> dict[str, Any]:
     return out
 
 
-def parse_interface_analyzer_text(text: str) -> list[dict[str, Any]]:
+def parse_interface_analyser_text(text: str) -> list[dict[str, Any]]:
     """
     Parse full report text into a list of interface records (before molecule filter).
     Each record includes context: set_label, structure_basename, interface_number,
@@ -245,7 +245,7 @@ def parse_interface_analyzer_text(text: str) -> list[dict[str, Any]]:
             i += 1
             continue
 
-        ma = _RE_ANALYZING.match(line)
+        ma = _RE_ANALYSING.match(line)
         if ma:
             structure = os.path.basename(ma.group(1).strip())
             i += 1
@@ -543,7 +543,7 @@ def _collect_pdb_patterns(args: argparse.Namespace) -> list[str]:
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
-            "Filter interface_analyzer.py text output by optional structure (PDB) "
+            "Filter interface_analyser.py text output by optional structure (PDB) "
             "name and/or chain ID(s), and write CSV of matching interfaces."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -569,7 +569,7 @@ Examples:
     )
     ap.add_argument(
         "report",
-        help="Text report path (typically results.txt from interface_analyzer.py -o); use - for stdin",
+        help="Text report path (typically results.txt from interface_analyser.py -o); use - for stdin.",
     )
     ap.add_argument(
         "--pdb",
@@ -579,15 +579,15 @@ Examples:
         metavar="PATTERN",
         help=(
             "Only include interfaces from this structure: report basename or stem "
-            "(e.g. model_01.pdb or model_01). Repeat for multiple. Globs if pattern contains "
-            "* ? ["
+            "(e.g. model_01.pdb or model_01). Repeat for multiple structures. "
+            "Patterns with wildcards (*, ?, [) are matched as globs."
         ),
     )
     ap.add_argument(
         "--pdbs",
         dest="pdbs_csv",
         metavar="LIST",
-        help="Comma-separated structure names/patterns (same as --pdb)",
+        help="Comma-separated structure names/patterns (same as --pdb).",
     )
     ap.add_argument(
         "-m",
@@ -595,12 +595,12 @@ Examples:
         action="append",
         default=[],
         metavar="CHAIN",
-        help="Chain ID: keep interfaces involving this chain (repeat for more chains)",
+        help="Chain ID: keep interfaces involving this chain (repeat for more chains).",
     )
     ap.add_argument(
         "--chains",
         metavar="LIST",
-        help="Comma-separated chain IDs (alternative to repeating -m)",
+        help="Comma-separated chain IDs (alternative to repeating -m).",
     )
     ap.add_argument(
         "-o",
@@ -693,7 +693,7 @@ Examples:
                 r"'^(model\d+[^_]*)_', '^(model\d+(?:a|del)?)_', or '^(model\d+)_'."
             )
 
-    all_recs = parse_interface_analyzer_text(text)
+    all_recs = parse_interface_analyser_text(text)
     filtered = filter_by_structures(all_recs, pdb_patterns)
     filtered = filter_by_molecules(filtered, chains)
     filtered = apply_group_by_chain_layout(filtered, ordered_chains, args.group_by_chain)

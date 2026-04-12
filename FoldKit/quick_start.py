@@ -13,7 +13,7 @@ def main():
     print("Crystal Packing Analysis Pipeline - Quick Start")
     print("=" * 50)
     
-    print("\nThis pipeline analyzes crystal lattice packing differences.")
+    print("\nThis pipeline analyses crystal lattice packing differences.")
     print("Key features:")
     print("• Packing density metrics (Matthews coefficient, solvent content)")
     print("• Interface analysis (buried surface area, contacts)")
@@ -24,18 +24,18 @@ def main():
     print("USAGE EXAMPLES:")
     print("="*50)
     
-    print("\n1. Analyze a single structure:")
-    print("   python crystal_packing_analyzer.py --input model_01.pdb")
+    print("\n1. Analyse a single structure:")
+    print("   python crystal_packing_analyser.py --input model_01.pdb")
     
     print("\n2. Combine outputs from multiple structures:")
-    print("   python crystal_packing_analyzer.py --input *.pdb --compare")
+    print("   python crystal_packing_analyser.py --input *.pdb --compare")
     
     print("\n3. Specify output directory:")
-    print("   python crystal_packing_analyzer.py --input model_01.pdb --output analysis_output")
+    print("   python crystal_packing_analyser.py --input model_01.pdb --output analysis_output")
     
     print("\n4. Use individual modules:")
     print("   python packing_metrics.py model_01.pdb")
-    print("   python interface_analyzer.py model_01.pdb")
+    print("   python interface_analyser.py model_01.pdb")
     
     print("\n" + "="*50)
     print("INSTALLATION:")
@@ -53,10 +53,10 @@ def main():
     print("="*50)
     
     files = [
-        "crystal_packing_analyzer.py - Main analysis pipeline",
+        "crystal_packing_analyser.py - Main analysis pipeline",
         "packing_metrics.py - Basic packing calculations",
-        "interface_analyzer.py - Interface analysis",
-        "contact_analyzer.py - Crystal contact analysis",
+        "interface_analyser.py - Interface analysis",
+        "contact_analyser.py - Crystal contact analysis",
         "requirements.txt - Required Python packages",
         "README.md - Comprehensive documentation"
     ]
@@ -74,9 +74,9 @@ def main():
     print("\n1. Install dependencies: pip install -r requirements.txt")
     print("2. Test with your PDB files")
     print("3. Check README.md for detailed documentation")
-    print("4. Customize analysis parameters as needed")
+    print("4. Customise analysis parameters as needed")
     
-    print("\nFor help: python crystal_packing_analyzer.py --help")
+    print("\nFor help: python crystal_packing_analyser.py --help")
 
 if __name__ == "__main__":
     main() 

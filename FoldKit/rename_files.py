@@ -143,7 +143,7 @@ def main() -> None:
     )
     parser.add_argument(
         "directory",
-        help="Directory to operate in",
+        help="Directory to operate in.",
     )
     parser.add_argument(
         "strip_prefix",
@@ -152,34 +152,34 @@ def main() -> None:
         metavar="PREFIX",
         help=(
             "Legacy mode only: filename prefix; renames {PREFIX}_YYYY_MM_DD_HH_MM_*.pdb "
-            "to {PREFIX}_*.pdb in DIRECTORY (non-recursive)"
+            "to {PREFIX}_*.pdb in DIRECTORY (non-recursive)."
         ),
     )
     parser.add_argument(
         "--remove",
         metavar="PATTERN",
-        help="Regex to remove from each basename",
+        help="Regex to remove from each basename.",
     )
     parser.add_argument(
         "--replace",
         metavar="PATTERN",
-        help="Regex to replace in each basename",
+        help="Regex to replace in each basename.",
     )
     parser.add_argument(
         "--with",
         dest="replacement",
         metavar="STRING",
-        help="Replacement string (required with --replace)",
+        help="Replacement string (required with --replace).",
     )
     parser.add_argument(
         "--no-recursive",
         action="store_true",
-        help="Do not enter subdirectories",
+        help="Do not enter subdirectories.",
     )
     parser.add_argument(
         "--files-only",
         action="store_true",
-        help="Only rename files, not directories",
+        help="Only rename files, not directories.",
     )
 
     args = parser.parse_args()

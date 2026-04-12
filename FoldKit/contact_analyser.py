@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Contact Analyzer
+Contact Analyser
 ===============
 
-Analyze crystal contacts and symmetry-related interactions
+Analyse crystal contacts and symmetry-related interactions
 in protein crystal structures.
 """
 
@@ -46,12 +46,12 @@ except ImportError:
     PDBConstructionWarning = None  # type: ignore[misc, assignment]
     BIOPYTHON_AVAILABLE = False
 
-class ContactAnalyzer:
-    """Analyzer for crystal contacts and symmetry interactions."""
+class ContactAnalyser:
+    """Analyser for crystal contacts and symmetry interactions."""
     
     def __init__(self, contact_distance=4.5):
         """
-        Initialize the contact analyzer.
+        Initialise the contact analyser.
         
         Parameters:
         -----------
@@ -65,9 +65,9 @@ class ContactAnalyzer:
             
         self.contact_distance = contact_distance
     
-    def analyze_contacts(self, pdb_file):
+    def analyse_contacts(self, pdb_file):
         """
-        Analyze crystal contacts in a structure.
+        Analyse crystal contacts in a structure.
         
         Parameters:
         -----------
@@ -93,11 +93,11 @@ class ContactAnalyzer:
                 'contact_summary': {}
             }
             
-            # Analyze contacts within the asymmetric unit
-            asu_contacts = self._analyze_asu_contacts(structure)
+            # Analyse contacts within the asymmetric unit
+            asu_contacts = self._analyse_asu_contacts(structure)
             results['asu_contacts'] = asu_contacts
             
-            # Analyze potential crystal contacts (simplified)
+            # Analyse potential crystal contacts (simplified)
             # Note: Full crystal contact analysis requires symmetry operations
             crystal_contacts = self._estimate_crystal_contacts(structure, unit_cell_info)
             results['crystal_contacts'] = crystal_contacts
@@ -109,7 +109,7 @@ class ContactAnalyzer:
             return results
             
         except Exception as e:
-            return {'error': f"Failed to analyze contacts: {str(e)}"}
+            return {'error': f"Failed to analyse contacts: {str(e)}"}
     
     def _extract_crystal_info(self, pdb_file):
         """Extract crystallographic information from PDB file."""
@@ -137,8 +137,8 @@ class ContactAnalyzer:
             
         return crystal_info
     
-    def _analyze_asu_contacts(self, structure):
-        """Analyze contacts within the asymmetric unit."""
+    def _analyse_asu_contacts(self, structure):
+        """Analyse contacts within the asymmetric unit."""
         contacts = []
         
         # Get all chains in the structure
@@ -151,7 +151,7 @@ class ContactAnalyzer:
                 'contact_density': 0
             }
         
-        # Analyze contacts between chains
+        # Analyse contacts between chains
         for i, chain1 in enumerate(chains):
             for j, chain2 in enumerate(chains):
                 if i >= j:  # Avoid duplicates and self-comparison
@@ -261,17 +261,17 @@ class ContactAnalyzer:
         # Get all atoms
         all_atoms = list(structure.get_atoms())
         
-        # Simple surface identification: atoms with fewer neighbors
+        # Simple surface identification: atoms with fewer neighbours
         for atom in all_atoms:
-            neighbor_count = 0
+            neighbour_count = 0
             for other_atom in all_atoms:
                 if atom != other_atom:
                     distance = np.linalg.norm(atom.coord - other_atom.coord)
-                    if distance <= 5.0:  # Neighbor cutoff
-                        neighbor_count += 1
+                    if distance <= 5.0:  # Neighbour cutoff
+                        neighbour_count += 1
             
-            # Consider atoms with < 12 neighbors as surface atoms
-            if neighbor_count < 12:
+            # Consider atoms with < 12 neighbours as surface atoms
+            if neighbour_count < 12:
                 surface_atoms.append(atom)
         
         return surface_atoms
@@ -370,7 +370,7 @@ def filter_paths_by_patterns(paths, patterns):
 LIMIT_INLINE = 200
 
 
-def _run_analysis(analyzer, paths, out_stream, output_file_path=None):
+def _run_analysis(analyser, paths, out_stream, output_file_path=None):
     """Run contact analysis on paths and write results to out_stream."""
     for i, pdb_file in enumerate(paths):
         stem = os.path.splitext(os.path.basename(pdb_file))[0]
@@ -378,9 +378,9 @@ def _run_analysis(analyzer, paths, out_stream, output_file_path=None):
         if len(paths) > 1:
             print(f"\n{'='*50}\n[{i+1}/{len(paths)}] {os.path.basename(pdb_file)}\n{'='*50}", file=out_stream)
         else:
-            print(f"Analyzing contacts in {pdb_file}...", file=out_stream)
+            print(f"Analysing contacts in {pdb_file}...", file=out_stream)
 
-        results = analyzer.analyze_contacts(pdb_file)
+        results = analyser.analyse_contacts(pdb_file)
 
         if 'error' in results:
             print(f"Error: {results['error']}", file=out_stream)
@@ -438,16 +438,16 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Analyze crystal contacts and symmetry-related interactions.",
+        description="Analyse crystal contacts and symmetry-related interactions.",
         epilog="""Examples:
-  python contact_analyzer.py model_01.pdb
-  python contact_analyzer.py dir/
-  python contact_analyzer.py *.pdb -o contact_results.txt
-  python contact_analyzer.py *.pdb --set set_a,set_b -o by_set.txt
-  python contact_analyzer.py *.pdb --sets set_a set_b set_c -o "contact_{}.txt"
-  python contact_analyzer.py *.pdb --per-structure -o "{}_contact.txt"
-  python contact_analyzer.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
-  python contact_analyzer.py *.pdb --sets set_a set_b -o contact_results.txt --dry-run
+  python contact_analyser.py model_01.pdb
+  python contact_analyser.py dir/
+  python contact_analyser.py *.pdb -o contact_results.txt
+  python contact_analyser.py *.pdb --set set_a,set_b -o by_set.txt
+  python contact_analyser.py *.pdb --sets set_a set_b set_c -o "contact_{}.txt"
+  python contact_analyser.py *.pdb --per-structure -o "{}_contact.txt"
+  python contact_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
+  python contact_analyser.py *.pdb --sets set_a set_b -o contact_results.txt --dry-run
 
 Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
   python contact_molecule_report_csv.py contact_results.txt -m A -m B -o contacts_AB.csv
@@ -455,7 +455,7 @@ Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
   python contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb -m A -o model_01_contacts.csv
 """,
     )
-    parser.add_argument('input', nargs='+', help='PDB/CIF file(s), directory, or glob pattern (e.g. *.pdb)')
+    parser.add_argument('input', nargs='+', help='PDB/CIF file(s), directory, or glob pattern (e.g. *.pdb).')
     parser.add_argument(
         '--set', '-s', action='append', dest='sets', metavar='PATTERNS',
         help='Comma-separated patterns; file included only if basename contains ALL. Repeat for multiple sets.',
@@ -472,7 +472,7 @@ Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
         '--per-structure', '-p', action='store_true',
         help='Write one output file per structure; -o must contain "{}" (replaced by file stem). Can combine with --set/--sets to filter which files are processed.',
     )
-    parser.add_argument('--dry-run', action='store_true', help='Print which files would be processed per set and exit.')
+    parser.add_argument('--dry-run', action='store_true', help='Print which files would be processed per set, then exit.')
     args = parser.parse_args()
 
     paths = collect_structure_paths(args.input)
@@ -509,13 +509,13 @@ Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
                 dest = args.output.replace('{}', stem)
                 print(f"  {os.path.basename(p)} -> {dest}", file=sys.stderr)
             return
-        analyzer = ContactAnalyzer()
+        analyser = ContactAnalyser()
         for p in paths_to_process:
             stem = os.path.splitext(os.path.basename(p))[0]
             out_path = args.output.replace('{}', stem)
             print(f"Writing {os.path.basename(p)} -> {out_path}", file=sys.stderr)
             with open(out_path, 'w') as out:
-                _run_analysis(analyzer, [p], out, output_file_path=None)
+                _run_analysis(analyser, [p], out, output_file_path=None)
         return
 
     set_list = []
@@ -554,7 +554,7 @@ Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
         out = open(args.output, 'w')
         print(f"Writing all sets to {args.output}", file=sys.stderr)
 
-    analyzer = ContactAnalyzer()
+    analyser = ContactAnalyser()
     for idx, (label, patterns, filtered) in enumerate(set_list):
         if not filtered:
             print(f"No files match set {label!r} (patterns: {patterns}), skipping.", file=sys.stderr)
@@ -574,7 +574,7 @@ Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
         try:
             if len(set_list) > 1 and (single_output_file or not args.output):
                 print(f"\n{'='*50}\nSet {label!r} (patterns: {patterns})\n{'='*50}", file=current_out)
-            _run_analysis(analyzer, filtered, current_out, out_path if out_path is not None else (args.output if single_output_file else None))
+            _run_analysis(analyser, filtered, current_out, out_path if out_path is not None else (args.output if single_output_file else None))
         finally:
             if args.output and not single_output_file:
                 current_out.close()
