@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Run DaliLite pairwise or all-vs-all, write superposed PDBs (target onto query frame),
+Run DaliLite pairwise or all-vs-all, optionally write superposed PDBs (target onto query frame),
 and emit Dali-style scores, Z-matrix, ranking, and Newick tree.
 
 Superposition uses the translation–rotation block from DaliLite output (--outfmt transrot):

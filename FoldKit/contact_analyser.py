@@ -65,7 +65,7 @@ class ContactAnalyser:
             
         self.contact_distance = contact_distance
     
-    def analyse_contacts(self, pdb_file):
+    def analyse_contacts(self, pdb_file, focus_chains=None):
         """
         Analyse crystal contacts in a structure.
         
@@ -94,7 +94,7 @@ class ContactAnalyser:
             }
             
             # Analyse contacts within the asymmetric unit
-            asu_contacts = self._analyse_asu_contacts(structure)
+            asu_contacts = self._analyse_asu_contacts(structure, focus_chains=focus_chains)
             results['asu_contacts'] = asu_contacts
             
             # Analyse potential crystal contacts (simplified)
@@ -137,12 +137,16 @@ class ContactAnalyser:
             
         return crystal_info
     
-    def _analyse_asu_contacts(self, structure):
+    def _analyse_asu_contacts(self, structure, focus_chains=None):
         """Analyse contacts within the asymmetric unit."""
         contacts = []
         
         # Get all chains in the structure
         chains = list(structure.get_chains())
+
+        focus_set = None
+        if focus_chains:
+            focus_set = {str(c).strip() for c in focus_chains if str(c).strip()}
         
         if len(chains) < 2:
             return {
@@ -156,14 +160,20 @@ class ContactAnalyser:
             for j, chain2 in enumerate(chains):
                 if i >= j:  # Avoid duplicates and self-comparison
                     continue
+                if focus_set is not None and (chain1.id not in focus_set and chain2.id not in focus_set):
+                    continue
                 
                 chain_contacts = self._find_chain_contacts(chain1, chain2)
                 contacts.extend(chain_contacts)
         
+        chains_for_density = chains
+        if focus_set is not None:
+            chains_for_density = [c for c in chains if c.id in focus_set]
+
         return {
             'intra_asu_contacts': contacts,
             'contact_count': len(contacts),
-            'contact_density': self._calculate_contact_density(contacts, chains)
+            'contact_density': self._calculate_contact_density(contacts, chains_for_density)
         }
     
     def _find_chain_contacts(self, chain1, chain2):
@@ -370,7 +380,7 @@ def filter_paths_by_patterns(paths, patterns):
 LIMIT_INLINE = 200
 
 
-def _run_analysis(analyser, paths, out_stream, output_file_path=None):
+def _run_analysis(analyser, paths, out_stream, output_file_path=None, focus_chains=None):
     """Run contact analysis on paths and write results to out_stream."""
     for i, pdb_file in enumerate(paths):
         stem = os.path.splitext(os.path.basename(pdb_file))[0]
@@ -380,7 +390,7 @@ def _run_analysis(analyser, paths, out_stream, output_file_path=None):
         else:
             print(f"Analysing contacts in {pdb_file}...", file=out_stream)
 
-        results = analyser.analyse_contacts(pdb_file)
+        results = analyser.analyse_contacts(pdb_file, focus_chains=focus_chains)
 
         if 'error' in results:
             print(f"Error: {results['error']}", file=out_stream)
@@ -472,8 +482,17 @@ Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
         '--per-structure', '-p', action='store_true',
         help='Write one output file per structure; -o must contain "{}" (replaced by file stem). Can combine with --set/--sets to filter which files are processed.',
     )
+    parser.add_argument(
+        '--chains',
+        metavar='IDS',
+        help="Focus analysis on specific chain IDs (comma-separated). Only chain pairs where at least one chain is in this list are analysed. Example: --chains A or --chains A,B",
+    )
     parser.add_argument('--dry-run', action='store_true', help='Print which files would be processed per set, then exit.')
     args = parser.parse_args()
+
+    focus_chains = None
+    if getattr(args, 'chains', None):
+        focus_chains = [c.strip() for c in str(args.chains).split(',') if c.strip()]
 
     paths = collect_structure_paths(args.input)
     if not paths:
@@ -515,7 +534,7 @@ Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
             out_path = args.output.replace('{}', stem)
             print(f"Writing {os.path.basename(p)} -> {out_path}", file=sys.stderr)
             with open(out_path, 'w') as out:
-                _run_analysis(analyser, [p], out, output_file_path=None)
+                _run_analysis(analyser, [p], out, output_file_path=None, focus_chains=focus_chains)
         return
 
     set_list = []
@@ -574,7 +593,7 @@ Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
         try:
             if len(set_list) > 1 and (single_output_file or not args.output):
                 print(f"\n{'='*50}\nSet {label!r} (patterns: {patterns})\n{'='*50}", file=current_out)
-            _run_analysis(analyser, filtered, current_out, out_path if out_path is not None else (args.output if single_output_file else None))
+            _run_analysis(analyser, filtered, current_out, out_path if out_path is not None else (args.output if single_output_file else None), focus_chains=focus_chains)
         finally:
             if args.output and not single_output_file:
                 current_out.close()

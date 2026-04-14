@@ -16,7 +16,7 @@ All scripts live under `FoldKit/`. From the repository root run `python FoldKit/
 | [File management](#file-management)                                                                    | Renaming files; PDB chain ID replacement and merge; residue-range trimming (no Coot)                |
 | [Superimposition](#superimposition)                                                                    | Coot SSM/LSQ and trim workflows; batch LSQ; DaliLite superposed coordinates; opening models in Coot |
 | [Ranking, scoring, phylogeny, and graphical outputs](#ranking-scoring-phylogeny-and-graphical-outputs) | RMSD from logs; RMSD tables and heatmaps; Dali Z-scores; neighbour-joining trees and plots           |
-| [Metrics (crystal packing and lattice)](#metrics-crystal-packing-and-lattice)                          | Packing density, interfaces, contacts; optional batch JSON                                          |
+| [Metrics (crystal packing and lattice)](#metrics-crystal-packing-and-lattice)                          | Packing density, interfaces, contacts; multi-copy / lattice workflows; optional batch JSON         |
 | [Appendix](#appendix)                                                                                  | General notes, output layout, troubleshooting                                                       |
 
 
@@ -64,18 +64,51 @@ python FoldKit/rename_files.py /path/to/dir --remove='temp_' --no-recursive
 
 ### `pdb_rechain.py`
 
-Replace chain IDs on ATOM/HETATM/TER lines, or merge one chain into another and renumber residues so the source chain continues after the last residue on the target chain (e.g. B → A for a single continuous chain).
+Rewrite chain IDs on coordinate records (ATOM/HETATM/ANISOU/TER). Optionally merge one chain into another and renumber residues so the source chain continues after the last residue on the target chain (for example, merging B into A to form a single continuous chain).
+
+- **Key options**
+  - **`--merge-map 'FROM:TO,...'`**: Apply multiple merges left-to-right. Each merge moves all records from `FROM` to `TO` and renumbers the former `FROM` residues to continue after the last residue number on `TO` (PDB `resseq` field, max 9999).
+  - **`--reorder-chains`**: Reorder coordinate records so each chain is contiguous in the output. Recommended after `--merge-map` to prevent interleaving due to the original record order.
+  - **`--rename-sequential`**: Relabel all chains to `A..Z` after merges/renumbering.
+  - **`--chain-order 'ID,ID,...'`**: Used with `--rename-sequential`. Specifies the preferred order of existing chain IDs (post-merge) that should become new `A,B,C,...` first; any remaining chains are appended in first-appearance order.
+  - **`--renumber-per-chain`**: Renumber residues per chain starting at 1 (in residue first-appearance order). Keeps insertion codes unchanged.
+  - **`-o/--output`**: For multiple input files, use either an output directory (one output per input) or a path template containing `{}` (replaced by the input stem), for example `-o '/path/to/out/{}_rechain.pdb'`.
 
 ```bash
-# Copy all matching PDBs into out/, chain B → A with residue numbers after last A:
+# Merge chain B into chain A; residues from the former chain B continue after the last residue on chain A:
 python FoldKit/pdb_rechain.py /path/to/input_dir --pattern '*_models.pdb' -f B -t A \
   --merge-renumber -o /path/to/output_dir/
 
-# Simple rename (only if target chain is empty in the file):
+# Rename only (target chain must not already exist in the file):
 python FoldKit/pdb_rechain.py model_01.pdb -f X -t Y -o model_01_Y.pdb
+
+# Multi-copy assemblies: merge several chain pairs, reorder so chains are contiguous, relabel to A..Z,
+# and renumber residues per chain (starting at 1).
+#
+# Example merge list:
+#   B→A, D→C, F→E, H→G, J→I, L→K, N→M, O→P
+#
+# After these merges, the surviving chain IDs are:
+#   A, C, E, G, I, K, M, P
+#
+# Use --chain-order so that merged AB becomes new A, merged CD becomes new B, merged EF becomes new C, etc.
+python FoldKit/pdb_rechain.py multicopy.pdb \
+  --merge-map 'B:A,D:C,F:E,H:G,J:I,L:K,N:M,O:P' \
+  --reorder-chains \
+  --rename-sequential \
+  --chain-order 'A,C,E,G,I,K,M,P' \
+  --renumber-per-chain \
+  -o multicopy_merged_ordered.pdb
+
+# Batch processing (several files with identical chain conventions):
+python FoldKit/pdb_rechain.py /path/to/models/ --pattern '*.pdb' \
+  --merge-map 'B:A,D:C,F:E,H:G,J:I,L:K,N:M,O:P' \
+  --reorder-chains --rename-sequential --chain-order 'A,C,E,G,I,K,M,P' \
+  --renumber-per-chain \
+  -o '/path/to/out/{}_merged_ordered.pdb'
 ```
 
-`SEQRES` / `CRYST1` lines are not rewritten; adjust those separately if your downstream tool requires them.
+`SEQRES` and `CRYST1` records are not rewritten; update these separately if required by downstream tools.
 
 ### `trim_models.py`
 
@@ -660,9 +693,11 @@ python FoldKit/crystal_packing_analyser.py --input dir/
 python FoldKit/crystal_packing_analyser.py --input *.pdb --compare --output analysis_run
 python FoldKit/crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
 python FoldKit/crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
+python FoldKit/crystal_packing_analyser.py --input model_01.pdb --chains A --output analysis_chainA
+python FoldKit/crystal_packing_analyser.py --input expanded_assembly.pdb --reference-chain A --output ./analysis_expanded
 ```
 
-Options: `--input`, `--output` (use `{}` for one dir per set), `--set`, `--sets`, `--compare` (combined JSON), `--verbose`, `--dry-run`
+Options: `--input`, `--output` (use `{}` for one dir per set), `--set`, `--sets`, `--compare` (combined JSON), `--verbose`, `--dry-run`, `--chains`, `--reference-chain` (multi-copy lattice metrics in the interface stage)
 
 #### `packing_metrics.py`
 
@@ -692,9 +727,46 @@ python FoldKit/interface_analyser.py *.pdb --sets set_a set_b -o "interface_{}.t
 python FoldKit/interface_analyser.py *.pdb --per-structure -o "{}_interface.txt"
 python FoldKit/interface_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_interface.txt"
 python FoldKit/interface_analyser.py *.pdb --sets set_a set_b -o results.txt --dry-run
+python FoldKit/interface_analyser.py model_01.pdb --chains A -o chainA_interfaces.txt
+python FoldKit/interface_analyser.py expanded_assembly.pdb --reference-chain A -o lattice_interfaces.txt
 ```
 
-Options: `-o` (use `{}` for per-set or per-structure), `--per-structure`, `--set`, `--sets`, `--dry-run`
+Options: `-o` (use `{}` for per-set or per-structure), `--per-structure`, `--set`, `--sets`, `--dry-run`, `--chains`, `--reference-chain` (focal chain: isolated vs embedded SASA, lattice burial fraction, cross-chain contact-residue fraction)
+
+The text report summary lists **isolated SASA** (Shrake–Rupley, each chain alone) for every chain that appears in any reported interface, plus the **sum** of those values (e.g. chains A, B, C when interfaces A–B and A–C are reported). With **`--reference-chain`**, the summary adds **`sasa_reference_isolated`**, **`sasa_reference_in_cluster`**, **`lattice_burial_fraction`** (approximately `1 − SASA_cluster/SASA_iso`, a geometric occlusion index, **not** thermodynamic **ΔSASA**), and **`lattice_contact_residue_fraction`** (reference residues with a cross-chain neighbour within the contact cut-off).
+
+### Multi-copy models (crystallographic interfaces)
+
+Applicable when the coordinate file contains **several chains** representing **repeated molecules** in one frame (symmetry expansion, expanded lattice fragment, oligomer with one chain per subunit). Space-group operators are **not** applied; outputs describe the supplied Cartesian geometry only. Pairwise interface metrics (BSA, contacts, complementarity) are reported **per chain pair**. Each **BSA** value uses the usual formula with a **two-chain-only** complex (isolated SASA for each chain minus SASA of those two chains together), so pairs such as A–B, A–C, and A–D are each well-defined. Summed BSA over many pairs still aggregates separate pairwise terms and is **not** a single global burial measure for one molecule in the full assembly. The focal-copy **`lattice_burial_fraction`** is a geometric occlusion index, **not** a thermodynamic **ΔSASA**. Definitions, limitations, and interpretation: **`FoldKit/metrics_details.md`** (Sections 2.7.1–2.7.2).
+
+**Typical workflow**
+
+1. Build or export a multi-chain structure with distinct chain IDs per copy.
+2. Run **`interface_analyser.py`** on that file; use **`--chains`** to restrict to interfaces involving a focal molecule, and **`--reference-chain`** for the focal-copy occlusion summary in the report header.
+3. Optionally run **`crystal_packing_analyser.py`** with the same flags so **`interface_analysis.summary`** in each `*_analysis.json` includes the reference-chain fields.
+
+**Examples** (repository root; substitute paths and chain IDs)
+
+```bash
+# All pairwise interfaces in an expanded multi-chain model
+python FoldKit/interface_analyser.py /path/to/expanded_assembly.pdb -o assembly_interfaces.txt
+
+# Only interfaces where the focal chain participates (partner chains still listed per pair)
+python FoldKit/interface_analyser.py /path/to/expanded_assembly.pdb --chains A -o interfaces_focal_A.txt
+
+# Focal-copy summary: isolated vs embedded SASA, lattice_burial_fraction, contact-residue fraction
+python FoldKit/interface_analyser.py /path/to/expanded_assembly.pdb --chains A --reference-chain A -o lattice_focal_A.txt
+
+# Full pipeline; per-structure JSON under the output directory includes the interface summary
+python FoldKit/crystal_packing_analyser.py --input /path/to/expanded_assembly.pdb \
+  --chains A --reference-chain A --output ./analysis_expanded_assembly
+
+# Batch with combined JSON (--compare); same focal chain for every file matched by the glob
+python FoldKit/crystal_packing_analyser.py --input '/path/to/models/*_assembly.pdb' \
+  --reference-chain A --compare --output ./batch_lattice_analysis
+```
+
+**Outputs.** Text: one block per chain pair (BSA, contacts, complementarity, etc.) plus summary lines (isolated SASA for chains in reported interfaces; with **`--reference-chain`**, **`sasa_reference_isolated`**, **`sasa_reference_in_cluster`**, **`lattice_burial_fraction`**, **`lattice_contact_residue_fraction`**). JSON (pipeline): nested under `interface_analysis.summary` in `*_analysis.json`.
 
 #### `interface_molecule_report_csv.py`
 
@@ -724,9 +796,10 @@ python FoldKit/contact_analyser.py *.pdb -o contact_results.txt
 python FoldKit/contact_analyser.py *.pdb --sets set_a set_b -o "contact_{}.txt"
 python FoldKit/contact_analyser.py *.pdb --per-structure -o "{}_contact.txt"
 python FoldKit/contact_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
+python FoldKit/contact_analyser.py model_01.pdb --chains A -o chainA_contacts.txt
 ```
 
-Options: same as `interface_analyser.py`
+Options: same as `interface_analyser.py` (including `--chains`)
 
 #### `contact_molecule_report_csv.py`
 

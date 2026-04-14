@@ -84,7 +84,7 @@ class CrystalPackingAnalyser:
         
         print(f"Available analysers: {', '.join(available) if available else 'None'}")
     
-    def analyse_single_structure(self, pdb_file, structure_id=None):
+    def analyse_single_structure(self, pdb_file, structure_id=None, focus_chains=None, reference_chain_id=None):
         """
         Perform comprehensive analysis on a single crystal structure.
         
@@ -94,6 +94,13 @@ class CrystalPackingAnalyser:
             Path to PDB file
         structure_id : str, optional
             Identifier for the structure
+        focus_chains : None | list[str] | set[str]
+            If provided, chain-focused analysis is applied to stages that support it
+            (currently interface analysis and contact analysis). Only chain pairs where
+            at least one chain is in this set are analysed.
+        reference_chain_id : None | str
+            Passed to interface analysis: focal chain for multi-copy lattice metrics
+            (isolated vs embedded SASA, burial fraction, cross-chain contact residue fraction).
             
         Returns:
         --------
@@ -122,7 +129,11 @@ class CrystalPackingAnalyser:
             # Phase 2: Interface analysis
             if self.interface_analyser:
                 print("  - Analysing interfaces...")
-                interface_data = self.interface_analyser.analyse_interfaces(pdb_file)
+                interface_data = self.interface_analyser.analyse_interfaces(
+                    pdb_file,
+                    focus_chains=focus_chains,
+                    reference_chain_id=reference_chain_id,
+                )
                 results['interface_analysis'] = interface_data
             else:
                 print("  - Skipping interface analysis (module not available)")
@@ -131,7 +142,7 @@ class CrystalPackingAnalyser:
             # Phase 3: Contact analysis
             if self.contact_analyser:
                 print("  - Analysing crystal contacts...")
-                contact_data = self.contact_analyser.analyse_contacts(pdb_file)
+                contact_data = self.contact_analyser.analyse_contacts(pdb_file, focus_chains=focus_chains)
                 results['contact_analysis'] = contact_data
             else:
                 print("  - Skipping contact analysis (module not available)")
@@ -263,8 +274,26 @@ Examples:
         action='store_true',
         help='Print which files would be processed per set and target output directories, then exit.'
     )
+    parser.add_argument(
+        '--chains',
+        metavar='IDS',
+        help="Focus analysis on specific chain IDs (comma-separated). Passed through to interface/contact stages that support it. Example: --chains A or --chains A,B",
+    )
+    parser.add_argument(
+        '--reference-chain',
+        metavar='ID',
+        dest='reference_chain_id',
+        help='Focal chain ID for multi-copy assemblies; passed to interface analysis (lattice SASA / burial / contact-residue fraction).',
+    )
 
     args = parser.parse_args()
+
+    focus_chains = None
+    if getattr(args, 'chains', None):
+        focus_chains = [c.strip() for c in str(args.chains).split(',') if c.strip()]
+    reference_chain_id = getattr(args, 'reference_chain_id', None)
+    if reference_chain_id:
+        reference_chain_id = str(reference_chain_id).strip() or None
 
     # Expand inputs: directories and globs to file list
     paths = collect_structure_paths(args.input)
@@ -324,7 +353,11 @@ Examples:
             if not os.path.exists(pdb_file):
                 print(f"Warning: File {pdb_file} not found, skipping...", file=sys.stderr)
                 continue
-            result = analyser.analyse_single_structure(pdb_file)
+            result = analyser.analyse_single_structure(
+                pdb_file,
+                focus_chains=focus_chains,
+                reference_chain_id=reference_chain_id,
+            )
             all_results.append(result)
 
         if args.compare and all_results:

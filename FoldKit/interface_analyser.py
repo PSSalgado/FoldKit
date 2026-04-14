@@ -12,7 +12,9 @@ https://biopython.org/wiki/Interface_Analysis
   keep only residues that have at least one atom pair (with the other chain) satisfying both the distance
   cutoff and the type-specific distance limits (H-bond, hydrophobic, etc.).
 - **Buried surface area:** Shrake-Rupley SASA when available:
-  BSA = SASA(chain1 alone) + SASA(chain2 alone) - SASA(complex).
+  BSA = SASA(chain1 alone) + SASA(chain2 alone) − SASA(two-chain complex).
+  The complex uses only those two chains (deep-copied), so pairwise BSA is
+  well-defined in multi-chain assemblies (e.g. A–B vs A–C vs A–D).
   Falls back to a per-atom estimate if SASA is not available.
 """
 
@@ -28,16 +30,19 @@ try:
     from Bio.PDB.PDBParser import PDBParser
     from Bio.PDB.NeighborSearch import NeighborSearch
     from Bio.PDB.PDBExceptions import PDBConstructionWarning
-    from Bio.PDB import Structure, Model, Superimposer
+    from Bio.PDB.Superimposer import Superimposer
+    # Bio.PDB.Structure / Bio.PDB.Model are modules; import the actual classes.
+    from Bio.PDB.Structure import Structure as StructureClass
+    from Bio.PDB.Model import Model as ModelClass
     warnings.simplefilter('ignore', PDBConstructionWarning)
     BIOPYTHON_AVAILABLE = True
 except ImportError:
     PDBParser = None  # type: ignore[misc, assignment]
     NeighborSearch = None  # type: ignore[misc, assignment]
     PDBConstructionWarning = None  # type: ignore[misc, assignment]
-    Structure = None  # type: ignore[misc, assignment]
-    Model = None  # type: ignore[misc, assignment]
     Superimposer = None  # type: ignore[misc, assignment]
+    StructureClass = None  # type: ignore[misc, assignment]
+    ModelClass = None  # type: ignore[misc, assignment]
     BIOPYTHON_AVAILABLE = False
 
 try:
@@ -94,7 +99,7 @@ class InterfaceAnalyser:
             'Na': 2.27, 'K': 2.75, 'Cl': 1.75, 'Br': 1.85
         }
     
-    def analyse_interfaces(self, pdb_file):
+    def analyse_interfaces(self, pdb_file, focus_chains=None, reference_chain_id=None):
         """
         Analyse all interfaces in a crystal structure.
         
@@ -102,6 +107,16 @@ class InterfaceAnalyser:
         -----------
         pdb_file : str
             Path to PDB file
+        focus_chains : None | list[str] | set[str]
+            If provided, only analyse chain pairs where at least one chain ID
+            is in this set (e.g. focus_chains={'A'} analyses all interfaces that
+            involve chain A).
+        reference_chain_id : None | str
+            If set (e.g. central chain in a symmetry-expanded multi-copy PDB),
+            compute lattice-style metrics: SASA of that chain alone vs sum of its
+            per-residue SASA in the full model (all chains occluding), and
+            fraction of reference residues with a cross-chain neighbour within
+            contact_distance.
             
         Returns:
         --------
@@ -120,6 +135,10 @@ class InterfaceAnalyser:
             }
             # Get all chains
             chains = list(structure.get_chains())
+
+            focus_set = None
+            if focus_chains:
+                focus_set = {str(c).strip() for c in focus_chains if str(c).strip()}
             
             if len(chains) < 2:
                 return {'error': 'Need at least 2 chains for interface analysis'}
@@ -134,6 +153,8 @@ class InterfaceAnalyser:
             for i, chain1 in enumerate(chains):
                 for j, chain2 in enumerate(chains):
                     if i >= j:  # Avoid duplicates and self-comparison
+                        continue
+                    if focus_set is not None and (chain1.id not in focus_set and chain2.id not in focus_set):
                         continue
                     # Use the model that contains both chains (required for multi-model e.g. NMR)
                     if chain1.parent is not chain2.parent:
@@ -162,7 +183,51 @@ class InterfaceAnalyser:
                 'average_contact_area_per_interface': total_contact_area / interface_count if interface_count > 0 else 0,
                 'average_interface_rmsd_ca': total_interface_rmsd / rmsd_interface_count if rmsd_interface_count > 0 else 0,
             }
-            
+
+            # Total solvent-accessible surface (SASA) of each chain in isolation, for all chains
+            # that appear in any reported interface (e.g. focus A with A–B and A–C → A, B, C).
+            involved_ids = set()
+            for intf in results['interfaces']:
+                involved_ids.add(intf.get('chain1_id'))
+                involved_ids.add(intf.get('chain2_id'))
+            involved_ids.discard(None)
+
+            chain_by_id = {}
+            for ch in chains:
+                if ch.id in involved_ids and ch.id not in chain_by_id:
+                    chain_by_id[ch.id] = ch
+            for cid in involved_ids:
+                if cid not in chain_by_id:
+                    for model in structure:
+                        for ch in model:
+                            if ch.id == cid:
+                                chain_by_id[cid] = ch
+                                break
+                        if cid in chain_by_id:
+                            break
+
+            sasa_isolated_by_chain = {}
+            for cid in sorted(involved_ids):
+                ch = chain_by_id.get(cid)
+                if ch is None:
+                    continue
+                sasa_val = self._compute_sasa_chain_isolated(ch)
+                if sasa_val is not None:
+                    sasa_isolated_by_chain[cid] = float(sasa_val)
+
+            if sasa_isolated_by_chain:
+                results['summary']['sasa_isolated_by_chain'] = sasa_isolated_by_chain
+                results['summary']['sasa_isolated_sum'] = sum(sasa_isolated_by_chain.values())
+            else:
+                results['summary']['sasa_isolated_by_chain'] = {}
+                results['summary']['sasa_isolated_sum'] = None
+
+            ref_id = str(reference_chain_id).strip() if reference_chain_id else ''
+            if ref_id:
+                lattice = self._compute_lattice_reference_metrics(structure, ref_id)
+                if lattice:
+                    results['summary'].update(lattice)
+
             return results
             
         except Exception as e:
@@ -360,41 +425,398 @@ class InterfaceAnalyser:
             'contact_distance_std': np.std(distances)
         }
     
-    def _calculate_buried_surface_area(self, chain1, chain2, model):
+    def _find_chain_and_model(self, structure, chain_id):
+        """Return (chain, model) for the first chain with given id, or (None, None)."""
+        for model in structure:
+            for chain in model:
+                if chain.id == chain_id:
+                    return chain, model
+        return None, None
+
+    def _sum_residue_sasa_for_chain_in_full_model(self, model, chain_id):
+        """
+        Sum per-residue SASA (Å²) for chain_id after Shrake–Rupley on a deepcopy
+        of the full model (all chains present → mates occlude the probe).
+        """
+        if not SASA_AVAILABLE or ShrakeRupley is None:
+            return None
+        try:
+            model_copy = copy.deepcopy(model)
+        except (RecursionError, TypeError):
+            return None
+        try:
+            sr = ShrakeRupley(probe_radius=1.4, n_points=100)
+            sr.compute(model_copy, level='R')
+            total = 0.0
+            for chain in model_copy.get_chains():
+                if chain.id != chain_id:
+                    continue
+                for residue in chain:
+                    s = getattr(residue, 'sasa', None)
+                    if s is not None:
+                        total += float(s)
+            return total
+        except Exception:
+            return None
+
+    def _lattice_contact_residue_fraction(self, reference_chain, model):
+        """
+        Fraction of residues in reference_chain that have at least one atom
+        within contact_distance of an atom on a different chain (same model).
+        """
+        if NeighborSearch is None:
+            return None
+        atoms = list(model.get_atoms())
+        if not atoms:
+            return None
+        ref_cid = reference_chain.id
+        try:
+            ns = NeighborSearch(atoms)
+            contacted = set()
+            for atom in reference_chain.get_atoms():
+                for nb in ns.search(atom.coord, self.contact_distance, 'A'):
+                    if nb.parent.parent.id != ref_cid:
+                        contacted.add(atom.parent)
+                        break
+            res_list = list(reference_chain.get_residues())
+            if not res_list:
+                return None
+            return len(contacted) / len(res_list)
+        except Exception:
+            return None
+
+    def _lattice_charge_complementarity(self, reference_chain, model):
+        """
+        Charge complementarity between a reference chain and *all other chains*
+        in the same model (multi-copy lattice context).
+
+        This uses the same atom–atom contact definition as pairwise interfaces:
+        - atom pairs within contact_distance
+        - filtered by type-specific distance limits (H-bond, hydrophobic, etc.)
+
+        Returns a dict with score/opposite/same/total, or None if not computable.
+        """
+        if NeighborSearch is None:
+            return None
+        ref_atoms = list(reference_chain.get_atoms())
+        if not ref_atoms:
+            return None
+
+        ref_cid = reference_chain.id
+        other_atoms = []
+        for ch in model.get_chains():
+            if ch.id == ref_cid:
+                continue
+            other_atoms.extend(list(ch.get_atoms()))
+        if not other_atoms:
+            return None
+
+        try:
+            ns = NeighborSearch(other_atoms)
+            raw_contacts = []
+            for a1 in ref_atoms:
+                for a2 in ns.search(a1.coord, self.contact_distance, 'A'):
+                    d = float(np.linalg.norm(a1.coord - a2.coord))
+                    if d <= self.contact_distance:
+                        raw_contacts.append({
+                            'atom1': a1,
+                            'atom2': a2,
+                            'distance': d,
+                            'residue1': a1.parent,
+                            'residue2': a2.parent,
+                        })
+            if not raw_contacts:
+                return {'score': 0.0, 'opposite': 0, 'same': 0, 'total': 0}
+            filtered, _type_counts = self._filter_contacts_by_limits(raw_contacts)
+            return self._calculate_charge_complementarity(filtered)
+        except Exception:
+            return None
+
+    def _compute_lattice_charge_metrics(self, reference_chain, model):
+        """
+        Lattice-wide charge metrics for the reference chain vs all other chains.
+
+        Computes:
+        - atom-contact based charge complementarity (existing definition)
+        - residue-pair based charge complementarity (unique charged residue pairs)
+        - distance-weighted charge complementarity (weights ~ 1/d^2 per unique residue pair, d = min atom distance)
+        - partner-resolved versions of the above (per neighbour chain ID)
+
+        Returns JSON-serializable dict, or None if not computable.
+        """
+        if NeighborSearch is None:
+            return None
+        ref_atoms = list(reference_chain.get_atoms())
+        if not ref_atoms:
+            return None
+
+        ref_cid = reference_chain.id
+        other_atoms = []
+        for ch in model.get_chains():
+            if ch.id == ref_cid:
+                continue
+            other_atoms.extend(list(ch.get_atoms()))
+        if not other_atoms:
+            return None
+
+        try:
+            ns = NeighborSearch(other_atoms)
+            raw_contacts = []
+            for a1 in ref_atoms:
+                for a2 in ns.search(a1.coord, self.contact_distance, 'A'):
+                    d = float(np.linalg.norm(a1.coord - a2.coord))
+                    if d <= self.contact_distance:
+                        raw_contacts.append({
+                            'atom1': a1,
+                            'atom2': a2,
+                            'distance': d,
+                            'residue1': a1.parent,
+                            'residue2': a2.parent,
+                        })
+            if not raw_contacts:
+                return {
+                    'atom': {'score': 0.0, 'opposite': 0, 'same': 0, 'total': 0},
+                    'residue_pair': {'score': 0.0, 'opposite': 0, 'same': 0, 'total': 0},
+                    'residue_pair_weighted': {'score': 0.0, 'opposite_weight': 0.0, 'same_weight': 0.0, 'total_weight': 0.0},
+                    'by_partner_chain': {},
+                }
+
+            filtered, _type_counts = self._filter_contacts_by_limits(raw_contacts)
+
+            # --- Atom-contact based score (existing)
+            atom_cc = self._calculate_charge_complementarity(filtered)
+
+            # --- Aggregate contacts by charged residue pair and partner chain
+            # Key: (ref_res_id, partner_chain_id, partner_res_id)
+            pair_min_dist = {}
+            pair_charge_prod = {}
+            by_partner_pairs = {}
+
+            for c in filtered:
+                r1 = c.get('residue1')
+                r2 = c.get('residue2')
+                if r1 is None or r2 is None:
+                    continue
+                q1 = self._residue_charge(getattr(r1, 'resname', ''))
+                q2 = self._residue_charge(getattr(r2, 'resname', ''))
+                if q1 == 0 or q2 == 0:
+                    continue
+                # partner chain ID for residue2
+                try:
+                    partner_cid = r2.parent.id
+                except Exception:
+                    continue
+                key = (r1.id, partner_cid, r2.id)
+                d = float(c.get('distance', 0.0))
+                if key not in pair_min_dist or d < pair_min_dist[key]:
+                    pair_min_dist[key] = d
+                pair_charge_prod[key] = q1 * q2
+                by_partner_pairs.setdefault(partner_cid, set()).add(key)
+
+            # Residue-pair based counts and weighted sums
+            rp_opp = 0
+            rp_same = 0
+            w_opp = 0.0
+            w_same = 0.0
+
+            for key, prod in pair_charge_prod.items():
+                if prod < 0:
+                    rp_opp += 1
+                elif prod > 0:
+                    rp_same += 1
+                d = pair_min_dist.get(key)
+                if d is None or d <= 0:
+                    continue
+                w = 1.0 / (d * d)
+                if prod < 0:
+                    w_opp += w
+                elif prod > 0:
+                    w_same += w
+
+            rp_total = rp_opp + rp_same
+            rp_score = (rp_opp / float(rp_total)) if rp_total else 0.0
+            w_total = w_opp + w_same
+            w_score = (w_opp / float(w_total)) if w_total else 0.0
+
+            # Partner-resolved metrics (residue-pair based + weighted)
+            by_partner = {}
+            for partner_cid, keys in by_partner_pairs.items():
+                p_opp = 0
+                p_same = 0
+                pw_opp = 0.0
+                pw_same = 0.0
+                for key in keys:
+                    prod = pair_charge_prod.get(key, 0)
+                    if prod < 0:
+                        p_opp += 1
+                    elif prod > 0:
+                        p_same += 1
+                    d = pair_min_dist.get(key)
+                    if d is None or d <= 0:
+                        continue
+                    w = 1.0 / (d * d)
+                    if prod < 0:
+                        pw_opp += w
+                    elif prod > 0:
+                        pw_same += w
+                p_total = p_opp + p_same
+                pw_total = pw_opp + pw_same
+                by_partner[str(partner_cid)] = {
+                    'residue_pair': {
+                        'score': (p_opp / float(p_total)) if p_total else 0.0,
+                        'opposite': int(p_opp),
+                        'same': int(p_same),
+                        'total': int(p_total),
+                    },
+                    'residue_pair_weighted': {
+                        'score': (pw_opp / float(pw_total)) if pw_total else 0.0,
+                        'opposite_weight': float(pw_opp),
+                        'same_weight': float(pw_same),
+                        'total_weight': float(pw_total),
+                    },
+                }
+
+            return {
+                'atom': {
+                    'score': float(atom_cc.get('score', 0.0)),
+                    'opposite': int(atom_cc.get('opposite', 0)),
+                    'same': int(atom_cc.get('same', 0)),
+                    'total': int(atom_cc.get('total', 0)),
+                },
+                'residue_pair': {
+                    'score': float(rp_score),
+                    'opposite': int(rp_opp),
+                    'same': int(rp_same),
+                    'total': int(rp_total),
+                },
+                'residue_pair_weighted': {
+                    'score': float(w_score),
+                    'opposite_weight': float(w_opp),
+                    'same_weight': float(w_same),
+                    'total_weight': float(w_total),
+                },
+                'by_partner_chain': by_partner,
+            }
+        except Exception:
+            return None
+
+    def _compute_lattice_reference_metrics(self, structure, reference_chain_id):
+        """
+        Empirical lattice-compactness style metrics for one reference chain in a
+        multi-copy model (e.g. symmetry-expanded assembly).
+
+        Returns a dict for summary (JSON-serializable floats) or empty dict.
+        """
+        ref_chain, ref_model = self._find_chain_and_model(structure, reference_chain_id)
+        if ref_chain is None or ref_model is None:
+            return {
+                'lattice_reference_chain': reference_chain_id,
+                'lattice_metrics_error': 'reference chain not found in structure',
+            }
+
+        out = {'lattice_reference_chain': reference_chain_id}
+
+        sasa_iso = self._compute_sasa_chain_isolated(ref_chain)
+        sasa_cluster = self._sum_residue_sasa_for_chain_in_full_model(ref_model, reference_chain_id)
+        out['sasa_reference_isolated'] = sasa_iso
+        out['sasa_reference_in_cluster'] = sasa_cluster
+
+        if sasa_iso is not None and sasa_iso > 0 and sasa_cluster is not None:
+            raw = 1.0 - (float(sasa_cluster) / float(sasa_iso))
+            out['lattice_burial_fraction'] = float(max(0.0, min(1.0, raw)))
+        else:
+            out['lattice_burial_fraction'] = None
+
+        crf = self._lattice_contact_residue_fraction(ref_chain, ref_model)
+        out['lattice_contact_residue_fraction'] = crf
+
+        cc = self._compute_lattice_charge_metrics(ref_chain, ref_model)
+        out['lattice_charge_metrics'] = cc
+        # Backwards-compatible scalar fields (atom-contact based)
+        if cc is None:
+            out['lattice_charge_complementarity'] = None
+            out['lattice_charge_complementarity_opposite'] = None
+            out['lattice_charge_complementarity_same'] = None
+            out['lattice_charge_complementarity_total'] = None
+            out['lattice_charge_complementarity_density'] = None
+            out['lattice_charge_complementarity_density_denominator'] = None
+        else:
+            atom_cc = (cc.get('atom') or {}) if isinstance(cc, dict) else {}
+            out['lattice_charge_complementarity'] = float(atom_cc.get('score', 0.0))
+            out['lattice_charge_complementarity_opposite'] = int(atom_cc.get('opposite', 0))
+            out['lattice_charge_complementarity_same'] = int(atom_cc.get('same', 0))
+            out['lattice_charge_complementarity_total'] = int(atom_cc.get('total', 0))
+
+            if sasa_iso is not None and sasa_cluster is not None:
+                ref_buried_area = float(sasa_iso) - float(sasa_cluster)
+            else:
+                ref_buried_area = 0.0
+            if ref_buried_area > 0.0:
+                out['lattice_charge_complementarity_density'] = float(atom_cc.get('opposite', 0)) / ref_buried_area
+                out['lattice_charge_complementarity_density_denominator'] = 'reference_buried_area'
+            else:
+                out['lattice_charge_complementarity_density'] = None
+                out['lattice_charge_complementarity_density_denominator'] = None
+
+        return out
+
+    def _compute_sasa_chain_isolated(self, chain):
+        """
+        Shrake–Rupley SASA (Å²) for one chain alone (probe 1.4 Å, n_points=100).
+        Returns None if SASA is unavailable or computation fails.
+        """
+        if not SASA_AVAILABLE or ShrakeRupley is None or StructureClass is None or ModelClass is None:
+            return None
+        try:
+            c_copy = copy.deepcopy(chain)
+        except (RecursionError, TypeError):
+            return None
+        try:
+            st = StructureClass("single")
+            m = ModelClass(0)
+            m.add(c_copy)
+            st.add(m)
+            sr_chain = ShrakeRupley(probe_radius=1.4, n_points=100)
+            sr_chain.compute(st, level='S')
+            val = getattr(st, 'sasa', None)
+            return float(val) if val is not None else None
+        except Exception:
+            return None
+
+    def _calculate_buried_surface_area(self, chain1, chain2, _full_model):
         """
         Buried surface area using the Biopython Interface Analysis approach:
-        BSA = SASA(chain1 alone) + SASA(chain2 alone) - SASA(complex).
+        BSA = SASA(chain1 alone) + SASA(chain2 alone) − SASA(complex).
+
+        The complex SASA is computed on a model that contains **only** these
+        two chains (deep copies at their current coordinates). That matches
+        the standard pairwise definition for each chain pair in a multi-chain
+        file (e.g. A–B, A–C, A–D) without folding in burial by other molecules.
+
+        ``_full_model`` is ignored; the Shrake–Rupley path builds a two-chain
+        complex only. The parameter is kept so callers can pass the parent model
+        unchanged.
+
         Uses Bio.PDB.SASA.ShrakeRupley when available; otherwise falls back
         to a per-contact-atom estimate (~15 Å² per atom).
         """
-        if not SASA_AVAILABLE or ShrakeRupley is None or Structure is None or Model is None:
+        if not SASA_AVAILABLE or ShrakeRupley is None or ModelClass is None:
             return self._estimate_buried_surface_area_fallback(chain1, chain2)
 
         try:
+            c1 = copy.deepcopy(chain1)
+            c2 = copy.deepcopy(chain2)
+            m_pair = ModelClass(0)
+            m_pair.add(c1)
+            m_pair.add(c2)
             sr = ShrakeRupley(probe_radius=1.4, n_points=100)
-            # SASA of complex (both chains in one model)
-            sr.compute(model, level='S')
-            sasa_complex = getattr(model, 'sasa', None)
+            sr.compute(m_pair, level='S')
+            sasa_complex = getattr(m_pair, 'sasa', None)
             if sasa_complex is None:
                 return self._estimate_buried_surface_area_fallback(chain1, chain2)
 
-            # Single-chain structures for SASA in isolation (use copies to avoid mutating model).
-            # Use a fresh ShrakeRupley per chain so internal state from one compute() does not affect another.
-            def _single_chain_sasa(chain):
-                try:
-                    c_copy = copy.deepcopy(chain)
-                except (RecursionError, TypeError):
-                    return None
-                st = Structure("single")
-                m = Model(0)
-                m.add(c_copy)
-                st.add(m)
-                sr_chain = ShrakeRupley(probe_radius=1.4, n_points=100)
-                sr_chain.compute(st, level='S')
-                return getattr(st, 'sasa', None)
-
-            sasa1 = _single_chain_sasa(chain1)
-            sasa2 = _single_chain_sasa(chain2)
+            sasa1 = self._compute_sasa_chain_isolated(chain1)
+            sasa2 = self._compute_sasa_chain_isolated(chain2)
             if sasa1 is None or sasa2 is None:
                 return self._estimate_buried_surface_area_fallback(chain1, chain2)
 
@@ -599,13 +1021,11 @@ class InterfaceAnalyser:
         if not SASA_AVAILABLE or ShrakeRupley is None:
             return {}
         try:
-            # Work on a deepcopy of the model to avoid mutating the original (which may be
-            # reused for structure-level SASA in _calculate_buried_surface_area for other pairs).
+            # Work on a deepcopy of the model to avoid mutating the original and to keep
+            # per-residue SASA consistent with the full assembly geometry.
             try:
                 model_copy = copy.deepcopy(model)
             except (RecursionError, TypeError):
-                # Do not run sr.compute on the original model; it would overwrite structure-level
-                # SASA attributes and corrupt BSA calculations for other chain pairs.
                 return {}
 
             sr = ShrakeRupley(probe_radius=1.4, n_points=100)
@@ -719,7 +1139,7 @@ def filter_paths_by_patterns(paths, patterns):
     return result
 
 
-def _run_analysis(analyser, paths, out_stream):
+def _run_analysis(analyser, paths, out_stream, focus_chains=None, reference_chain_id=None):
     """Run interface analysis on paths and write results to out_stream."""
     for i, pdb_file in enumerate(paths):
         if len(paths) > 1:
@@ -727,7 +1147,9 @@ def _run_analysis(analyser, paths, out_stream):
         else:
             print(f"Analysing interfaces in {pdb_file}...", file=out_stream)
 
-        results = analyser.analyse_interfaces(pdb_file)
+        results = analyser.analyse_interfaces(
+            pdb_file, focus_chains=focus_chains, reference_chain_id=reference_chain_id
+        )
 
         if 'error' in results:
             print(f"Error: {results['error']}", file=out_stream)
@@ -740,6 +1162,80 @@ def _run_analysis(analyser, paths, out_stream):
             print(f"Total interfaces: {summary.get('total_interfaces', 0)}", file=out_stream)
             print(f"Total buried surface area: {summary.get('total_buried_surface_area', 0):.1f} Å²", file=out_stream)
             print(f"Average buried area per interface: {summary.get('average_buried_area_per_interface', 0):.1f} Å²", file=out_stream)
+            sasa_iso = summary.get('sasa_isolated_by_chain') or {}
+            sasa_sum = summary.get('sasa_isolated_sum')
+            if sasa_iso and sasa_sum is not None:
+                print("Isolated SASA (Shrake–Rupley, probe 1.4 Å; each chain alone in solvent):", file=out_stream)
+                for cid in sorted(sasa_iso.keys()):
+                    print(f"  Chain {cid}: {sasa_iso[cid]:.1f} Å²", file=out_stream)
+                print(f"  Sum of isolated SASA (all chains in any reported interface): {sasa_sum:.1f} Å²", file=out_stream)
+            elif summary.get('total_interfaces', 0) > 0:
+                print("Isolated SASA: N/A (SASA unavailable or computation failed)", file=out_stream)
+            err_lat = summary.get('lattice_metrics_error')
+            if err_lat:
+                print(f"Lattice reference metrics: {err_lat}", file=out_stream)
+            elif summary.get('lattice_reference_chain'):
+                lc = summary['lattice_reference_chain']
+                print(f"Lattice reference chain {lc} (multi-copy / cluster SASA):", file=out_stream)
+                sri = summary.get('sasa_reference_isolated')
+                src = summary.get('sasa_reference_in_cluster')
+                if sri is not None:
+                    print(f"  SASA isolated (chain alone): {sri:.1f} Å²", file=out_stream)
+                else:
+                    print("  SASA isolated: N/A", file=out_stream)
+                if src is not None:
+                    print(f"  SASA in full model (sum per-residue, chain {lc}): {src:.1f} Å²", file=out_stream)
+                else:
+                    print("  SASA in full model: N/A", file=out_stream)
+                lbf = summary.get('lattice_burial_fraction')
+                if lbf is not None:
+                    print(f"  Lattice burial fraction (1 − SASA_cluster/SASA_iso): {lbf:.3f} ({100.0*float(lbf):.1f}%)", file=out_stream)
+                else:
+                    print("  Lattice burial fraction: N/A", file=out_stream)
+                crf = summary.get('lattice_contact_residue_fraction')
+                if crf is not None:
+                    cd = analyser.contact_distance
+                    print(f"  Fraction of residues with cross-chain neighbour within {cd:.1f} Å: {crf:.3f} ({100.0*float(crf):.1f}%)", file=out_stream)
+                else:
+                    print("  Cross-chain contact residue fraction: N/A", file=out_stream)
+                lcc_total = summary.get('lattice_charge_complementarity_total')
+                lcc = summary.get('lattice_charge_complementarity')
+                if lcc is None:
+                    print("  Lattice charge complementarity: N/A", file=out_stream)
+                else:
+                    if isinstance(lcc_total, (int, float)) and lcc_total > 0:
+                        lcc_opp = summary.get('lattice_charge_complementarity_opposite', 0)
+                        lcc_same = summary.get('lattice_charge_complementarity_same', 0)
+                        print(f"  Lattice charge complementarity: {lcc:.3f} ({100.0*float(lcc):.1f}%)  (charged–charged contacts: {lcc_opp} opposite, {lcc_same} same)", file=out_stream)
+                    else:
+                        print(f"  Lattice charge complementarity: {lcc:.3f} ({100.0*float(lcc):.1f}%)  (no charged–charged contacts)", file=out_stream)
+                    lccd = summary.get('lattice_charge_complementarity_density')
+                    if lccd is not None:
+                        denom = summary.get('lattice_charge_complementarity_density_denominator') or 'area'
+                        print(f"  Lattice charge complementarity density: {lccd:.4f} opposite-sign contacts/Å²  (per {denom})", file=out_stream)
+                    # Extended lattice charge metrics (if present)
+                    lcm = summary.get('lattice_charge_metrics')
+                    if isinstance(lcm, dict):
+                        rp = lcm.get('residue_pair') or {}
+                        rpw = lcm.get('residue_pair_weighted') or {}
+                        if isinstance(rp, dict) and 'score' in rp:
+                            rp_score = float(rp.get('score', 0.0))
+                            print(f"  Lattice charge complementarity (residue-pair): {rp_score:.3f} ({100.0*rp_score:.1f}%)  (pairs: {int(rp.get('opposite', 0))} opposite, {int(rp.get('same', 0))} same)", file=out_stream)
+                        if isinstance(rpw, dict) and 'score' in rpw:
+                            rpw_score = float(rpw.get('score', 0.0))
+                            print(f"  Lattice charge complementarity (residue-pair, 1/d²-weighted): {rpw_score:.3f} ({100.0*rpw_score:.1f}%)", file=out_stream)
+                        by_partner = lcm.get('by_partner_chain') or {}
+                        if isinstance(by_partner, dict) and by_partner:
+                            print("  Lattice charge complementarity by partner chain (residue-pair):", file=out_stream)
+                            for partner_cid in sorted(by_partner.keys()):
+                                rec = by_partner.get(partner_cid) or {}
+                                prp = rec.get('residue_pair') or {}
+                                prpw = rec.get('residue_pair_weighted') or {}
+                                score = float(prp.get('score', 0.0)) if isinstance(prp, dict) else 0.0
+                                opp = int(prp.get('opposite', 0)) if isinstance(prp, dict) else 0
+                                same = int(prp.get('same', 0)) if isinstance(prp, dict) else 0
+                                wscore = float(prpw.get('score', 0.0)) if isinstance(prpw, dict) else 0.0
+                                print(f"    Partner {partner_cid}: score={score:.3f} ({100.0*score:.1f}%) (pairs: {opp} opposite, {same} same)  weighted_score={wscore:.3f} ({100.0*wscore:.1f}%)", file=out_stream)
         interfaces = results.get('interfaces', [])
         if isinstance(interfaces, list):
             for j, interface in enumerate(interfaces):
@@ -798,6 +1294,7 @@ def main():
   python interface_analyser.py *.pdb --per-structure -o "{}_interface.txt"
   python interface_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_interface.txt"
   python interface_analyser.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
+  python interface_analyser.py supercell.pdb --reference-chain A -o lattice.txt
 
 Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
   python interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv
@@ -846,7 +1343,25 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
         action='store_true',
         help='Print which files would be processed for each set and exit without running. Writes summary to interface_analyser_dryrun.txt in the current directory.',
     )
+    parser.add_argument(
+        '--chains',
+        metavar='IDS',
+        help="Focus analysis on specific chain IDs (comma-separated). Only chain pairs where at least one chain is in this list are analysed. Example: --chains A or --chains A,B",
+    )
+    parser.add_argument(
+        '--reference-chain',
+        metavar='ID',
+        dest='reference_chain_id',
+        help='For symmetry-expanded / multi-copy PDBs: chain ID of the focal molecule (e.g. central copy). Reports isolated SASA vs sum of per-residue SASA in the full model, lattice_burial_fraction, and fraction of residues with a cross-chain neighbour within contact_distance.',
+    )
     args = parser.parse_args()
+
+    focus_chains = None
+    if getattr(args, 'chains', None):
+        focus_chains = [c.strip() for c in str(args.chains).split(',') if c.strip()]
+    reference_chain_id = getattr(args, 'reference_chain_id', None)
+    if reference_chain_id:
+        reference_chain_id = str(reference_chain_id).strip() or None
 
     paths = collect_structure_paths(args.input)
 
@@ -895,7 +1410,11 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
             out_path = args.output.replace('{}', stem)
             print(f"Writing {os.path.basename(path)} -> {out_path}", file=sys.stderr)
             with open(out_path, 'w') as out:
-                _run_analysis(analyser, [path], out)
+                _run_analysis(
+                    analyser, [path], out,
+                    focus_chains=focus_chains,
+                    reference_chain_id=reference_chain_id,
+                )
         return
 
     # Build list of (label, filtered_paths). If --set/--sets not used, one set with all paths.
@@ -983,7 +1502,11 @@ Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
         try:
             if len(set_list) > 1 and (single_output_file or not args.output):
                 print(f"\n{'='*50}\nSet {label!r} (patterns: {patterns})\n{'='*50}", file=out)
-            _run_analysis(analyser, filtered, out)
+            _run_analysis(
+                analyser, filtered, out,
+                focus_chains=focus_chains,
+                reference_chain_id=reference_chain_id,
+            )
         finally:
             if args.output and not single_output_file:
                 out.close()
