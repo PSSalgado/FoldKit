@@ -74,6 +74,23 @@ def _parse_atom_chain_resseq_icode(line: str) -> tuple[str, int, str] | None:
     return (chain, resseq, icode)
 
 
+def _chain_id_for_reorder(line: str) -> str | None:
+    """
+    Chain ID for grouping coordinate-like lines when reordering by chain.
+
+    ATOM/HETATM/ANISOU use the standard parse. TER often omits or pads residue
+    number fields so int() fails in _parse_atom_chain_resseq_icode; for TER we
+    still read the chain column (same column as ATOM) so TER stays with its chain.
+    """
+    if _is_ter_line(line):
+        if len(line) <= 21:
+            return None
+        ch = line[21]
+        return ch if ch not in (" ", "\n", "\r") else None
+    p = _parse_atom_chain_resseq_icode(line)
+    return p[0] if p else None
+
+
 def _set_chain_resseq(line: str, chain: str, resseq: int) -> str:
     """Rewrite columns 22–26 (chain + 4-digit resseq); keep rest of line."""
     if len(line) < 27:
@@ -273,6 +290,10 @@ def _reorder_coordinate_blocks_by_chain(lines: list[str]) -> list[str]:
     Keeps non-coordinate records in their original relative order, but moves all
     ATOM/HETATM/ANISOU/TER blocks to the end (before END/ENDMDL if present) and
     groups them by chain in first-appearance order.
+
+    TER and other lines that lack a parseable residue number still use the chain
+    column when present so TER follows that chain's coordinates. Lines with no
+    assignable chain are appended after all chain blocks (never before them).
     """
     end_records = {"END", "ENDMDL"}
 
@@ -290,34 +311,31 @@ def _reorder_coordinate_blocks_by_chain(lines: list[str]) -> list[str]:
             header.append(line)
 
     chain_order = _chains_in_order(coord)
-    # Include chains that might only appear on TER/ANISOU after edits
-    extra: list[str] = []
+    # Chains that appear only on TER/ANISOU or whose ATOM parse order differs
     seen = set(chain_order)
     for line in coord:
-        p = _parse_atom_chain_resseq_icode(line)
-        if p and p[0] not in seen:
-            seen.add(p[0])
-            extra.append(p[0])
-    chain_order.extend(extra)
+        cid = _chain_id_for_reorder(line)
+        if cid and cid not in seen:
+            seen.add(cid)
+            chain_order.append(cid)
 
     by_chain: dict[str, list[str]] = {c: [] for c in chain_order}
-    other: list[str] = []
+    unassigned: list[str] = []
     for line in coord:
-        p = _parse_atom_chain_resseq_icode(line)
-        if not p:
-            other.append(line)
+        cid = _chain_id_for_reorder(line)
+        if cid is None:
+            unassigned.append(line)
             continue
-        ch = p[0]
-        if ch in by_chain:
-            by_chain[ch].append(line)
-        else:
-            other.append(line)
+        if cid not in by_chain:
+            by_chain[cid] = []
+            chain_order.append(cid)
+        by_chain[cid].append(line)
 
     out: list[str] = []
     out.extend(header)
-    out.extend(other)
     for ch in chain_order:
         out.extend(by_chain.get(ch, []))
+    out.extend(unassigned)
     out.extend(tail_end)
     return out
 

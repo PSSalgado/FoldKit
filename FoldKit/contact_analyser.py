@@ -165,10 +165,29 @@ class ContactAnalyser:
                 
                 chain_contacts = self._find_chain_contacts(chain1, chain2)
                 contacts.extend(chain_contacts)
-        
-        chains_for_density = chains
-        if focus_set is not None:
-            chains_for_density = [c for c in chains if c.id in focus_set]
+
+        # Denominator must cover every chain that contributes atoms to the counted
+        # contacts. With --chains, pairs are (focus, partner); using only focus
+        # chains in the denominator inflates density by omitting partner atoms.
+        chain_ids_in_contacts: set[str] = set()
+        for c in contacts:
+            c1, c2 = c.get('chain1'), c.get('chain2')
+            if c1 is not None:
+                chain_ids_in_contacts.add(str(c1))
+            if c2 is not None:
+                chain_ids_in_contacts.add(str(c2))
+        if focus_set is not None and chain_ids_in_contacts:
+            chain_by_id = {c.id: c for c in chains}
+            chains_for_density = [
+                chain_by_id[cid]
+                for cid in chain_ids_in_contacts
+                if cid in chain_by_id
+            ]
+            # Stable order: follow original structure chain order where possible
+            order = {c.id: i for i, c in enumerate(chains)}
+            chains_for_density.sort(key=lambda c: order.get(c.id, 9999))
+        else:
+            chains_for_density = chains
 
         return {
             'intra_asu_contacts': contacts,
