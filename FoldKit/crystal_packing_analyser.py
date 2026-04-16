@@ -50,15 +50,10 @@ except ImportError:
     PackingMetricsCalculator = None
 
 try:
-    from interface_analyser_base import InterfaceAnalyser
+    from interface_analyser_base import InterfaceAnalyser, InterfaceAnalyserEC
 except ImportError:
     print("Warning: interface_analyser_base module not available")
     InterfaceAnalyser = None
-
-try:
-    # EC analyser class (McCoy method); used when --interface-metrics ec is selected.
-    from interface_analyser_asu_ec import InterfaceAnalyserEC
-except ImportError:
     InterfaceAnalyserEC = None
 
 try:

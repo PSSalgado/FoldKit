@@ -358,7 +358,7 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
                 partner_ids.add(a)
 
         per_partner = []
-        by_partner = []
+        by_partner = {}
         total_npairs = 0
         # Lattice EC density is normalised by the reference buried area:
         #   reference_buried_area = SASA_iso(reference) - SASA_cluster(reference)
@@ -392,14 +392,12 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
                     bsa = float(iface.get("buried_surface_area", 0) or 0.0)
                     break
 
-            by_partner.append(
-                {
-                    "partner_chain_id": pid,
-                    "ec_r": r_val,
-                    "ec_n_pairs": n_pairs,
-                    "buried_surface_area": bsa,
-                }
-            )
+            by_partner[str(pid)] = {
+                "partner_chain_id": pid,
+                "ec_r": r_val,
+                "ec_n_pairs": n_pairs,
+                "buried_surface_area": bsa,
+            }
             per_partner.append((r_val, bsa, n_pairs))
 
         bsa_pairs = [(r, bsa) for (r, bsa, _n) in per_partner]
@@ -1463,17 +1461,29 @@ def _run_analysis(analyser, paths, out_stream, focus_chains=None, reference_chai
                     if d_np is not None:
                         print(f"  Lattice EC density (n_pairs-weighted): {float(d_np):.6f} r/Å²  (per {denom})", file=out_stream)
 
-                    byp = summary.get('lattice_ec_by_partner_chain') or {}
-                    if isinstance(byp, dict) and byp:
+                    byp = summary.get('lattice_ec_by_partner_chain')
+                    if byp:
                         print("  Lattice EC by partner chain:", file=out_stream)
-                        for partner_cid in sorted(byp.keys()):
-                            rec = byp.get(partner_cid) or {}
-                            r = rec.get('ec_r')
-                            n = rec.get('ec_n_pairs', 0)
-                            if r is None:
-                                print(f"    Partner {partner_cid}: r=N/A (n_pairs={int(n) if isinstance(n, (int, float)) else 0})", file=out_stream)
-                            else:
-                                print(f"    Partner {partner_cid}: r={float(r):.3f} (n_pairs={int(n) if isinstance(n, (int, float)) else 0})", file=out_stream)
+                        if isinstance(byp, dict):
+                            for partner_cid in sorted(byp.keys()):
+                                rec = byp.get(partner_cid) or {}
+                                r = rec.get('ec_r')
+                                n = rec.get('ec_n_pairs', 0)
+                                if r is None:
+                                    print(f"    Partner {partner_cid}: r=N/A (n_pairs={int(n) if isinstance(n, (int, float)) else 0})", file=out_stream)
+                                else:
+                                    print(f"    Partner {partner_cid}: r={float(r):.3f} (n_pairs={int(n) if isinstance(n, (int, float)) else 0})", file=out_stream)
+                        elif isinstance(byp, list):
+                            for rec in byp:
+                                if not isinstance(rec, dict):
+                                    continue
+                                partner_cid = rec.get('partner_chain_id', '?')
+                                r = rec.get('ec_r')
+                                n = rec.get('ec_n_pairs', 0)
+                                if r is None:
+                                    print(f"    Partner {partner_cid}: r=N/A (n_pairs={int(n) if isinstance(n, (int, float)) else 0})", file=out_stream)
+                                else:
+                                    print(f"    Partner {partner_cid}: r={float(r):.3f} (n_pairs={int(n) if isinstance(n, (int, float)) else 0})", file=out_stream)
         interfaces = results.get('interfaces', [])
         if isinstance(interfaces, list):
             for j, interface in enumerate(interfaces):
