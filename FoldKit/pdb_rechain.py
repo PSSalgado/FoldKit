@@ -42,6 +42,8 @@ import os
 import sys
 from typing import Iterable
 
+from cli_log import add_log_args, setup_log_from_args
+
 
 def _is_atom_line(line: str) -> bool:
     return line.startswith(("ATOM  ", "HETATM"))
@@ -601,7 +603,9 @@ def main() -> None:
         action="store_true",
         help="Print planned outputs only.",
     )
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=list(getattr(args, "paths", []) or []), pattern=getattr(args, "pattern", None))
 
     merge_map = None
     if args.merge_map:

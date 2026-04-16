@@ -6,6 +6,16 @@ from trim_models import collect_models_from_directories, matches_filter_ci, run_
 
 from superimpose_coot_LSQ import COOT_LSQ_HELPERS_PY, _normalize_lsq_match_type
 
+from cli_log import setup_log_from_argv
+
+_argv_no_log, _ = setup_log_from_argv(
+    script_path=__file__,
+    argv=sys.argv[1:],
+    inputs=[sys.argv[1]] if len(sys.argv) > 1 else [],
+    pattern=None,
+)
+sys.argv = [sys.argv[0]] + _argv_no_log
+
 def create_coot_script(reference_file, model_files, output_dir, lsq_match_type="main"):
     """Create Coot script for superposition with visualisation (Coot manual LSQ API)."""
     mt = repr(_normalize_lsq_match_type(lsq_match_type))

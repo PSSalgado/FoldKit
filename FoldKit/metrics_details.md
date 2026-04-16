@@ -2,7 +2,7 @@
 
 This document lists all metrics computed by the FoldKit analyser and metrics scripts, with:
 
-**Related (not covered below):** `**trim_models.py`** only harmonises residue ranges (standalone script; shared with `**trim_superimposeLSQ.py**` trimming); it does not compute packing or similarity metrics. See the main **README.md** (File management). **Post-processing CSV tools** `interface_molecule_report_csv.py` and `contact_molecule_report_csv.py` do not compute new metrics; they parse analyser text reports into tables (Section 2.10, Section 3.5). Example filenames in this repo use **`model_01`**, **`results.txt`** (interface / packing merged output), **`contact_results.txt`** (`contact_analyser.py -o`), **`set_a`** / **`set_b`** (`--sets`), and **`./out`**; see **README.md** (opening “Example naming” paragraph).
+**Related (not covered below):** `trim_models.py` only harmonises residue ranges (standalone script; shared with `trim_superimposeLSQ.py` trimming); it does not compute packing or similarity metrics. See **README.md** (File management). **Post-processing CSV tools** `interface_molecule_report_csv.py` and `contact_molecule_report_csv.py` do not compute new metrics; they parse analyser text reports into tables (Section 2.10, Section 3.5). Example filenames in this repo use `model_01`, `results.txt` (interface / packing merged output), `contact_results.txt` (`contact_analyser.py -o`), `set_a` / `set_b` (`--sets`), and `./out`; see **README.md** (opening “Example naming” paragraph).
 
 - **Mathematical definition** and **script calculation** for each metric.
 - **Reader-friendly formula**: a short, plain-language description of what is being computed and how.
@@ -17,7 +17,8 @@ This document lists all metrics computed by the FoldKit analyser and metrics scr
 | Script                  | Libraries                                                                                                                        | Main functions used                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | packing_metrics.py      | **BioPython** (Bio.PDB.PDBParser, PDBIO, PDBExceptions), **NumPy**, **SciPy** (optional)                                         | `PDBParser.get_structure()`, manual CRYST1 read; `structure` → model → chain → residue → atom; `atom.coord`, `atom.element`, `atom.name`; `np.radians`, `np.sqrt`, `np.cos`; `scipy.spatial.distance.pdist()` or fallback loop with `np.linalg.norm`                                                                                                                                                   |
-| interface_analyser.py   | **BioPython** (PDBParser, NeighborSearch, Structure, Model, PDBExceptions), **Bio.PDB.SASA** (ShrakeRupley, optional), **NumPy** | `parser.get_structure()`, `structure.get_chains()`, `chain.get_atoms()`; `NeighborSearch(atom_list).search_all(threshold, 'R')` → interface residues; contact residues = interface residues filtered by same criteria (distance + type) via `_residue_passes_contact_criteria()`; `ShrakeRupley().compute()` for BSA; `np.linalg.norm`, `np.mean`, etc. Text report → CSV: Section 2.10.                                                |
+| interface_analyser_asu_charge.py / interface_analyser_lattice_charge.py | **BioPython** (PDBParser, NeighborSearch), **Bio.PDB.SASA** (ShrakeRupley, optional), **NumPy** | `parser.get_structure()`, `structure.get_chains()`, `chain.get_atoms()`; `NeighborSearch(atom_list).search_all(threshold, 'R')` → interface residues; contact residues = interface residues filtered by same criteria (distance + type) via `_residue_passes_contact_criteria()`; `ShrakeRupley().compute()` for BSA; `np.linalg.norm`, `np.mean`, etc. Includes shape complementarity and **charge-tag** complementarity metrics. Text report → CSV: Section 2.10. |
+| interface_analyser_asu_ec.py / interface_analyser_lattice_ec.py / electrostatic_complementarity.py | **BioPython** (PDBParser, NeighborSearch), **NumPy** | McCoy-style electrostatic complementarity (EC): sample facing surface points and compute electrostatic potentials; per-interface Pearson correlation \(r\) and lattice-weighted summaries (Fisher z). Definitions: `EC_details.md`; summary integration: Section 2.5.4 and Section 2.7.1. |
 | contact_analyser.py     | **BioPython** (PDBParser, PDBExceptions), **NumPy**                                                                              | Same structure traversal; `chain.get_atoms()`, `atom.coord`; `np.linalg.norm`; manual contact loop and type classification; optional full ASU contact list in text / `*_asu_contacts.txt`. Text report → CSV: Section 3.5.                                                                                                                                                                                                                                                                             |
 | dali_score.py           | **BioPython** (PDBParser), **NumPy**, **biotite** (optional)                                                                     | `PDBParser.get_structure()`, structure traversal for CA atoms; `np.linalg.norm`, `np.exp` for distance matrices and Dali formula; `biotite.structure.superimpose_structural_homologs()` for automatic residue equivalences when available                                                                                                                                                              |
 
@@ -289,15 +290,19 @@ rho_atom = N_atoms / V_cell
 
 ---
 
-## 2. interface_analyser.py
+## 2. Interface analysis (charge-tag and EC)
 
 **Function selection / usage**
 
-- Interface metrics are computed in `interface_analyser.py`, usually via a method like `InterfaceAnalyser.analyse_interfaces(pdb_file, focus_chains=..., reference_chain_id=...)` that is called by `crystal_packing_analyser.py`.
+- Interface metrics are computed via the ASU and lattice entrypoints:
+  - `interface_analyser_asu_charge.py` / `interface_analyser_lattice_charge.py` (charge-tag metrics)
+  - `interface_analyser_asu_ec.py` / `interface_analyser_lattice_ec.py` (McCoy EC)
+
+  All variants share the core implementation in `interface_analyser_base.py`.
 - At the CLI level, you select these metrics by:
-  - Running `interface_analyser.py` directly on a PDB/CIF (specifying chains or letting the script enumerate interfaces), or
+  - Running one of the ASU or lattice interface entrypoints directly on a PDB/CIF (specifying chains or letting the script enumerate interfaces), or
   - Allowing `crystal_packing_analyser.py` to run the interface stage on each structure.
-- Within `interface_analyser.py`, the main pipeline:
+- Within the interface analysers, the main pipeline:
   - **Interface residues:** `NeighborSearch(atom_list).search_all(contact_distance, 'R')` → residue pairs within threshold, different chains.
   - **Contact residues:** Those interface residues filtered by applying the same criteria (distance + type-specific limits) as the contact list: keep residue iff it has ≥1 atom that forms a pair with the other chain satisfying those criteria.
   - Calls `_find_contacts()` and `_filter_contacts_by_limits()` → Sections 2.1–2.4, 2.6.
@@ -462,16 +467,16 @@ complementarity_shape = max(0, 1 - delta_bar/2)
 
 - In `_calculate_interface_complementarity()`; reported as `interface_complementarity`.
 
-#### 2.5.2 Charge complementarity
+#### 2.5.2 Charge-tag complementarity (contact-based)
 
 **Reader-friendly formula**  
-*Charge complementarity* measures how often charged contact pairs are *attractive* (opposite-signed) vs *repulsive* (same-signed). The score is the fraction of charged–charged contacts that are opposite-signed; value in [0, 1], higher = more electrostatically complementary.
+*Charge-tag complementarity* is a contact-based diagnostic that measures how often charged contact pairs are *opposite-sign* vs *same-sign* among the filtered atom–atom contacts. The score is the fraction of charged–charged contacts that are opposite-sign; value in [0, 1]. This is distinct from **electrostatic complementarity (EC)** (McCoy et al. 1997), which correlates electrostatic potentials on facing surfaces (Section 2.5.4).
 
 **What it means (how to interpret)**
 
 | Value pattern | Typical interpretation |
 | --- | --- |
-| Score near 1 | Most charged–charged contacts are opposite-sign (electrostatically “favourable” pattern among those contacts). |
+| Score near 1 | Most charged–charged contacts are opposite-sign (more favourable sign pairing among the charged contacts present). |
 | Score near 0 | Mostly same-sign charged–charged contacts, or **no charged–charged contacts** at all (in which case the score is defined as 0). |
 | Very small `charge_complementarity_total` | Score becomes noisy; interpret with the diagnostic counts (`opposite`, `same`, `total`). |
 
@@ -496,16 +501,16 @@ Residue charges (same set as polarity summary):
 
 - Implemented in `_calculate_charge_complementarity()`; reported as `charge_complementarity`. Diagnostic counts: `charge_complementarity_opposite`, `charge_complementarity_same`, `charge_complementarity_total` (and in the text report when total > 0).
 
-#### 2.5.3 Charge complementarity density (per interface area)
+#### 2.5.3 Charge-tag complementarity density (per interface area)
 
 **Reader-friendly formula**  
-*Charge complementarity density* is the number of opposite-sign charged–charged contacts per unit interface area (Å⁻²). It combines “how complementary” the interface is (in terms of count of attractive charged contacts) with interface size, so larger interfaces are comparable to smaller ones. Higher values mean more complementary charged contacts per Å².
+*Charge-tag complementarity density* is the number of opposite-sign charged–charged contacts per unit interface area (Å⁻²). It combines the count of opposite-sign charged contacts with interface size, so larger interfaces are comparable to smaller ones.
 
 **What it means (how to interpret)**
 
 | Value pattern | Typical interpretation |
 | --- | --- |
-| Higher density | More opposite-sign charged contacts packed per Å² of interface → electrostatic complementarity is both present and spatially dense. |
+| Higher density | More opposite-sign charged contacts per Å² of interface area. |
 | Lower density | Fewer opposite-sign charged contacts per Å² (either fewer opposite contacts or a larger interface area). |
 | `None` | No usable interface area denominator (both contact area and BSA are 0). |
 
@@ -528,9 +533,23 @@ charge_complementarity_density = N_opp / area
 
 (undefined / not reported when both contact_area and BSA are 0.)
 
-**Implementation (simplified):** After computing charge complementarity, set area = contact_area if contact_area ≥ 0.01, else buried_surface_area. If area > 0, charge_complementarity_density = opposite / area (units: per Å²). Also store charge_complementarity_density_denominator = `'contact_area'` or `'buried_surface_area'` to record which was used. If area is 0, report `charge_complementarity_density` = None.
+**Implementation (simplified):** After computing charge-tag complementarity counts, set area = contact_area if contact_area ≥ 0.01, else buried_surface_area. If area > 0, charge_complementarity_density = opposite / area (units: per Å²). Also store charge_complementarity_density_denominator = `'contact_area'` or `'buried_surface_area'` to record which was used. If area is 0, report `charge_complementarity_density` = None.
 
 - Reported as `charge_complementarity_density` (per Å²) and `charge_complementarity_density_denominator`; in the text report when density is not None.
+
+#### 2.5.4 Electrostatic complementarity (EC; McCoy, Epa & Colman, 1997)
+
+**Definition.** Electrostatic complementarity (EC) is reported using the formulation of McCoy, Epa & Colman (1997): EC is the Pearson correlation \(r\) between electrostatic potential values on *facing* points across the interface, evaluated in the partner field sense. In FoldKit, EC is a correlation score \(r \in [-1, 1]\); positive values indicate complementary (opposite-sign) potentials across the interface.
+
+**Important distinction.** EC is not derived from the atom–atom contact list. It is computed from electrostatic potentials on sampled solvent-accessible surface points classified as interfacial, then paired across the interface by nearest-neighbour mapping. Do not conflate EC with the older **charge-tag** contact metrics (`charge_complementarity*`), which are based only on charged residue identities in the filtered contact set (Sections 2.5.2–2.5.3).
+
+**Reported fields (per interface; `InterfaceAnalyserEC`):**
+
+- **`ec_r`**: EC correlation \(r\) for the interface.
+- **`ec_n_pairs`**: number of facing point pairs used in the correlation.
+- **`ec_density`**: \(r/\mathrm{BSA}\) (Å\(^{-2}\)); denominator label stored as `ec_density_denominator` (currently `buried_surface_area`).
+
+**References and full notation.** See `FoldKit/EC_details.md` (definitions, Fisher z aggregation for lattice summaries, density normalisation, and references).
 
 ### 2.6 Contact type counts (incl. H-bonds)
 
@@ -611,7 +630,7 @@ If `Bio.PDB.SASA.ShrakeRupley` is not available or SASA computation fails, acces
 
 ### 2.7.1 Lattice reference metrics (multi-copy assemblies)
 
-**When:** Optional, from `InterfaceAnalyser.analyse_interfaces(..., reference_chain_id='A')` or `interface_analyser.py --reference-chain A` / `crystal_packing_analyser.py --reference-chain A`. Intended for a **pre-built multi-chain structure** (many chains, same molecule repeated), not for inferring the crystal lattice from the ASU alone.
+**When:** Optional, from `InterfaceAnalyser.analyse_interfaces(..., reference_chain_id='A')` or `interface_analyser_lattice_charge.py --reference-chain A` / `interface_analyser_lattice_ec.py --reference-chain A` (and via `crystal_packing_analyser.py --reference-chain A`). Intended for a **pre-built multi-chain structure** (many chains, same molecule repeated), not for inferring the crystal lattice from the ASU alone.
 
 **Purpose.** One chain ID is designated the **reference copy**. Its solvent-accessible surface is evaluated (i) in isolation and (ii) with all other supplied chains present in the same coordinate frame. A further summary gives the fraction of reference residues that have at least one atom within `contact_distance` of a **different** chain.
 
@@ -629,7 +648,7 @@ lattice_burial_fraction = clamp( 1 - sasa_reference_in_cluster / sasa_reference_
 
 - **`lattice_contact_residue_fraction`:** Fraction of residues on the reference chain that have ≥1 atom within `contact_distance` of an atom on another chain (any chain ID ≠ reference), using `NeighborSearch` on the full model.
 
-- **`lattice_charge_complementarity`:** Charge complementarity between the **reference chain** and **all other chains** in the model, computed from atom–atom contacts filtered by the same type-specific distance limits as pairwise interfaces (Sections 2.4–2.6). Charged residues are classified as ASP/GLU (−) and ARG/LYS/HIS (+). The score is:
+- **`lattice_charge_complementarity`:** **Charge-tag** complementarity between the reference chain and all other chains in the model, computed from filtered atom–atom contacts (Sections 2.4–2.6). Charged residues are classified as ASP/GLU (−) and ARG/LYS/HIS (+). The score is:
 
 ```
 lattice_charge_complementarity = N_opposite / (N_opposite + N_same)
@@ -659,6 +678,14 @@ lattice_charge_complementarity_density = N_opposite / (sasa_reference_isolated -
   - **Distance-weighted residue-pair complementarity (overall)**: `lattice_charge_metrics['residue_pair_weighted']` uses the same unique residue pairs, but weights each pair by \(1/d^2\), where \(d\) is the **minimum** atom–atom distance observed between the two residues among the filtered contacts. This emphasises tighter charged approaches.
 
   - **Partner-resolved metrics**: `lattice_charge_metrics['by_partner_chain']` is a dict keyed by neighbour chain ID (e.g. `'B'`, `'C'`). For each partner chain, it reports residue-pair and weighted residue-pair complementarity for contacts between the reference chain and that partner only. This shows which crystal contacts dominate the lattice electrostatics.
+
+- **McCoy EC lattice metrics (if present):** When the electrostatic complementarity (EC) analyser is used (`interface_analyser_lattice_ec.py`), lattice-wide EC summaries are reported instead of charge-tag lattice metrics:
+  - `lattice_ec_r_bsa_weighted`: lattice EC \(r\) aggregated by BSA-weighted Fisher z.
+  - `lattice_ec_r_npairs_weighted`: lattice EC \(r\) aggregated by n\_pairs-weighted Fisher z.
+  - `lattice_ec_density_bsa_weighted`, `lattice_ec_density_npairs_weighted`: lattice EC density (Å\(^{-2}\)) normalised by the reference buried area.
+  - `lattice_ec_by_partner_chain`: per-partner records with \(r_k\) and \(n_{\mathrm{pairs},k}\).
+
+  Definitions and aggregation details are in `FoldKit/EC_details.md`.
 
 **What it means (how to interpret)**
 
@@ -771,7 +798,7 @@ If there are no valid matches or the superposition fails, `interface_rmsd_ca` an
 
 ### 2.10 Post-processing: interface_molecule_report_csv.py
 
-The CLI of `interface_analyser.py` can write a merged text report (conventionally **`results.txt`** via `-o`). **`interface_molecule_report_csv.py`** parses that report and emits CSV rows for each interface block, with the same numeric summaries as in Section 2 (contact counts, BSA, complementarity, polarity, accessibility, etc.). It does **not** re-read PDB files or recompute metrics. Optional filters: structure basename (as printed in the report, e.g. **`model_01.pdb`**), chain IDs (**`A`**, **`B`**), **`--group-by-chain`**, and merge options **`--combine-regex`** / **`--combine-glob`** (see **README.md**). For **atom-level** ASU contact rows (chain/residue/atom pairs), use **`contact_molecule_report_csv.py`** on **`contact_analyser.py`** output (Section 3.5).
+The interface analysers can write merged text reports (conventionally **`results.txt`** via `-o`). **`interface_molecule_report_csv.py`** parses those reports and emits CSV rows for each interface block, with the same numeric summaries as in Section 2 (contact counts, BSA, complementarity, polarity, accessibility, etc.). It does **not** re-read PDB files or recompute metrics. Optional filters: structure basename (as printed in the report, e.g. **`model_01.pdb`**), chain IDs (**`A`**, **`B`**), **`--group-by-chain`**, and merge options **`--combine-regex`** / **`--combine-glob`** (see **README.md**). For **atom-level** ASU contact rows (chain/residue/atom pairs), use **`contact_molecule_report_csv.py`** on **`contact_analyser.py`** output (Section 3.5).
 
 **What it means (how to interpret)**
 
@@ -886,7 +913,7 @@ contact_density = (number_of_contacts) / (total_number_of_atoms_in_all_chains)
 
 ### 3.5 Post-processing: contact_molecule_report_csv.py
 
-The CLI of `contact_analyser.py` can write a merged text report (conventionally **`contact_results.txt`** via `-o`, distinct from **`results.txt`** from `interface_analyser.py` or `packing_metrics.py`). **`contact_molecule_report_csv.py`** parses that report (and optionally a standalone **`contact_results_model_01_asu_contacts.txt`**-style sidecar) into CSV with one row per atom–atom contact: **`chain1`**, **`chain2`**, **`res1`**, **`atom1`**, **`res2`**, **`atom2`**, **`distance_A`**, **`contact_type`**, plus context columns **`set_label`** and **`structure_basename`**. It does **not** re-read PDB files or recompute distances. Filters and merge options mirror **`interface_molecule_report_csv.py`** (structure basename patterns, **`-m` / `--chains`**). Sidecar-only files lack progress lines; use **`--structure-basename model_01.pdb`** or the filename heuristic described in **README.md**. Multi-set output uses the same **`Set 'label' (patterns: …)`** headers as other analysers.
+The CLI of `contact_analyser.py` can write a merged text report (conventionally **`contact_results.txt`** via `-o`, distinct from interface reports (often **`results.txt`** from `interface_analyser_asu_charge.py` / `interface_analyser_asu_ec.py` and the lattice variants) or `packing_metrics.py`). **`contact_molecule_report_csv.py`** parses that report (and optionally a standalone **`contact_results_model_01_asu_contacts.txt`**-style sidecar) into CSV with one row per atom–atom contact: **`chain1`**, **`chain2`**, **`res1`**, **`atom1`**, **`res2`**, **`atom2`**, **`distance_A`**, **`contact_type`**, plus context columns **`set_label`** and **`structure_basename`**. It does **not** re-read PDB files or recompute distances. Filters and merge options mirror **`interface_molecule_report_csv.py`** (structure basename patterns, **`-m` / `--chains`**). Sidecar-only files lack progress lines; use **`--structure-basename model_01.pdb`** or the filename heuristic described in **README.md**. Multi-set output uses the same **`Set 'label' (patterns: …)`** headers as other analysers.
 
 **What it means (how to interpret)**
 
@@ -906,11 +933,12 @@ The CLI of `contact_analyser.py` can write a merged text report (conventionally 
 
 ## 4. crystal_packing_analyser.py
 
-This script orchestrates `packing_metrics`, `interface_analyser`, and `contact_analyser` on each structure. With `--compare`, it writes `batch_analysis_results.json` combining all per-structure outputs. It does not define new formulas; all metrics are as in Sections 1–3.
+This script orchestrates `packing_metrics.py`, the **interface analysers** (`interface_analyser_base.py` via `interface_analyser_asu_charge.py` / `interface_analyser_asu_ec.py` and lattice variants), and `contact_analyser.py` on each structure. With `--compare`, it writes `batch_analysis_results.json` combining all per-structure outputs. It does not define new formulas; all metrics are as in Sections 1–3.
 
 **Function selection / usage**
 
 - When you run `crystal_packing_analyser.py` from the command line, you choose which input structures (files or directories) to analyse and optional `--compare` for a single combined JSON file.
+- **Interface mode selection:** use `--interface-metrics charge` (charge-tag metrics) or `--interface-metrics ec` (McCoy electrostatic complementarity). Use `--reference-chain` when you want lattice reference metrics (Section 2.7.1) included in each structure’s `interface_analysis.summary`.
 - Internally, it iterates over structures and calls the per-structure modules from Sections 1–3.
 
 **What it means (how to interpret)**
@@ -1114,8 +1142,8 @@ max_z_i = max_{j != i}( z_ij )
   - Holm, L.; Sander, C. *Protein structure comparison by alignment of distance matrices.* *J. Mol. Biol.* (1993). DOI: `10.1006/jmbi.1993.1489`
 - The `exp(-D/tau)` similarity is a common distance-kernel/RBF-style choice:
   - Micchelli, C. *Interpolation of scattered data: Distance matrices and conditionally positive definite functions.* *Constructive Approx.* (1986). DOI: `10.1007/BF01893414`
-- Neighbor-joining is the primary tree-building method:
-  - Saitou, N.; Nei, M. *The neighbor-joining method: a new method for reconstructing phylogenetic trees.* *Mol. Biol. Evol.* (1987). DOI: `10.1093/oxfordjournals.molbev.a040454`
+- Neighbour-joining is the primary tree-building method:
+  - Saitou, N.; Nei, M. *The neighbour-joining method: a new method for reconstructing phylogenetic trees.* *Mol. Biol. Evol.* (1987). DOI: `10.1093/oxfordjournals.molbev.a040454`
 - The per-query z-score standardisation uses conventional z-score definitions. The final `z^+ -> distance` mapping is a practical heuristic to produce non-negative distances usable by NJ/UPGMA.
 
 ---
@@ -1296,7 +1324,7 @@ Lines starting with `#` are comments. Header row is auto-skipped.
 
 - **Holm, L.; Sander, C.** (1993). Protein structure comparison by alignment of distance matrices. *J. Mol. Biol.* **233**, 123–138. DOI: [10.1006/jmbi.1993.1489](https://doi.org/10.1006/jmbi.1993.1489)
 - **Holm, L.** (2020). Dali and the persistence of protein shape. *Protein Sci.* **29**, 128–140 (print; first published online 2019). DOI: [10.1002/pro.3749](https://doi.org/10.1002/pro.3749)
-- **Saitou, N.; Nei, M.** (1987). The neighbor-joining method: a new method for reconstructing phylogenetic trees. *Mol. Biol. Evol.* **4**, 406–425. DOI: [10.1093/oxfordjournals.molbev.a040454](https://doi.org/10.1093/oxfordjournals.molbev.a040454)
+- **Saitou, N.; Nei, M.** (1987). The neighbour-joining method: a new method for reconstructing phylogenetic trees. *Mol. Biol. Evol.* **4**, 406–425. DOI: [10.1093/oxfordjournals.molbev.a040454](https://doi.org/10.1093/oxfordjournals.molbev.a040454)
 - **Matthews, B.W.** (1968). Solvent content of protein crystals. *J. Mol. Biol.* **33**, 491–497. DOI: [10.1016/0022-2836(68)90205-2](https://doi.org/10.1016/0022-2836(68)90205-2)
 - **Shrake, A.; Rupley, J.A.** (1973). Environment and exposure to solvent of protein atoms. *J. Mol. Biol.* **79**, 351–371. DOI: [10.1016/0022-2836(73)90011-9](https://doi.org/10.1016/0022-2836(73)90011-9)
 

@@ -48,6 +48,8 @@ if _DALI_PKG not in sys.path:
     sys.path.insert(0, _DALI_PKG)
 from dali_log import install_dali_run_log, resolve_log_path, uninstall_dali_run_log
 
+from cli_log import add_log_args, setup_log_from_args
+
 
 def read_pairwise_zscores(path: str) -> dict[tuple[str, str], float]:
     """
@@ -372,7 +374,9 @@ def main() -> None:
         action="store_true",
         help="Do not write the default session log file.",
     )
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "input", "")], pattern=None)
 
     tree_dir = os.path.dirname(os.path.abspath(args.output_tree)) or "."
     default_log = os.path.join(tree_dir, "foldkit_dali_phylogeny.log")

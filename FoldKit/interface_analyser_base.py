@@ -24,6 +24,7 @@ import os
 import sys
 import numpy as np
 import warnings
+import math
 from pathlib import Path
 
 try:
@@ -232,6 +233,208 @@ class InterfaceAnalyser:
             
         except Exception as e:
             return {'error': f"Failed to analyse interfaces: {str(e)}"}
+
+
+def _fisher_z(r: float) -> float:
+    r = max(min(float(r), 0.999999), -0.999999)
+    return 0.5 * math.log((1.0 + r) / (1.0 - r))
+
+
+def _inv_fisher_z(z: float) -> float:
+    ez2 = math.exp(2.0 * float(z))
+    return (ez2 - 1.0) / (ez2 + 1.0)
+
+
+def _weighted_fisher_mean(pairs):
+    num = 0.0
+    den = 0.0
+    for r, w in pairs:
+        if r is None:
+            continue
+        w = float(w or 0.0)
+        if w <= 0.0:
+            continue
+        num += w * _fisher_z(float(r))
+        den += w
+    if den <= 0.0:
+        return None, 0.0
+    return _inv_fisher_z(num / den), den
+
+
+class InterfaceAnalyserEC(InterfaceAnalyser):
+    """
+    Electrostatic complementarity (EC) extension.
+
+    This analyser disables charge-sign complementarity metrics and augments
+    per-interface and lattice-wide results with EC fields.
+
+    EC is computed as a facing-point Pearson correlation of electrostatic
+    potentials across the interface, following:
+    McCoy, Epa & Colman (1997) J Mol Biol 268:570–584. DOI: 10.1006/jmbi.1997.0987.
+    """
+
+    def __init__(self, contact_distance=5.0, ec_mode: str = "full"):
+        super().__init__(contact_distance=contact_distance)
+        mode = (ec_mode or "full").strip().lower()
+        self.ec_mode = mode
+        self._ec_detail_fn = None
+
+        if mode != "full":
+            raise ValueError("ec_mode must be 'full'")
+
+        try:
+            from electrostatic_complementarity import compute_ec_complementarity_detailed
+
+            self._ec_detail_fn = compute_ec_complementarity_detailed
+        except Exception:
+            self._ec_detail_fn = None
+
+    def analyse_interfaces(self, pdb_file, focus_chains=None, reference_chain_id=None):
+        return self.analyze_interfaces(
+            pdb_file, focus_chains=focus_chains, reference_chain_id=reference_chain_id
+        )
+
+    def _calculate_charge_complementarity(self, contacts):
+        return {"score": 0.0, "opposite": 0, "same": 0, "total": 0}
+
+    def _compute_lattice_charge_metrics(self, *args, **kwargs):
+        return None
+
+    def analyze_interfaces(self, pdb_file, focus_chains=None, reference_chain_id=None):
+        results = super().analyse_interfaces(
+            pdb_file, focus_chains=focus_chains, reference_chain_id=reference_chain_id
+        )
+        if "error" in results or self._ec_detail_fn is None or self.parser is None:
+            return results
+
+        try:
+            structure = self.parser.get_structure("_ec_iface", pdb_file)
+        except Exception:
+            return results
+
+        chain_by_id = {}
+        for ch in structure.get_chains():
+            if ch.id not in chain_by_id:
+                chain_by_id[ch.id] = ch
+
+        interfaces = results.get("interfaces", []) or []
+        for iface in interfaces:
+            c1 = chain_by_id.get(iface.get("chain1_id"))
+            c2 = chain_by_id.get(iface.get("chain2_id"))
+            if c1 is None or c2 is None:
+                continue
+            d = self._ec_detail_fn(c1, c2, contact_distance=self.contact_distance)
+            if not isinstance(d, dict):
+                continue
+
+            r_val = d.get("r")
+            n_pairs = int(d.get("n_pairs", 0) or 0)
+            iface["ec_r"] = r_val
+            iface["ec_n_pairs"] = n_pairs
+
+            bsa = float(iface.get("buried_surface_area", 0) or 0.0)
+            if r_val is not None and bsa > 0:
+                iface["ec_density"] = float(r_val) / bsa
+                iface["ec_density_denominator"] = "buried_surface_area"
+            else:
+                iface["ec_density"] = None
+                iface["ec_density_denominator"] = None
+
+        ref_id = str(reference_chain_id).strip() if reference_chain_id else ""
+        if not ref_id:
+            return results
+
+        ref_chain = chain_by_id.get(ref_id)
+        if ref_chain is None:
+            return results
+
+        partner_ids = set()
+        for iface in interfaces:
+            a = iface.get("chain1_id")
+            b = iface.get("chain2_id")
+            if a == ref_id and b:
+                partner_ids.add(b)
+            elif b == ref_id and a:
+                partner_ids.add(a)
+
+        per_partner = []
+        by_partner = []
+        total_npairs = 0
+        # Lattice EC density is normalised by the reference buried area:
+        #   reference_buried_area = SASA_iso(reference) - SASA_cluster(reference)
+        # The lattice SASA fields live under results['summary'].
+        summary0 = results.get("summary")
+        density_den = 0.0
+        if isinstance(summary0, dict):
+            sri = summary0.get("sasa_reference_isolated")
+            src = summary0.get("sasa_reference_in_cluster")
+            if isinstance(sri, (int, float)) and isinstance(src, (int, float)):
+                density_den = float(sri) - float(src)
+        if density_den < 0.0:
+            density_den = 0.0
+
+        for pid in sorted(partner_ids):
+            partner = chain_by_id.get(pid)
+            if partner is None:
+                continue
+            d = self._ec_detail_fn(ref_chain, partner, contact_distance=self.contact_distance)
+            if not isinstance(d, dict):
+                continue
+            r_val = d.get("r")
+            n_pairs = int(d.get("n_pairs", 0) or 0)
+            total_npairs += n_pairs
+
+            bsa = 0.0
+            for iface in interfaces:
+                a = iface.get("chain1_id")
+                b = iface.get("chain2_id")
+                if (a == ref_id and b == pid) or (a == pid and b == ref_id):
+                    bsa = float(iface.get("buried_surface_area", 0) or 0.0)
+                    break
+
+            by_partner.append(
+                {
+                    "partner_chain_id": pid,
+                    "ec_r": r_val,
+                    "ec_n_pairs": n_pairs,
+                    "buried_surface_area": bsa,
+                }
+            )
+            per_partner.append((r_val, bsa, n_pairs))
+
+        bsa_pairs = [(r, bsa) for (r, bsa, _n) in per_partner]
+        np_pairs = [(r, n) for (r, _bsa, n) in per_partner]
+        r_bsa, bsa_sum = _weighted_fisher_mean(bsa_pairs)
+        r_np, np_sum = _weighted_fisher_mean(np_pairs)
+
+        # Store lattice EC fields under `summary` because the reporting code reads from there.
+        summary = results.get("summary")
+        if not isinstance(summary, dict):
+            summary = {}
+            results["summary"] = summary
+
+        # Make denominator visible/inspectable in outputs.
+        summary["reference_buried_area"] = float(density_den) if density_den > 0 else None
+
+        summary["lattice_ec_r_bsa_weighted"] = r_bsa
+        summary["lattice_ec_r_npairs_weighted"] = r_np
+        summary["lattice_ec_total_npairs"] = int(total_npairs)
+        summary["lattice_ec_density_denominator"] = (
+            "reference_buried_area" if density_den > 0 else None
+        )
+        summary["lattice_ec_density_bsa_weighted"] = (
+            (float(r_bsa) / density_den) if (r_bsa is not None and density_den > 0) else None
+        )
+        summary["lattice_ec_density_npairs_weighted"] = (
+            (float(r_np) / density_den) if (r_np is not None and density_den > 0) else None
+        )
+        summary["lattice_ec_by_partner_chain"] = by_partner
+        summary["lattice_ec_density_denominator_weight_sums"] = {
+            "bsa_weight_sum": float(bsa_sum),
+            "npairs_weight_sum": float(np_sum),
+        }
+
+        return results
     
     def _analyse_pairwise_interface(self, chain1, chain2, model):
         """
@@ -1198,44 +1401,79 @@ def _run_analysis(analyser, paths, out_stream, focus_chains=None, reference_chai
                     print(f"  Fraction of residues with cross-chain neighbour within {cd:.1f} Å: {crf:.3f} ({100.0*float(crf):.1f}%)", file=out_stream)
                 else:
                     print("  Cross-chain contact residue fraction: N/A", file=out_stream)
-                lcc_total = summary.get('lattice_charge_complementarity_total')
-                lcc = summary.get('lattice_charge_complementarity')
-                if lcc is None:
-                    print("  Lattice charge complementarity: N/A", file=out_stream)
-                else:
-                    if isinstance(lcc_total, (int, float)) and lcc_total > 0:
-                        lcc_opp = summary.get('lattice_charge_complementarity_opposite', 0)
-                        lcc_same = summary.get('lattice_charge_complementarity_same', 0)
-                        print(f"  Lattice charge complementarity: {lcc:.3f} ({100.0*float(lcc):.1f}%)  (charged–charged contacts: {lcc_opp} opposite, {lcc_same} same)", file=out_stream)
+                # If lattice EC (weighted summaries) is present, omit all charge-based lattice metrics.
+                if summary.get('lattice_ec_r_bsa_weighted') is None and summary.get('lattice_ec_r_npairs_weighted') is None:
+                    lcc_total = summary.get('lattice_charge_complementarity_total')
+                    lcc = summary.get('lattice_charge_complementarity')
+                    if lcc is None:
+                        print("  Lattice charge complementarity: N/A", file=out_stream)
                     else:
-                        print(f"  Lattice charge complementarity: {lcc:.3f} ({100.0*float(lcc):.1f}%)  (no charged–charged contacts)", file=out_stream)
-                    lccd = summary.get('lattice_charge_complementarity_density')
-                    if lccd is not None:
-                        denom = summary.get('lattice_charge_complementarity_density_denominator') or 'area'
-                        print(f"  Lattice charge complementarity density: {lccd:.4f} opposite-sign contacts/Å²  (per {denom})", file=out_stream)
-                    # Extended lattice charge metrics (if present)
-                    lcm = summary.get('lattice_charge_metrics')
-                    if isinstance(lcm, dict):
-                        rp = lcm.get('residue_pair') or {}
-                        rpw = lcm.get('residue_pair_weighted') or {}
-                        if isinstance(rp, dict) and 'score' in rp:
-                            rp_score = float(rp.get('score', 0.0))
-                            print(f"  Lattice charge complementarity (residue-pair): {rp_score:.3f} ({100.0*rp_score:.1f}%)  (pairs: {int(rp.get('opposite', 0))} opposite, {int(rp.get('same', 0))} same)", file=out_stream)
-                        if isinstance(rpw, dict) and 'score' in rpw:
-                            rpw_score = float(rpw.get('score', 0.0))
-                            print(f"  Lattice charge complementarity (residue-pair, 1/d²-weighted): {rpw_score:.3f} ({100.0*rpw_score:.1f}%)", file=out_stream)
-                        by_partner = lcm.get('by_partner_chain') or {}
-                        if isinstance(by_partner, dict) and by_partner:
-                            print("  Lattice charge complementarity by partner chain (residue-pair):", file=out_stream)
-                            for partner_cid in sorted(by_partner.keys()):
-                                rec = by_partner.get(partner_cid) or {}
-                                prp = rec.get('residue_pair') or {}
-                                prpw = rec.get('residue_pair_weighted') or {}
-                                score = float(prp.get('score', 0.0)) if isinstance(prp, dict) else 0.0
-                                opp = int(prp.get('opposite', 0)) if isinstance(prp, dict) else 0
-                                same = int(prp.get('same', 0)) if isinstance(prp, dict) else 0
-                                wscore = float(prpw.get('score', 0.0)) if isinstance(prpw, dict) else 0.0
-                                print(f"    Partner {partner_cid}: score={score:.3f} ({100.0*score:.1f}%) (pairs: {opp} opposite, {same} same)  weighted_score={wscore:.3f} ({100.0*wscore:.1f}%)", file=out_stream)
+                        if isinstance(lcc_total, (int, float)) and lcc_total > 0:
+                            lcc_opp = summary.get('lattice_charge_complementarity_opposite', 0)
+                            lcc_same = summary.get('lattice_charge_complementarity_same', 0)
+                            print(f"  Lattice charge complementarity: {lcc:.3f} ({100.0*float(lcc):.1f}%)  (charged–charged contacts: {lcc_opp} opposite, {lcc_same} same)", file=out_stream)
+                        else:
+                            print(f"  Lattice charge complementarity: {lcc:.3f} ({100.0*float(lcc):.1f}%)  (no charged–charged contacts)", file=out_stream)
+                        lccd = summary.get('lattice_charge_complementarity_density')
+                        if lccd is not None:
+                            denom = summary.get('lattice_charge_complementarity_density_denominator') or 'area'
+                            print(f"  Lattice charge complementarity density: {lccd:.4f} opposite-sign contacts/Å²  (per {denom})", file=out_stream)
+                        # Extended lattice charge metrics (if present)
+                        lcm = summary.get('lattice_charge_metrics')
+                        if isinstance(lcm, dict):
+                            rp = lcm.get('residue_pair') or {}
+                            rpw = lcm.get('residue_pair_weighted') or {}
+                            if isinstance(rp, dict) and 'score' in rp:
+                                rp_score = float(rp.get('score', 0.0))
+                                print(f"  Lattice charge complementarity (residue-pair): {rp_score:.3f} ({100.0*rp_score:.1f}%)  (pairs: {int(rp.get('opposite', 0))} opposite, {int(rp.get('same', 0))} same)", file=out_stream)
+                            if isinstance(rpw, dict) and 'score' in rpw:
+                                rpw_score = float(rpw.get('score', 0.0))
+                                print(f"  Lattice charge complementarity (residue-pair, 1/d²-weighted): {rpw_score:.3f} ({100.0*rpw_score:.1f}%)", file=out_stream)
+                            by_partner = lcm.get('by_partner_chain') or {}
+                            if isinstance(by_partner, dict) and by_partner:
+                                print("  Lattice charge complementarity by partner chain (residue-pair):", file=out_stream)
+                                for partner_cid in sorted(by_partner.keys()):
+                                    rec = by_partner.get(partner_cid) or {}
+                                    prp = rec.get('residue_pair') or {}
+                                    prpw = rec.get('residue_pair_weighted') or {}
+                                    score = float(prp.get('score', 0.0)) if isinstance(prp, dict) else 0.0
+                                    opp = int(prp.get('opposite', 0)) if isinstance(prp, dict) else 0
+                                    same = int(prp.get('same', 0)) if isinstance(prp, dict) else 0
+                                    wscore = float(prpw.get('score', 0.0)) if isinstance(prpw, dict) else 0.0
+                                    print(f"    Partner {partner_cid}: score={score:.3f} ({100.0*score:.1f}%) (pairs: {opp} opposite, {same} same)  weighted_score={wscore:.3f} ({100.0*wscore:.1f}%)", file=out_stream)
+                # Lattice EC (weighted summaries, if present)
+                r_bsa = summary.get('lattice_ec_r_bsa_weighted')
+                r_np = summary.get('lattice_ec_r_npairs_weighted')
+                if r_bsa is not None or r_np is not None:
+                    if r_bsa is not None:
+                        print(f"  Lattice EC (r, BSA-weighted Fisher-z): {float(r_bsa):.3f}", file=out_stream)
+                    else:
+                        print("  Lattice EC (r, BSA-weighted Fisher-z): N/A", file=out_stream)
+                    if r_np is not None:
+                        tot_np = summary.get('lattice_ec_total_npairs', 0)
+                        print(f"  Lattice EC (r, n_pairs-weighted Fisher-z): {float(r_np):.3f}  (total_n_pairs={int(tot_np) if isinstance(tot_np, (int, float)) else 0})", file=out_stream)
+                    else:
+                        print("  Lattice EC (r, n_pairs-weighted Fisher-z): N/A", file=out_stream)
+
+                    denom = summary.get('lattice_ec_density_denominator') or 'reference_buried_area'
+                    d_bsa = summary.get('lattice_ec_density_bsa_weighted')
+                    d_np = summary.get('lattice_ec_density_npairs_weighted')
+                    if d_bsa is not None:
+                        print(f"  Lattice EC density (BSA-weighted): {float(d_bsa):.6f} r/Å²  (per {denom})", file=out_stream)
+                    if d_np is not None:
+                        print(f"  Lattice EC density (n_pairs-weighted): {float(d_np):.6f} r/Å²  (per {denom})", file=out_stream)
+
+                    byp = summary.get('lattice_ec_by_partner_chain') or {}
+                    if isinstance(byp, dict) and byp:
+                        print("  Lattice EC by partner chain:", file=out_stream)
+                        for partner_cid in sorted(byp.keys()):
+                            rec = byp.get(partner_cid) or {}
+                            r = rec.get('ec_r')
+                            n = rec.get('ec_n_pairs', 0)
+                            if r is None:
+                                print(f"    Partner {partner_cid}: r=N/A (n_pairs={int(n) if isinstance(n, (int, float)) else 0})", file=out_stream)
+                            else:
+                                print(f"    Partner {partner_cid}: r={float(r):.3f} (n_pairs={int(n) if isinstance(n, (int, float)) else 0})", file=out_stream)
         interfaces = results.get('interfaces', [])
         if isinstance(interfaces, list):
             for j, interface in enumerate(interfaces):
@@ -1247,17 +1485,28 @@ def _run_analysis(analyser, paths, out_stream, focus_chains=None, reference_chai
                         print(f"  H-bonds (≤3.5 Å): {tc.get('hydrogen_bond', 0)}  electrostatic (≤5 Å): {tc.get('electrostatic', 0)}  hydrophobic (3.5–4.5 Å): {tc.get('hydrophobic', 0)}  van der Waals (≤5 Å): {tc.get('van_der_waals', 0)}", file=out_stream)
                     print(f"  Buried surface area: {interface.get('buried_surface_area', 0):.1f} Å²  Contact area: {interface.get('contact_area', 0):.2f} Å²", file=out_stream)
                     print(f"  Complementarity (shape): {interface.get('interface_complementarity', 0):.3f}", file=out_stream)
-                    cc_total = interface.get('charge_complementarity_total', 0)
-                    if cc_total > 0:
-                        cc_opp = interface.get('charge_complementarity_opposite', 0)
-                        cc_same = interface.get('charge_complementarity_same', 0)
-                        print(f"  Complementarity (charge): {interface.get('charge_complementarity', 0):.3f}  (charged–charged contacts: {cc_opp} opposite, {cc_same} same)", file=out_stream)
-                    else:
-                        print(f"  Complementarity (charge): {interface.get('charge_complementarity', 0):.3f}  (no charged–charged contacts)", file=out_stream)
-                    ccd = interface.get('charge_complementarity_density')
-                    if ccd is not None:
-                        denom = interface.get('charge_complementarity_density_denominator') or 'area'
-                        print(f"  Complementarity (charge) density: {ccd:.4f} opposite-sign contacts/Å²  (per {denom})", file=out_stream)
+                    # If EC is present, omit all charge-based interface metrics.
+                    if interface.get('ec_r') is None:
+                        cc_total = interface.get('charge_complementarity_total', 0)
+                        if cc_total > 0:
+                            cc_opp = interface.get('charge_complementarity_opposite', 0)
+                            cc_same = interface.get('charge_complementarity_same', 0)
+                            print(f"  Complementarity (charge): {interface.get('charge_complementarity', 0):.3f}  (charged–charged contacts: {cc_opp} opposite, {cc_same} same)", file=out_stream)
+                        else:
+                            print(f"  Complementarity (charge): {interface.get('charge_complementarity', 0):.3f}  (no charged–charged contacts)", file=out_stream)
+                        ccd = interface.get('charge_complementarity_density')
+                        if ccd is not None:
+                            denom = interface.get('charge_complementarity_density_denominator') or 'area'
+                            print(f"  Complementarity (charge) density: {ccd:.4f} opposite-sign contacts/Å²  (per {denom})", file=out_stream)
+                    # EC per interface (if present)
+                    e_r = interface.get('ec_r')
+                    e_n = interface.get('ec_n_pairs')
+                    if e_r is not None:
+                        print(f"  EC (r): {float(e_r):.3f}  (n_pairs={int(e_n) if isinstance(e_n, (int, float)) else 0})", file=out_stream)
+                        e_d = interface.get('ec_density')
+                        if e_d is not None:
+                            denom = interface.get('ec_density_denominator') or 'buried_surface_area'
+                            print(f"  EC density: {float(e_d):.6f} r/Å²  (per {denom})", file=out_stream)
                     rmsd_val = interface.get('interface_rmsd_ca')
                     if rmsd_val is not None:
                         print(f"  Interface RMSD (CA): {rmsd_val:.3f} Å", file=out_stream)
@@ -1286,15 +1535,30 @@ def main():
     parser = argparse.ArgumentParser(
         description="Analyse interfaces between molecules in crystal structures.",
         epilog="""Examples:
-  python interface_analyser.py model_01.pdb
-  python interface_analyser.py dir/
-  python interface_analyser.py *.pdb -o results.txt
-  python interface_analyser.py *.pdb --set set_a,set_b -o by_set.txt
-  python interface_analyser.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
-  python interface_analyser.py *.pdb --per-structure -o "{}_interface.txt"
-  python interface_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_interface.txt"
-  python interface_analyser.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
-  python interface_analyser.py supercell.pdb --reference-chain A -o lattice.txt
+  # Charge-tag metrics (ASU; single structure)
+  python interface_analyser_asu_charge.py model_01.pdb
+
+  # Charge-tag metrics (batch; write merged text report)
+  python interface_analyser_asu_charge.py *.pdb -o results.txt
+
+  # Charge-tag metrics with set filtering (batch)
+  python interface_analyser_asu_charge.py *.pdb --set set_a,set_b -o by_set.txt
+
+  # Per-set output (batch)
+  python interface_analyser_asu_charge.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
+
+  # Per-structure outputs (batch)
+  python interface_analyser_asu_charge.py *.pdb --per-structure -o "{}_interface.txt"
+
+  # Dry run (no analysis; just show what would run)
+  python interface_analyser_asu_charge.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
+
+  # Lattice metrics for a reference chain (multi-copy model)
+  python interface_analyser_lattice_charge.py supercell.pdb --reference-chain A -o lattice_charge.txt
+  python interface_analyser_lattice_ec.py supercell.pdb --reference-chain A -o lattice_ec.txt
+
+  # Electrostatic complementarity (EC; McCoy) in the ASU
+  python interface_analyser_asu_ec.py model_01.pdb -o ec_results.txt
 
 Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
   python interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv

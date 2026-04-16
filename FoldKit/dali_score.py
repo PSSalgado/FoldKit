@@ -48,6 +48,8 @@ if _DALI_PKG not in sys.path:
     sys.path.insert(0, _DALI_PKG)
 from dali_log import install_dali_run_log, resolve_log_path, uninstall_dali_run_log
 
+from cli_log import add_log_args, setup_log_from_args
+
 try:
     import numpy as np
 except ImportError:
@@ -1338,7 +1340,14 @@ Tree/dendrogram (all-vs-all only): --output-tree, --output-plot, --output-matrix
         help='Do not write the default session log file.',
     )
 
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(
+        args,
+        script_path=__file__,
+        inputs=[getattr(args, "pdb_a", None), getattr(args, "pdb_b", None), getattr(args, "alignment", None)],
+        pattern=None,
+    )
 
     default_log = os.path.join(os.getcwd(), 'foldkit_dali_score.log')
     log_path = resolve_log_path(args.log, default_log, args.no_log)

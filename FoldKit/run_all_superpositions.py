@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cli_log import add_log_args, setup_log_from_args
+
 # Defaults: set via --ref-base / --models-base or edit here (see module docstring).
 REF_STRUCTURES_BASE = "/path/to/refs"
 MODELS_BASE = "/path/to/models"
@@ -166,7 +168,9 @@ def main() -> None:
         dest="models_base",
         help=f"Base directory for model trees (default: {MODELS_BASE}).",
     )
+    add_log_args(parser)
     args = parser.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=[str(getattr(args, "ref_base", "")), str(getattr(args, "models_base", ""))], pattern=None)
 
     ref_base = args.ref_base or REF_STRUCTURES_BASE
     models_base = args.models_base or MODELS_BASE

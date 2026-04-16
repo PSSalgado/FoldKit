@@ -9,6 +9,16 @@ This script demonstrates basic usage of the crystal packing analysis pipeline.
 import sys
 from pathlib import Path
 
+from cli_log import setup_log_from_argv
+
+_argv_no_log, _ = setup_log_from_argv(
+    script_path=__file__,
+    argv=sys.argv[1:],
+    inputs=[],
+    pattern=None,
+)
+sys.argv = [sys.argv[0]] + _argv_no_log
+
 def main():
     print("Crystal Packing Analysis Pipeline - Quick Start")
     print("=" * 50)
@@ -35,7 +45,7 @@ def main():
     
     print("\n4. Use individual modules:")
     print("   python packing_metrics.py model_01.pdb")
-    print("   python interface_analyser.py model_01.pdb")
+    print("   python interface_analyser_asu_charge.py model_01.pdb")
     
     print("\n" + "="*50)
     print("INSTALLATION:")
@@ -55,7 +65,10 @@ def main():
     files = [
         "crystal_packing_analyser.py - Main analysis pipeline",
         "packing_metrics.py - Basic packing calculations",
-        "interface_analyser.py - Interface analysis",
+        "interface_analyser_asu_charge.py - Interface analysis (ASU, charge-tag metrics)",
+        "interface_analyser_asu_ec.py - Interface analysis (ASU, electrostatic complementarity, McCoy)",
+        "interface_analyser_lattice_charge.py - Interface analysis (lattice, charge-tag metrics)",
+        "interface_analyser_lattice_ec.py - Interface analysis (lattice, electrostatic complementarity, McCoy)",
         "contact_analyser.py - Crystal contact analysis",
         "requirements.txt - Required Python packages",
         "README.md - Comprehensive documentation"

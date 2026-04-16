@@ -15,6 +15,16 @@ import os
 import subprocess
 import sys
 
+from cli_log import setup_log_from_argv
+
+_argv_no_log, _ = setup_log_from_argv(
+    script_path=__file__,
+    argv=sys.argv[1:],
+    inputs=[sys.argv[1]] if len(sys.argv) > 1 else [],
+    pattern=None,
+)
+sys.argv = [sys.argv[0]] + _argv_no_log
+
 
 def pattern_has_glob_chars(pattern: str) -> bool:
     return any(ch in pattern for ch in ["*", "?", "["])

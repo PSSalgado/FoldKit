@@ -23,6 +23,8 @@ import re
 import sys
 from typing import Any
 
+from cli_log import add_log_args, setup_log_from_args
+
 # Sibling script (shared structure matching and CSV batching)
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
@@ -345,7 +347,14 @@ Use --structure-basename when the input is only an *_asu_contacts.txt sidecar
         metavar="PATTERN",
         help="Shell-style combine groups (repeat); mutually exclusive with --combine-regex.",
     )
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(
+        args,
+        script_path=__file__,
+        inputs=[getattr(args, "report", "")],
+        pattern=None,
+    )
 
     chains, pdb_patterns = _collect_chains_and_patterns(args)
     if not pdb_patterns and not chains:

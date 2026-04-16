@@ -4,6 +4,16 @@ import os
 import sys
 import fnmatch
 
+from cli_log import setup_log_from_argv
+
+_argv_no_log, _ = setup_log_from_argv(
+    script_path=__file__,
+    argv=sys.argv[1:],
+    inputs=[sys.argv[1]] if len(sys.argv) > 1 else [],
+    pattern=None,
+)
+sys.argv = [sys.argv[0]] + _argv_no_log
+
 try:
     from Bio import PDB
     from Bio.PDB.Polypeptide import protein_letters_3to1

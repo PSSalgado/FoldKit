@@ -8,6 +8,16 @@ import fnmatch
 
 from superimpose_pattern_match import find_ref_model_matches
 
+from cli_log import setup_log_from_argv
+
+_argv_no_log, _ = setup_log_from_argv(
+    script_path=__file__,
+    argv=sys.argv[1:],
+    inputs=[sys.argv[1]] if len(sys.argv) > 1 else [],
+    pattern=None,
+)
+sys.argv = [sys.argv[0]] + _argv_no_log
+
 def sanitize_pattern_for_filename(pattern):
     """Make a filter pattern safe for use in log/rmsd filenames."""
     if not pattern:

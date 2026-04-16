@@ -27,6 +27,8 @@ from typing import List, Optional, Set
 
 import fnmatch
 
+from cli_log import add_log_args, setup_log_from_args
+
 
 def is_structure_file(file_path: Path) -> bool:
     valid_extensions = {".pdb", ".cif", ".mmcif"}
@@ -125,7 +127,9 @@ def main() -> None:
         metavar="PATH",
         help="Directories (all top-level structures) and/or glob patterns.",
     )
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=list(getattr(args, "paths", []) or []), pattern=None)
 
     patterns: List[str] = []
     directories: List[str] = []

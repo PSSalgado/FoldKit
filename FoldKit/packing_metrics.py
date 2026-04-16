@@ -374,7 +374,10 @@ def main():
         metavar='SET',
         help='Multiple set names in one go (one pattern per set). E.g. --sets set_a set_b set_c.',
     )
+    from cli_log import add_log_args, setup_log_from_args
+    add_log_args(parser)
     args = parser.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=list(getattr(args, "input", []) or []), pattern=None)
 
     paths = collect_structure_paths(args.input)
     if not paths:

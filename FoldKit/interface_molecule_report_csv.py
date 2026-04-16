@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Extract interface rows from ``interface_analyser.py`` text output, optionally
+Extract interface rows from FoldKit interface analyser text output, optionally
 restricting to specific structure files (PDB basenames) and/or chain IDs, and
 write CSV table(s).
 
@@ -32,6 +32,8 @@ import re
 import sys
 from collections import defaultdict
 from typing import Any
+
+from cli_log import add_log_args, setup_log_from_args
 
 # --- context lines (multi-structure / multi-set output) ---
 _RE_SET = re.compile(r"^Set '([^']*)' \(patterns:")
@@ -543,7 +545,7 @@ def _collect_pdb_patterns(args: argparse.Namespace) -> list[str]:
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
-            "Filter interface_analyser.py text output by optional structure (PDB) "
+            "Filter FoldKit interface analyser text output by optional structure (PDB) "
             "name and/or chain ID(s), and write CSV of matching interfaces."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -569,7 +571,7 @@ Examples:
     )
     ap.add_argument(
         "report",
-        help="Text report path (typically results.txt from interface_analyser.py -o); use - for stdin.",
+        help="Text report path (typically results.txt from interface_analyser_asu_charge.py or interface_analyser_asu_ec.py, or lattice variants); use - for stdin.",
     )
     ap.add_argument(
         "--pdb",
@@ -656,7 +658,9 @@ Examples:
             "--combine-regex."
         ),
     )
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "report", "")], pattern=None)
 
     pdb_patterns = _collect_pdb_patterns(args)
     ordered_chains, chains = _collect_chains_ordered(args)

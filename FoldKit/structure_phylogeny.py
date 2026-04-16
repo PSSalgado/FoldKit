@@ -26,6 +26,8 @@ from pathlib import Path
 import math
 import csv
 
+from cli_log import add_log_args, setup_log_from_args
+
 
 def _parse_rmsd_number(line: str) -> float | None:
     m = re.search(r"(?:INFO:\s*)?core\s+rmsd(?:\s+achieved)?\s*:\s*([\d.]+)", line, re.I)
@@ -705,7 +707,9 @@ def main() -> None:
         default=None,
         help="Optional: write per-query pseudo-z ranking table to this CSV path.",
     )
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "input", "")], pattern=None)
 
     if args.from_pdb is not None:
         pdb_dir = os.path.abspath(args.from_pdb)

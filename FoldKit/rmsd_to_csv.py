@@ -38,6 +38,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from cli_log import add_log_args, setup_log_from_args
+
 # Reuse parsing and matrix logic from structure_phylogeny
 try:
     from structure_phylogeny import (
@@ -1030,7 +1032,14 @@ BATCH MODE (--scan-dir DIR):
         help="Heatmap colour scale ceiling (Å); default: max of positive off-diagonal RMSDs in that matrix "
         "(or in the merged table when using --shared-heatmap-scale).",
     )
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(
+        args,
+        script_path=__file__,
+        inputs=[x for x in [getattr(args, "input", None), getattr(args, "scan_dir", None)] if x],
+        pattern=getattr(args, "scan_glob", None),
+    )
 
     if args.scan_dir and args.input:
         stray = args.input.strip()

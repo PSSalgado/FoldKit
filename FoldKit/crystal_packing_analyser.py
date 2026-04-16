@@ -50,10 +50,16 @@ except ImportError:
     PackingMetricsCalculator = None
 
 try:
-    from interface_analyser import InterfaceAnalyser
+    from interface_analyser_base import InterfaceAnalyser
 except ImportError:
-    print("Warning: interface_analyser module not available")
+    print("Warning: interface_analyser_base module not available")
     InterfaceAnalyser = None
+
+try:
+    # EC analyser class (McCoy method); used when --interface-metrics ec is selected.
+    from interface_analyser_asu_ec import InterfaceAnalyserEC
+except ImportError:
+    InterfaceAnalyserEC = None
 
 try:
     from contact_analyser import ContactAnalyser
@@ -64,14 +70,26 @@ except ImportError:
 class CrystalPackingAnalyser:
     """Main class for crystal packing analysis pipeline."""
     
-    def __init__(self, output_dir="crystal_analysis_output"):
+    def __init__(
+        self,
+        output_dir="crystal_analysis_output",
+        *,
+        interface_context: str = "asu",
+        interface_metrics: str = "charge",
+    ):
         """Initialise the analyser with output directory."""
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+        self.interface_context = (interface_context or "asu").strip().lower()
         
         # Initialise analysers (handle cases where modules are not available)
         self.packing_calc = PackingMetricsCalculator() if PackingMetricsCalculator else None
-        self.interface_analyser = InterfaceAnalyser() if InterfaceAnalyser else None
+        mode = (interface_metrics or "charge").strip().lower()
+        self.interface_metrics = mode
+        if mode == "ec":
+            self.interface_analyser = InterfaceAnalyserEC(ec_mode="full") if InterfaceAnalyserEC else None
+        else:
+            self.interface_analyser = InterfaceAnalyser() if InterfaceAnalyser else None
         self.contact_analyser = ContactAnalyser() if ContactAnalyser else None
         
         self.results = {}
@@ -79,7 +97,12 @@ class CrystalPackingAnalyser:
         # Log which analysers are available
         available = []
         if self.packing_calc: available.append("packing_metrics")
-        if self.interface_analyser: available.append("interface_analyser")
+        if self.interface_analyser:
+            available.append(
+                "interface_analyser_asu_ec / interface_analyser_lattice_ec"
+                if self.interface_metrics == "ec"
+                else "interface_analyser_asu_charge / interface_analyser_lattice_charge"
+            )
         if self.contact_analyser: available.append("contact_analyser")
         
         print(f"Available analysers: {', '.join(available) if available else 'None'}")
@@ -113,7 +136,10 @@ class CrystalPackingAnalyser:
         
         results = {
             'structure_id': structure_id,
-            'pdb_file': pdb_file
+            'pdb_file': pdb_file,
+            # Explicit mode metadata to simplify downstream aggregation.
+            'interface_context': str(self.interface_context),
+            'interface_metrics': str(getattr(self, "interface_metrics", "charge")),
         }
         
         try:
@@ -129,11 +155,26 @@ class CrystalPackingAnalyser:
             # Phase 2: Interface analysis
             if self.interface_analyser:
                 print("  - Analysing interfaces...")
-                interface_data = self.interface_analyser.analyse_interfaces(
-                    pdb_file,
-                    focus_chains=focus_chains,
-                    reference_chain_id=reference_chain_id,
+                fn = getattr(self.interface_analyser, "analyse_interfaces", None) or getattr(
+                    self.interface_analyser, "analyze_interfaces", None
                 )
+                if fn is None:
+                    interface_data = {"error": "interface analyser has no analyse_interfaces/analyze_interfaces method"}
+                else:
+                    ref = reference_chain_id if self.interface_context == "lattice" else None
+                    interface_data = fn(
+                        pdb_file,
+                        focus_chains=focus_chains,
+                        reference_chain_id=ref,
+                    )
+                # Normalise metadata inside interface_analysis.summary for consumers
+                if isinstance(interface_data, dict):
+                    summary = interface_data.get("summary")
+                    if not isinstance(summary, dict):
+                        summary = {}
+                        interface_data["summary"] = summary
+                    summary["interface_context"] = str(self.interface_context)
+                    summary["interface_metrics"] = str(getattr(self, "interface_metrics", "charge"))
                 results['interface_analysis'] = interface_data
             else:
                 print("  - Skipping interface analysis (module not available)")
@@ -285,6 +326,24 @@ Examples:
         dest='reference_chain_id',
         help='Focal chain ID for multi-copy assemblies; passed to interface analysis (lattice SASA / burial / contact-residue fraction).',
     )
+    parser.add_argument(
+        "--interface-metrics",
+        choices=("charge", "ec"),
+        default="charge",
+        help=(
+            "Interface metric family. 'charge' reports charge-tag complementarity; "
+            "'ec' reports electrostatic complementarity (EC; McCoy method)."
+        ),
+    )
+    parser.add_argument(
+        '--interface-context',
+        choices=('asu', 'lattice'),
+        default='asu',
+        help=(
+            "Interface context. 'asu' analyses pairwise interfaces in the asymmetric unit; "
+            "'lattice' computes lattice-style reference-chain metrics (requires --reference-chain)."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -294,6 +353,9 @@ Examples:
     reference_chain_id = getattr(args, 'reference_chain_id', None)
     if reference_chain_id:
         reference_chain_id = str(reference_chain_id).strip() or None
+    if str(getattr(args, "interface_context", "asu")).strip().lower() == "lattice" and not reference_chain_id:
+        print("Error: --interface-context lattice requires --reference-chain.", file=sys.stderr)
+        sys.exit(1)
 
     # Expand inputs: directories and globs to file list
     paths = collect_structure_paths(args.input)
@@ -347,7 +409,11 @@ Examples:
             out_dir = args.output
         if args.verbose:
             print(f"Processing set {label!r}: {len(filtered)} structure(s) -> {out_dir}")
-        analyser = CrystalPackingAnalyser(out_dir)
+        analyser = CrystalPackingAnalyser(
+            out_dir,
+            interface_context=getattr(args, 'interface_context', 'asu'),
+            interface_metrics=getattr(args, "interface_metrics", "charge"),
+        )
         all_results = []
         for pdb_file in filtered:
             if not os.path.exists(pdb_file):

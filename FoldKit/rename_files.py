@@ -15,6 +15,8 @@ import os
 import re
 import sys
 
+from cli_log import add_log_args, setup_log_from_args
+
 
 def strip_date_from_prefixed_pdbs(directory: str, name_pattern: str) -> None:
     """Rename PDBs in one directory: drop YYYY_MM_DD_HH_MM segment after prefix."""
@@ -182,7 +184,9 @@ def main() -> None:
         help="Only rename files, not directories.",
     )
 
+    add_log_args(parser)
     args = parser.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "directory", "")], pattern=None)
     directory = os.path.abspath(args.directory)
 
     has_regex = args.remove or args.replace

@@ -29,6 +29,8 @@ if _SCRIPT_DIR not in sys.path:
 import dali_score as _ds
 from dali_log import install_dali_run_log, resolve_log_path, uninstall_dali_run_log
 
+from cli_log import add_log_args, setup_log_from_args
+
 warnings.filterwarnings("ignore", category=UserWarning, module="Bio")
 
 try:
@@ -660,7 +662,9 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         action="store_true",
         help="Do not write the default session log file.",
     )
+    add_log_args(ap)
     args = ap.parse_args()
+    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "input", "")], pattern=None)
 
     if not _ds.BIOPYTHON_AVAILABLE or _ds.PDBParser is None:
         print("Error: BioPython is required.", file=sys.stderr)

@@ -4,7 +4,7 @@
 
 All scripts live under `FoldKit/`. From the repository root run `python FoldKit/script_name.py` (or `Rscript FoldKit/...` where noted).
 
-**Example naming (this file, `FoldKit/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged text report from `interface_analyser.py -o` or `packing_metrics.py -o`; `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv` or `rmsd_heatmap_<suffix>.png` match the scripts that create them.
+**Example naming (this file, `FoldKit/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged interface text report (e.g. from `interface_analyser_asu_charge.py -o`); `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv` or `rmsd_heatmap_<suffix>.png` match the scripts that create them.
 
 **Paths in examples:** `/path/to/...` is a placeholder—substitute your own directories or files (absolute paths are safest). Command lines assume you run `python FoldKit/<script>.py` from the **repository root** unless stated otherwise.
 
@@ -26,11 +26,11 @@ All scripts live under `FoldKit/`. From the repository root run `python FoldKit/
 
 **Depending on what you run:**
 
-- **Coot** (command-line): for `superimpose_coot_*.py`, `trim_superimposeLSQ.py` (superposition modes), `open_models_in_coot.py`, and log parsing in `extract_rmsd.py`. Not needed for `**trim_models.py`** (trim-only).
+- **Coot** (command-line): for `superimpose_coot_*.py`, `trim_superimposeLSQ.py` (superposition modes), `open_models_in_coot.py`, and log parsing in `extract_rmsd.py`. Not needed for `trim_models.py` (trim-only).
 - **R** (optional): `create_rmsd_heatmap.R` and other `FoldKit/*.R` utilities where documented; not required for the default `crystal_packing_analyser` CLI.
-- **DaliLite** + `**mkdssp`**: `dalilite_superpose_scores.py` and DaliLite-backed modes of `dali_score.py` (see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)).
+- **DaliLite** + `mkdssp`: `dalilite_superpose_scores.py` and DaliLite-backed modes of `dali_score.py` (see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)).
 - **TM-align**: optional distance input for `structure_phylogeny.py --from-pdb`.
-- `**gemmi`** (`pip install gemmi`): helpful for some CIF handling in superposition workflows.
+- `gemmi` (`pip install gemmi`): helpful for some CIF handling in superposition workflows.
 
 ---
 
@@ -85,25 +85,22 @@ python FoldKit/pdb_rechain.py model_01.pdb -f X -t Y -o model_01_Y.pdb
 # Multi-copy assemblies: merge several chain pairs, reorder so chains are contiguous, relabel to A..Z,
 # and renumber residues per chain (starting at 1).
 #
-# Example merge list:
-#   B→A, D→C, F→E, H→G, J→I, L→K, N→M, O→P
+# Example merge list (pairs merged left-to-right):
+#   B to A, D to C, F to E, ...
 #
-# After these merges, the surviving chain IDs are:
-#   A, C, E, G, I, K, M, P
-#
-# Use --chain-order so that merged AB becomes new A, merged CD becomes new B, merged EF becomes new C, etc.
+# Use --chain-order to control how the surviving chains are mapped onto new A,B,C,… after merging.
 python FoldKit/pdb_rechain.py multicopy.pdb \
-  --merge-map 'B:A,D:C,F:E,H:G,J:I,L:K,N:M,O:P' \
+  --merge-map 'B:A,D:C,F:E,H:G' \
   --reorder-chains \
   --rename-sequential \
-  --chain-order 'A,C,E,G,I,K,M,P' \
+  --chain-order 'A,C,E,G' \
   --renumber-per-chain \
   -o multicopy_merged_ordered.pdb
 
 # Batch processing (several files with identical chain conventions):
 python FoldKit/pdb_rechain.py /path/to/models/ --pattern '*.pdb' \
-  --merge-map 'B:A,D:C,F:E,H:G,J:I,L:K,N:M,O:P' \
-  --reorder-chains --rename-sequential --chain-order 'A,C,E,G,I,K,M,P' \
+  --merge-map 'B:A,D:C,F:E,H:G' \
+  --reorder-chains --rename-sequential --chain-order 'A,C,E,G' \
   --renumber-per-chain \
   -o '/path/to/out/{}_merged_ordered.pdb'
 ```
@@ -112,13 +109,13 @@ python FoldKit/pdb_rechain.py /path/to/models/ --pattern '*.pdb' \
 
 ### `trim_models.py`
 
-**Residue trimming only** (no superposition, no Coot): harmonise PDB/mmCIF models to the **shortest** residue span found among the inputs. **Self-contained** (stdlib + optional `**gemmi`** for mmCIF→PDB); it does not import other FoldKit scripts. `**trim_superimposeLSQ.py**` uses the same trimming implementation via `**trim_models.py**` for `--trim` / `--trim-only`.
+**Residue trimming only** (no superposition, no Coot): harmonise PDB/mmCIF models to the **shortest** residue span found among the inputs. **Self-contained** (stdlib + optional `gemmi` for mmCIF→PDB); it does not import other FoldKit scripts. `trim_superimposeLSQ.py` uses the same trimming implementation via `trim_models.py` for `--trim` / `--trim-only`.
 
 ```bash
 python FoldKit/trim_models.py [--filter=set_a,set_b,...] directory1 [directory2 ...]
 ```
 
-`**--filter`:** optional comma-separated patterns (basename substring or glob). If omitted, every `*.pdb` / `*.cif` in the given directories is included (output under `trimmed_all/`).
+`--filter`: optional comma-separated patterns (basename substring or glob). If omitted, every `*.pdb` / `*.cif` in the given directories is included (output under `trimmed_all/`).
 
 Examples:
 
@@ -128,7 +125,7 @@ python FoldKit/trim_models.py --filter=set_a models/
 python FoldKit/trim_superimposeLSQ.py --trim-only --filter=set_a models/
 ```
 
-Output: `trimmed_<pattern>/` per filter, or `trimmed_all/` with no filter; trimmed PDBs. `**gemmi**` may be needed for mmCIF inputs.
+Output: `trimmed_<pattern>/` per filter, or `trimmed_all/` with no filter; trimmed PDBs. `gemmi` may be needed for mmCIF inputs.
 
 #### References (file management)
 
@@ -626,7 +623,7 @@ Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob o
 
 - **Holm, L. & Sander, C.** (1993). Protein structure comparison by alignment of distance matrices. *J. Mol. Biol.* **233**, 123–138. [DOI: 10.1006/jmbi.1993.1489](https://doi.org/10.1006/jmbi.1993.1489)
 - **Holm, L.** (2020). Dali and the persistence of protein shape. *Protein Sci.* **29**, 128–140. [DOI: 10.1002/pro.3749](https://doi.org/10.1002/pro.3749)
-- **Saitou, N. & Nei, M.** (1987). The neighbor-joining method: a new method for reconstructing phylogenetic trees. *Mol. Biol. Evol.* **4**, 406–425. [DOI: 10.1093/oxfordjournals.molbev.a040454](https://doi.org/10.1093/oxfordjournals.molbev.a040454)
+- **Saitou, N. & Nei, M.** (1987). The neighbour-joining method: a new method for reconstructing phylogenetic trees. *Mol. Biol. Evol.* **4**, 406–425. [DOI: 10.1093/oxfordjournals.molbev.a040454](https://doi.org/10.1093/oxfordjournals.molbev.a040454)
 - **Zhang, Y. & Skolnick, J.** (2005). TM-align: a protein structure alignment algorithm based on the TM-score. *Nucleic Acids Res.* **33**, 2302–2309. [DOI: 10.1093/nar/gki524](https://doi.org/10.1093/nar/gki524) — TM-align (`structure_phylogeny.py --from-pdb`).
 
 ---
@@ -715,25 +712,61 @@ python FoldKit/packing_metrics.py *.pdb --per-structure --sets set_a set_b -o "{
 
 Options: `-o`, `-q` (quiet), `--per-structure`, `--set`, `--sets`
 
-#### `interface_analyser.py`
+#### Interface analysis decision table
+
+| Goal | Recommended script | Notes / outputs |
+| --- | --- | --- |
+| Pairwise interfaces in the ASU + **charge-tag** complementarity | `interface_analyser_asu_charge.py` | Reports `charge_complementarity*` per interface. |
+| Pairwise interfaces in the ASU + **electrostatic complementarity (EC; McCoy)** | `interface_analyser_asu_ec.py` | Reports `ec_*` per interface; charge-tag metrics are suppressed. |
+| Lattice interfaces for a reference chain (multi-copy models) + **charge-tag** metrics | `interface_analyser_lattice_charge.py` | Requires `--reference-chain`; reports `lattice_charge_*`. |
+| Lattice interfaces for a reference chain (multi-copy models) + **EC (McCoy)** | `interface_analyser_lattice_ec.py` | Requires `--reference-chain`; reports `lattice_ec_*`. |
+
+#### `interface_analyser_asu_charge.py`
 
 Protein–protein interface analysis (buried surface area, contacts, complementarity).
 
 ```bash
-python FoldKit/interface_analyser.py model_01.pdb
-python FoldKit/interface_analyser.py *.pdb -o results.txt
-python FoldKit/interface_analyser.py *.pdb --set set_a,set_b -o by_set.txt
-python FoldKit/interface_analyser.py *.pdb --sets set_a set_b -o "interface_{}.txt"
-python FoldKit/interface_analyser.py *.pdb --per-structure -o "{}_interface.txt"
-python FoldKit/interface_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_interface.txt"
-python FoldKit/interface_analyser.py *.pdb --sets set_a set_b -o results.txt --dry-run
-python FoldKit/interface_analyser.py model_01.pdb --chains A -o chainA_interfaces.txt
-python FoldKit/interface_analyser.py expanded_assembly.pdb --reference-chain A -o lattice_interfaces.txt
+python FoldKit/interface_analyser_asu_charge.py model_01.pdb
+python FoldKit/interface_analyser_asu_charge.py model_01.pdb --chains A -o chainA_interfaces.txt
 ```
 
 Options: `-o` (use `{}` for per-set or per-structure), `--per-structure`, `--set`, `--sets`, `--dry-run`, `--chains`, `--reference-chain` (focal chain: isolated vs embedded SASA, lattice burial fraction, cross-chain contact-residue fraction)
 
 The text report summary lists **isolated SASA** (Shrake–Rupley, each chain alone) for every chain that appears in any reported interface, plus the **sum** of those values (e.g. chains A, B, C when interfaces A–B and A–C are reported). With **`--reference-chain`**, the summary adds **`sasa_reference_isolated`**, **`sasa_reference_in_cluster`**, **`lattice_burial_fraction`** (approximately `1 − SASA_cluster/SASA_iso`, a geometric occlusion index, **not** thermodynamic **ΔSASA**), and **`lattice_contact_residue_fraction`** (reference residues with a cross-chain neighbour within the contact cut-off).
+
+**Complementarity metrics (naming and methods).**
+
+- **Charge-tag complementarity (contact-based metrics)**: reported by `interface_analyser_asu_charge.py` and `interface_analyser_lattice_charge.py` as `charge_complementarity*` (and lattice fields `lattice_charge_*`). These are derived from charged residue identities within the filtered atom–atom contact set.
+- **Electrostatic complementarity (EC; McCoy method)**: reported by `interface_analyser_asu_ec.py` and `interface_analyser_lattice_ec.py` as `ec_*` (per interface) and `lattice_ec_*` (lattice summaries). EC is a Pearson correlation of electrostatic potentials on facing surface points, following McCoy, Epa & Colman (1997). Definitions and reported fields: `FoldKit/EC_details.md` and `FoldKit/metrics_details.md` (Section 2.5.4).
+
+#### `interface_analyser_asu_ec.py`
+
+Electrostatic complementarity (EC) for interfaces using the McCoy method (per-interface `ec_r`, `ec_n_pairs`, and density; plus lattice-weighted summaries in lattice mode).
+
+```bash
+python FoldKit/interface_analyser_asu_ec.py model_01.pdb -o ec_results.txt
+```
+
+#### `interface_analyser_lattice_charge.py`
+
+```bash
+python FoldKit/interface_analyser_lattice_charge.py expanded_assembly.pdb --reference-chain A -o lattice_charge.txt
+```
+
+#### `interface_analyser_lattice_ec.py`
+
+```bash
+python FoldKit/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
+```
+
+#### Lattice entrypoints (reference-chain reports)
+
+For multi-copy coordinate models, use the lattice interface entrypoints:
+
+```bash
+python FoldKit/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
+python FoldKit/interface_analyser_lattice_charge.py expanded_assembly.pdb --reference-chain A -o lattice_charge.txt
+```
 
 ### Multi-copy models (crystallographic interfaces)
 
@@ -742,35 +775,39 @@ Applicable when the coordinate file contains **several chains** representing **r
 **Typical workflow**
 
 1. Build or export a multi-chain structure with distinct chain IDs per copy.
-2. Run **`interface_analyser.py`** on that file; use **`--chains`** to restrict to interfaces involving a focal molecule, and **`--reference-chain`** for the focal-copy occlusion summary in the report header.
+2. Run **`interface_analyser_lattice_charge.py`** (charge-tag) or **`interface_analyser_lattice_ec.py`** (EC) on that file; use **`--chains`** to restrict to interfaces involving a focal molecule, and **`--reference-chain`** for the focal-copy occlusion summary in the report header.
 3. Optionally run **`crystal_packing_analyser.py`** with the same flags so **`interface_analysis.summary`** in each `*_analysis.json` includes the reference-chain fields.
 
 **Examples** (repository root; substitute paths and chain IDs)
 
 ```bash
 # All pairwise interfaces in an expanded multi-chain model
-python FoldKit/interface_analyser.py /path/to/expanded_assembly.pdb -o assembly_interfaces.txt
+python FoldKit/interface_analyser_lattice_charge.py /path/to/expanded_assembly.pdb --reference-chain A -o assembly_interfaces.txt
 
 # Only interfaces where the focal chain participates (partner chains still listed per pair)
-python FoldKit/interface_analyser.py /path/to/expanded_assembly.pdb --chains A -o interfaces_focal_A.txt
+python FoldKit/interface_analyser_lattice_charge.py /path/to/expanded_assembly.pdb --reference-chain A --chains A -o interfaces_focal_A.txt
 
 # Focal-copy summary: isolated vs embedded SASA, lattice_burial_fraction, contact-residue fraction
-python FoldKit/interface_analyser.py /path/to/expanded_assembly.pdb --chains A --reference-chain A -o lattice_focal_A.txt
+python FoldKit/interface_analyser_lattice_charge.py /path/to/expanded_assembly.pdb --reference-chain A --chains A -o lattice_focal_A.txt
 
 # Full pipeline; per-structure JSON under the output directory includes the interface summary
 python FoldKit/crystal_packing_analyser.py --input /path/to/expanded_assembly.pdb \
-  --chains A --reference-chain A --output ./analysis_expanded_assembly
+  --chains A --reference-chain A --interface-metrics charge --output ./analysis_expanded_assembly
+
+# Full pipeline with EC (McCoy) interface metrics
+python FoldKit/crystal_packing_analyser.py --input /path/to/expanded_assembly.pdb \
+  --chains A --reference-chain A --interface-metrics ec --output ./analysis_expanded_assembly_ec
 
 # Batch with combined JSON (--compare); same focal chain for every file matched by the glob
 python FoldKit/crystal_packing_analyser.py --input '/path/to/models/*_assembly.pdb' \
-  --reference-chain A --compare --output ./batch_lattice_analysis
+  --reference-chain A --interface-metrics charge --compare --output ./batch_lattice_analysis
 ```
 
 **Outputs.** Text: one block per chain pair (BSA, contacts, complementarity, etc.) plus summary lines (isolated SASA for chains in reported interfaces; with **`--reference-chain`**, **`sasa_reference_isolated`**, **`sasa_reference_in_cluster`**, **`lattice_burial_fraction`**, **`lattice_contact_residue_fraction`**). JSON (pipeline): nested under `interface_analysis.summary` in `*_analysis.json`.
 
 #### `interface_molecule_report_csv.py`
 
-Filter an `interface_analyser.py` text report into CSV (optional filters by PDB basename and chain). Input is typically the file from `interface_analyser.py … -o results.txt`. Writes one file per structure when using `--output-dir` or `-o` with `{}`.
+Filter an interface text report into CSV (optional filters by PDB basename and chain). Input is typically the file from `interface_analyser_asu_charge.py … -o results.txt` (or the EC analogue). Writes one file per structure when using `--output-dir` or `-o` with `{}`.
 
 ```bash
 python FoldKit/interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
@@ -799,7 +836,7 @@ python FoldKit/contact_analyser.py *.pdb --per-structure --sets set_a set_b -o "
 python FoldKit/contact_analyser.py model_01.pdb --chains A -o chainA_contacts.txt
 ```
 
-Options: same as `interface_analyser.py` (including `--chains`)
+Options: same core options as the interface analysers (including `--chains`).
 
 #### `contact_molecule_report_csv.py`
 
@@ -842,7 +879,7 @@ print(f"Solvent content: {metrics['solvent_content_percent']:.1f}%")
 #### Interface analysis
 
 ```python
-from interface_analyser import InterfaceAnalyser
+from interface_analyser_base import InterfaceAnalyser
 
 analyser = InterfaceAnalyser(contact_distance=5.0)
 interfaces = analyser.analyse_interfaces("model_01.pdb")
@@ -950,6 +987,21 @@ python FoldKit/crystal_packing_analyser.py --input model_01.pdb model_02.pdb mod
 - Scripts accept **PDB and mmCIF** where not otherwise noted.
 - **Coot** superposition: single-set one-to-many and single-set all-vs-all **keep Coot open** by default; use `**--not-interactive`** to exit when done. **AxB** (two-set) mode is **non-interactive by default**; use `**--interactive`** to keep Coot open after reload.
 - Run `**extract_rmsd.py**` on `coot_log.txt` with `**--format auto**` to classify SSM vs LSQ logs.
+
+### Logging (standard CLI logs)
+
+Most FoldKit command-line scripts write a per-run log file by default (stdout/stderr tee). This is intended for auditability and for recovering error messages when running long batch jobs.
+
+- **Default behaviour**: a log is written in the current working directory, named:
+  - `script_stem__input_slug[__tag].log`
+  - `input_slug` is derived from the input file/directory (and pattern where applicable).
+- **`--log PATH`**: set the log destination.
+  - If `PATH` is a directory, the default filename is created under that directory.
+  - If `PATH` contains `{}`, `{}` is replaced by the input-derived slug (useful for batch runs).
+- **`--log-tag TEXT`**: optional tag appended to the default filename.
+- **`--no-log`**: disable standard log creation.
+
+**Coot superposition scripts** (`superimpose_coot_SSM.py`, `superimpose_coot_LSQ.py`, `trim_superimposeLSQ.py`) also write their established Coot logs (`coot_log*.txt`) and RMSD outputs; the standard log options above are supported in a compatible way and do not replace `coot_log*.txt`.
 
 ### Output directory structure (Coot superposition)
 

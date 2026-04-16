@@ -3,6 +3,8 @@ import sys
 import argparse
 import re
 
+from cli_log import add_log_args, setup_log_from_args
+
 
 def _peek_log_head(path: str, max_bytes: int = 65536) -> str:
     try:
@@ -397,8 +399,10 @@ def _run_single_log_mode(argv):
             "inside that directory; otherwise the path is the RMSD file (extension optional)."
         ),
     )
+    add_log_args(parser)
 
     args = parser.parse_args(argv)
+    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "log_file", "")], pattern=None)
     log_file = os.path.abspath(args.log_file)
     out_kw = _output_kwargs_from_o_flag(args.output)
 
@@ -458,8 +462,10 @@ def _run_file_mode(argv):
             "Output directory or RMSD file (same rules as single-log --output)."
         ),
     )
+    add_log_args(parser)
 
     args = parser.parse_args(argv)
+    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "log_file", "")], pattern=None)
     log_file = os.path.abspath(args.log_file)
     out_kw = _output_kwargs_from_o_flag(args.output)
 
@@ -529,8 +535,10 @@ def _run_dir_mode(argv):
     parser.add_argument(
         "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt per log."
     )
+    add_log_args(parser)
 
     args = parser.parse_args(argv)
+    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "base_dir", "")], pattern=None)
     base_dir = os.path.abspath(args.base_dir)
 
     print(f"Searching for Coot logs under {base_dir}")
