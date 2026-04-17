@@ -2,11 +2,19 @@
 
 **FoldKit** is a collection of Python (and supporting R) tools for working with macromolecular **3D structures** in PDB or mmCIF format. The scripts cover **file preparation**, **pairwise and batch superimposition**, **similarity scoring and structure-based phylogenies** (with tabular and graphical outputs), and **quantitative crystal-packing and lattice metrics**. Some workflows use **Coot** for interactive superposition and log-based RMSD extraction; others use **DaliLite**, **TM-align**, or pure Python/R and do not require Coot.
 
-All scripts live under `FoldKit/`. From the repository root run `python FoldKit/script_name.py` (or `Rscript FoldKit/...` where noted).
+Scripts and docs are grouped in top-level folders that mirror this README:
 
-**Example naming (this file, `FoldKit/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged interface text report (e.g. from `interface_analyser_asu_charge.py -o`); `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv` or `rmsd_heatmap_<suffix>.png` match the scripts that create them.
+- `file_management/`
+- `superimposition/`
+- `ranking/`
+- `metrics/`
+- `appendix/`
 
-**Paths in examples:** `/path/to/...` is a placeholder—substitute your own directories or files (absolute paths are safest). Command lines assume you run `python FoldKit/<script>.py` from the **repository root** unless stated otherwise.
+From the repository root run `python <category>/script_name.py` (or `Rscript ranking/...` where noted).
+
+**Example naming (this file, `metrics/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged interface text report (e.g. from `interface_analyser_asu_charge.py -o`); `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv` or `rmsd_heatmap_<suffix>.png` match the scripts that create them.
+
+**Paths in examples:** `/path/to/...` is a placeholder—substitute your own directories or files (absolute paths are safest). Command lines assume you run `python <category>/<script>.py` from the **repository root** unless stated otherwise.
 
 ## Contents
 
@@ -27,7 +35,7 @@ All scripts live under `FoldKit/`. From the repository root run `python FoldKit/
 **Depending on what you run:**
 
 - **Coot** (command-line): for `superimpose_coot_*.py`, `trim_superimposeLSQ.py` (superposition modes), `open_models_in_coot.py`, and log parsing in `extract_rmsd.py`. Not needed for `trim_models.py` (trim-only).
-- **R** (optional): `create_rmsd_heatmap.R` and other `FoldKit/*.R` utilities where documented; not required for the default `crystal_packing_analyser` CLI.
+- **R** (optional): `ranking/create_rmsd_heatmap.R` and other R utilities where documented; not required for the default `crystal_packing_analyser` CLI.
 - **DaliLite** + `mkdssp`: `dalilite_superpose_scores.py` and DaliLite-backed modes of `dali_score.py` (see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)).
 - **TM-align**: optional distance input for `structure_phylogeny.py --from-pdb`.
 - `gemmi` (`pip install gemmi`): helpful for some CIF handling in superposition workflows.
@@ -41,14 +49,14 @@ All scripts live under `FoldKit/`. From the repository root run `python FoldKit/
 **Legacy (two arguments):** in a single directory, renames PDBs matching `{prefix}_YYYY_MM_DD_HH_MM_*.pdb` to `{prefix}_*.pdb` (non-recursive).
 
 ```bash
-python FoldKit/rename_files.py DIRECTORY PREFIX
+python file_management/rename_files.py DIRECTORY PREFIX
 ```
 
 **Regex mode:** remove or replace patterns in basenames; by default processes subdirectories and may rename directories unless `--files-only` / `--no-recursive`.
 
 ```bash
-python FoldKit/rename_files.py DIRECTORY --remove='REGEX'
-python FoldKit/rename_files.py DIRECTORY --replace='REGEX' --with='STRING'
+python file_management/rename_files.py DIRECTORY --remove='REGEX'
+python file_management/rename_files.py DIRECTORY --replace='REGEX' --with='STRING'
 ```
 
 Options (regex mode): `--remove`, `--replace`, `--with` (required with `--replace`), `--no-recursive`, `--files-only`
@@ -56,10 +64,10 @@ Options (regex mode): `--remove`, `--replace`, `--with` (required with `--replac
 Examples:
 
 ```bash
-python FoldKit/rename_files.py /path/to/dir sample_prefix
-python FoldKit/rename_files.py /path/to/dir --remove='\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_'
-python FoldKit/rename_files.py /path/to/dir --replace='fold_' --with='protein_'
-python FoldKit/rename_files.py /path/to/dir --remove='temp_' --no-recursive
+python file_management/rename_files.py /path/to/dir sample_prefix
+python file_management/rename_files.py /path/to/dir --remove='\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_'
+python file_management/rename_files.py /path/to/dir --replace='fold_' --with='protein_'
+python file_management/rename_files.py /path/to/dir --remove='temp_' --no-recursive
 ```
 
 ### `pdb_rechain.py`
@@ -76,11 +84,11 @@ Rewrite chain IDs on coordinate records (ATOM/HETATM/ANISOU/TER). Optionally mer
 
 ```bash
 # Merge chain B into chain A; residues from the former chain B continue after the last residue on chain A:
-python FoldKit/pdb_rechain.py /path/to/input_dir --pattern '*_models.pdb' -f B -t A \
+python file_management/pdb_rechain.py /path/to/input_dir --pattern '*_models.pdb' -f B -t A \
   --merge-renumber -o /path/to/output_dir/
 
 # Rename only (target chain must not already exist in the file):
-python FoldKit/pdb_rechain.py model_01.pdb -f X -t Y -o model_01_Y.pdb
+python file_management/pdb_rechain.py model_01.pdb -f X -t Y -o model_01_Y.pdb
 
 # Multi-copy assemblies: merge several chain pairs, reorder so chains are contiguous, relabel to A..Z,
 # and renumber residues per chain (starting at 1).
@@ -89,7 +97,7 @@ python FoldKit/pdb_rechain.py model_01.pdb -f X -t Y -o model_01_Y.pdb
 #   B to A, D to C, F to E, ...
 #
 # Use --chain-order to control how the surviving chains are mapped onto new A,B,C,… after merging.
-python FoldKit/pdb_rechain.py multicopy.pdb \
+python file_management/pdb_rechain.py multicopy.pdb \
   --merge-map 'B:A,D:C,F:E,H:G' \
   --reorder-chains \
   --rename-sequential \
@@ -98,7 +106,7 @@ python FoldKit/pdb_rechain.py multicopy.pdb \
   -o multicopy_merged_ordered.pdb
 
 # Batch processing (several files with identical chain conventions):
-python FoldKit/pdb_rechain.py /path/to/models/ --pattern '*.pdb' \
+python file_management/pdb_rechain.py /path/to/models/ --pattern '*.pdb' \
   --merge-map 'B:A,D:C,F:E,H:G' \
   --reorder-chains --rename-sequential --chain-order 'A,C,E,G' \
   --renumber-per-chain \
@@ -112,7 +120,7 @@ python FoldKit/pdb_rechain.py /path/to/models/ --pattern '*.pdb' \
 **Residue trimming only** (no superposition, no Coot): harmonise PDB/mmCIF models to the **shortest** residue span found among the inputs. **Self-contained** (stdlib + optional `gemmi` for mmCIF→PDB); it does not import other FoldKit scripts. `trim_superimposeLSQ.py` uses the same trimming implementation via `trim_models.py` for `--trim` / `--trim-only`.
 
 ```bash
-python FoldKit/trim_models.py [--filter=set_a,set_b,...] directory1 [directory2 ...]
+python file_management/trim_models.py [--filter=set_a,set_b,...] directory1 [directory2 ...]
 ```
 
 `--filter`: optional comma-separated patterns (basename substring or glob). If omitted, every `*.pdb` / `*.cif` in the given directories is included (output under `trimmed_all/`).
@@ -120,9 +128,9 @@ python FoldKit/trim_models.py [--filter=set_a,set_b,...] directory1 [directory2 
 Examples:
 
 ```bash
-python FoldKit/trim_models.py models/
-python FoldKit/trim_models.py --filter=set_a models/
-python FoldKit/trim_superimposeLSQ.py --trim-only --filter=set_a models/
+python file_management/trim_models.py models/
+python file_management/trim_models.py --filter=set_a models/
+python superimposition/trim_superimposeLSQ.py --trim-only --filter=set_a models/
 ```
 
 Output: `trimmed_<pattern>/` per filter, or `trimmed_all/` with no filter; trimmed PDBs. `gemmi` may be needed for mmCIF inputs.
@@ -348,7 +356,7 @@ Options: `--tags` (required unless `TAGS` is set in the script), `--conditions`,
 
 Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target on query frame) plus CSV / Z-matrix / Newick tree. Requires DaliLite and **mkdssp** (same constraints as `dali_score.py`; see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)).
 
-**Session log:** by default, stdout and stderr are also copied to `foldkit_dalilite.log` under `-d` (override with `--log PATH`, or pass `--no-log` to disable).
+**Optional run summary log:** most scripts accept `--log [FILE]` to write a short summary of tasks and errors (no stdout/stderr tee). For DaliLite workflows, the main outputs are the CSV/tree/superposed PDBs; logging is optional and summary-only.
 
 ```bash
 python FoldKit/dalilite_superpose_scores.py model_01.pdb model_02.pdb -d ./out \
@@ -593,7 +601,7 @@ Options:
 - `--exp-scale VALUE` (only for `exp`)
 - `--root LABEL` and `--no-midpoint-root`
 - `--plot PATH`
-- `--log FILE` (default: `foldkit_dali_phylogeny.log` next to `-o`; `--no-log` disables)
+- `--log [FILE]` (optional summary log)
 
 ### `dali_score.py`
 
@@ -617,7 +625,7 @@ python FoldKit/dali_score.py --all-vs-all models_dir/ -o pairs.csv \
   --output-tree dali_tree.nwk --output-plot dendrogram.png --output-ranking ranking.csv
 ```
 
-Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob on basename for directory inputs); tree: `--output-tree`, `--output-plot`, `--output-matrix`, `--transform`, `--root`. **Session log:** default `foldkit_dali_score.log` in the current directory (`--log FILE`, `--no-log`).
+Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob on basename for directory inputs); tree: `--output-tree`, `--output-plot`, `--output-matrix`, `--transform`, `--root`. **Optional summary log:** `--log [FILE]`.
 
 #### References (ranking, scoring, phylogeny)
 
@@ -711,6 +719,34 @@ python FoldKit/packing_metrics.py *.pdb --per-structure --sets set_a set_b -o "{
 ```
 
 Options: `-o`, `-q` (quiet), `--per-structure`, `--set`, `--sets`
+
+#### `lattice_packing_analyser.py`
+
+Packing-style metrics for **symmetry-expanded / multi-copy** coordinate models (a “supercell” or lattice fragment in one Cartesian frame, typically P1). Unlike `packing_metrics.py` (unit-cell-based), this script computes lattice-wide **density** and **packing fraction** using either the PDB `CRYST1` volume or a coordinate **bounding box**.
+
+Key options:
+
+- **`--volume-source {auto,cryst1,bbox}`**: choose the volume definition (default: `auto`).
+- **`--bbox-pad A`**: padding (Å) added to the bounding box when `--volume-source=bbox`.
+- **`--expected-chains N`**: sanity check: require exactly N chains (useful for fixed supercell expansions).
+- **`--allow-cryst1-mismatch`**: override the safety check that avoids using `CRYST1` volume when `--expected-chains > 1` (often `CRYST1` is the *original* unit cell, not the supercell).
+- **Set selection**: same pattern set controls as other analysers: `--set` / `--sets`.
+
+```bash
+# Single supercell (stdout JSON by default)
+python FoldKit/lattice_packing_analyser.py supercell.pdb --volume-source bbox --bbox-pad 2.0
+
+# Require expected number of chains (helpful for fixed expansion protocols)
+python FoldKit/lattice_packing_analyser.py supercell.pdb --expected-chains 12 --volume-source bbox
+
+# Multiple structures: write per-structure JSON/TXT under an output directory
+python FoldKit/lattice_packing_analyser.py supercells/ --sets set_a set_b --output-dir "lattice_pack_{}" --output-txt "lattice_{}.txt"
+
+# Multiple structures: write one combined JSON
+python FoldKit/lattice_packing_analyser.py supercells/*.pdb --output-json lattice_packing_combined.json
+```
+
+Output fields (high level): chosen volume metadata, atom/mass densities, packing density fraction/percent, Matthews-like ratio (Å³/Da) and heuristic solvent content (see `FoldKit/metrics_details.md`, Section 1.6).
 
 #### Interface analysis decision table
 
@@ -988,18 +1024,14 @@ python FoldKit/crystal_packing_analyser.py --input model_01.pdb model_02.pdb mod
 - **Coot** superposition: single-set one-to-many and single-set all-vs-all **keep Coot open** by default; use `**--not-interactive`** to exit when done. **AxB** (two-set) mode is **non-interactive by default**; use `**--interactive`** to keep Coot open after reload.
 - Run `**extract_rmsd.py**` on `coot_log.txt` with `**--format auto**` to classify SSM vs LSQ logs.
 
-### Logging (standard CLI logs)
+### Logging (optional summary logs)
 
-Most FoldKit command-line scripts write a per-run log file by default (stdout/stderr tee). This is intended for auditability and for recovering error messages when running long batch jobs.
+Most command-line scripts accept **`--log [FILE]`** to write a short **summary log** (tasks run + errors). This is **opt-in** and it does **not** mirror stdout/stderr.
 
-- **Default behaviour**: a log is written in the current working directory, named:
-  - `script_stem__input_slug[__tag].log`
-  - `input_slug` is derived from the input file/directory (and pattern where applicable).
-- **`--log PATH`**: set the log destination.
-  - If `PATH` is a directory, the default filename is created under that directory.
-  - If `PATH` contains `{}`, `{}` is replaced by the input-derived slug (useful for batch runs).
-- **`--log-tag TEXT`**: optional tag appended to the default filename.
-- **`--no-log`**: disable standard log creation.
+- **`--log`** (no value): write `<script_stem>.log` in the current working directory.
+- **`--log myrun.log`**: write to that file (directories are created if needed).
+
+For Coot superposition scripts, `--log` is independent of the established Coot logs (`coot_log*.txt`) and RMSD outputs.
 
 **Coot superposition scripts** (`superimpose_coot_SSM.py`, `superimpose_coot_LSQ.py`, `trim_superimposeLSQ.py`) also write their established Coot logs (`coot_log*.txt`) and RMSD outputs; the standard log options above are supported in a compatible way and do not replace `coot_log*.txt`.
 
