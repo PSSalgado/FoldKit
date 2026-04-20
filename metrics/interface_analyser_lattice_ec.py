@@ -19,6 +19,11 @@ from cli_log import add_log_args, setup_log_from_args
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Analyse lattice interfaces for a reference chain and report electrostatic complementarity (EC).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples (from repository root):
+  python metrics/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
+""",
     )
     parser.add_argument(
         "input",

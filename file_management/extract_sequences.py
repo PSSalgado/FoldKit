@@ -80,8 +80,8 @@ def find_pdb_files(base_dir, pattern):
 
 def main():
     if len(sys.argv) < 3 or len(sys.argv) > 4:
-        print("Usage: python extract_sequences.py <base_directory> <output_fasta_file> [file_pattern]")
-        print("Example: python extract_sequences.py /path/to/pdbs output.fasta *_pattern.pdb")
+        print("Usage: python file_management/extract_sequences.py <base_directory> <output_fasta_file> [file_pattern]")
+        print("Example: python file_management/extract_sequences.py /path/to/pdbs output.fasta *_pattern.pdb")
         sys.exit(1)
     
     base_dir = sys.argv[1]

@@ -11,15 +11,15 @@ use **chains only**, **PDBs only**, or **both**.
 
 Examples::
 
-  python FoldKit/interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv
-  python FoldKit/interface_molecule_report_csv.py results.txt --pdb model_01.pdb --chains A,B --output-dir ./out
-  python FoldKit/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb -o 'out/{}.csv'
-  python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+[^_]*)_' --output-dir ./out
-  python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+(?:a|del)?)_' --output-dir ./out
-  python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+)_' --output-dir ./out
-  python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model1a|model1del|model1)_' --output-dir ./out
-  python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1*' --combine-glob 'model2*' --output-dir ./out
-  python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1a*' --combine-glob 'model1del*' --combine-glob 'model1_*' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv
+  python metrics/interface_molecule_report_csv.py results.txt --pdb model_01.pdb --chains A,B --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb -o 'out/{}.csv'
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+[^_]*)_' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+(?:a|del)?)_' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+)_' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model1a|model1del|model1)_' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1*' --combine-glob 'model2*' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1a*' --combine-glob 'model1del*' --combine-glob 'model1_*' --output-dir ./out
 """
 
 from __future__ import annotations

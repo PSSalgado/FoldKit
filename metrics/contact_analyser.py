@@ -474,20 +474,21 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="Analyse crystal contacts and symmetry-related interactions.",
-        epilog="""Examples:
-  python contact_analyser.py model_01.pdb
-  python contact_analyser.py dir/
-  python contact_analyser.py *.pdb -o contact_results.txt
-  python contact_analyser.py *.pdb --set set_a,set_b -o by_set.txt
-  python contact_analyser.py *.pdb --sets set_a set_b set_c -o "contact_{}.txt"
-  python contact_analyser.py *.pdb --per-structure -o "{}_contact.txt"
-  python contact_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
-  python contact_analyser.py *.pdb --sets set_a set_b -o contact_results.txt --dry-run
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples (from repository root):
+  python metrics/contact_analyser.py model_01.pdb
+  python metrics/contact_analyser.py dir/
+  python metrics/contact_analyser.py *.pdb -o contact_results.txt
+  python metrics/contact_analyser.py *.pdb --set set_a,set_b -o by_set.txt
+  python metrics/contact_analyser.py *.pdb --sets set_a set_b set_c -o "contact_{}.txt"
+  python metrics/contact_analyser.py *.pdb --per-structure -o "{}_contact.txt"
+  python metrics/contact_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
+  python metrics/contact_analyser.py *.pdb --sets set_a set_b -o contact_results.txt --dry-run
 
 Filter text output to CSV by PDB and/or chain: contact_molecule_report_csv.py
-  python contact_molecule_report_csv.py contact_results.txt -m A -m B -o contacts_AB.csv
-  python contact_molecule_report_csv.py contact_results.txt --pdbs model_01.pdb --chains A,B --output-dir ./out
-  python contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb -m A -o model_01_contacts.csv
+  python metrics/contact_molecule_report_csv.py contact_results.txt -m A -m B -o contacts_AB.csv
+  python metrics/contact_molecule_report_csv.py contact_results.txt --pdbs model_01.pdb --chains A,B --output-dir ./out
+  python metrics/contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb -m A -o model_01_contacts.csv
 """,
     )
     parser.add_argument('input', nargs='+', help='PDB/CIF file(s), directory, or glob pattern (e.g. *.pdb).')

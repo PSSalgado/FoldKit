@@ -877,8 +877,13 @@ def compute_dali_score(coords_A, coords_B, equivs):
     return float(S), n
 
 
-def _collect_pdb_files(paths: list, filter_pattern: str = None) -> list:
-    """Collect PDB/CIF files from directories and/or files. Optional --filter."""
+def _collect_pdb_files(paths: list, filter_pattern: str = None, *, recursive: bool = False) -> list:
+    """
+    Collect PDB/CIF files from directories and/or files. Optional --filter.
+
+    For each directory in ``paths``: if ``recursive`` is False, only files in that
+    directory's root are included; if True, subdirectories are searched as well.
+    """
     files = []
     seen = set()
 
@@ -897,8 +902,9 @@ def _collect_pdb_files(paths: list, filter_pattern: str = None) -> list:
             for ext in ('*.pdb', '*.cif', '*.ent'):
                 for f in glob.glob(os.path.join(p, ext)):
                     _add(f)
-                for f in glob.glob(os.path.join(p, '**', ext), recursive=True):
-                    _add(f)
+                if recursive:
+                    for f in glob.glob(os.path.join(p, '**', ext), recursive=True):
+                        _add(f)
 
     if filter_pattern:
         def _matches(basename, pattern):
@@ -1288,8 +1294,15 @@ def main():
     ap = argparse.ArgumentParser(
         description='Compute Dali-like structural similarity score; pairwise or all-vs-all with optional tree output.',
         epilog='''
-Pairwise: dali_score.py model_01.pdb model_02.pdb [OPTIONS]
-All-vs-all: dali_score.py --all-vs-all dir_or_file [dir_or_file ...] [OPTIONS]
+Pairwise:
+  python ranking/dali_score.py /path/to/project/models/model_01.pdb /path/to/project/models/model_02.pdb [OPTIONS]
+
+All-vs-all:
+  python ranking/dali_score.py --all-vs-all /path/to/project/models/ [OPTIONS]
+  python ranking/dali_score.py --all-vs-all /path/to/project/set_a/ /path/to/project/set_b/ [OPTIONS]
+
+Directory collection: by default, each directory is scanned recursively for *.pdb / *.cif / *.ent.
+  Use --root-only-dirs to restrict to the top-level directory only (same default as dalilite_superpose_scores.py).
 
 Alignment sources: DaliLite -> alignment file -> biotite -> sequence-order.
   DaliLite: --dalilite-path DIR or DALILITE_HOME (import.pl needs mkdssp; see bin/mpidali.pm $DSSP_EXE)
@@ -1302,6 +1315,14 @@ Tree/dendrogram (all-vs-all only): --output-tree, --output-plot, --output-matrix
                     help='Compare all structures (from directories or files) pairwise; enable tree outputs.')
     ap.add_argument('--filter', metavar='PATTERN',
                     help='Filter files by name (substring or glob) in all-vs-all mode.')
+    ap.add_argument(
+        '--root-only-dirs',
+        action='store_true',
+        help=(
+            'All-vs-all: collect *.pdb / *.cif / *.ent only in the root of each directory '
+            '(no subfolders). Default: recursive scan into subdirectories.'
+        ),
+    )
     ap.add_argument('-a', '--alignment', metavar='FILE',
                     help='Alignment file with residue equivalences (TSV/CSV); pairwise mode only.')
     ap.add_argument('--chain-a', metavar='ID', help='Chain ID for structure A (optional).')
@@ -1350,7 +1371,7 @@ def _main_after_parse(ap, args, summary_log=None):
     if all_vs_all:
         if len(args.paths) < 2:
             ap.error('--all-vs-all requires at least 2 paths (dirs or PDB files)')
-        files = _collect_pdb_files(args.paths, args.filter)
+        files = _collect_pdb_files(args.paths, args.filter, recursive=not args.root_only_dirs)
         if len(files) < 2:
             ap.error(f'Found {len(files)} structure file(s); need at least 2 for all-vs-all')
         print(f"All-vs-all: {len(files)} structures, {len(files)*(len(files)-1)//2} pairs", file=sys.stderr)

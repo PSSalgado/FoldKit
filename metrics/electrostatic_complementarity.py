@@ -282,6 +282,12 @@ __all__ = [
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Compute electrostatic complementarity (EC) for interfaces in a structure file.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples (from repository root):
+  python metrics/electrostatic_complementarity.py model_01.pdb -o ec_interfaces.txt
+  python metrics/electrostatic_complementarity.py model_01.pdb --chains A,B --mode full -o ec.txt
+""",
     )
     parser.add_argument(
         "input",

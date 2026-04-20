@@ -24,6 +24,12 @@ from cli_log import add_log_args, setup_log_from_args
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Analyse pairwise interfaces in the ASU and report charge-based complementarity metrics.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples (from repository root):
+  python metrics/interface_analyser_asu_charge.py model_01.pdb -o interfaces.txt
+  python metrics/interface_analyser_asu_charge.py model_01.pdb --chains A -o chainA_interfaces.txt
+""",
     )
     parser.add_argument(
         "input",

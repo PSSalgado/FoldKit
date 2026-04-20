@@ -21,11 +21,9 @@ Superimpose CIF/PDB models in nested subfolders to a reference using SSM in Coot
 
 ---
 
-## Step 1: Go to the scripts directory and set paths
+## Step 1: Set paths (run from the repository root)
 
-```bash
-cd /path/to/scripts
-```
+Command lines below assume the **FoldKit repository root** as the working directory (so `python superimposition/...` resolves). Alternatively, `cd superimposition` and run `python superimpose_coot_SSM.py` (no directory prefix in the command).
 
 Set your reference and root folder (adjust paths to your real locations):
 
@@ -43,7 +41,7 @@ The script **recursively** finds all `.pdb` and `.cif` under `ROOT_FOLDER` (incl
 **Option A – Default (first chain of each structure):**
 
 ```bash
-python superimpose_coot_SSM.py "$REFERENCE" "$ROOT_FOLDER"
+python superimposition/superimpose_coot_SSM.py "$REFERENCE" "$ROOT_FOLDER"
 ```
 
 **Option B – Only files matching your naming (recommended):**
@@ -51,13 +49,13 @@ python superimpose_coot_SSM.py "$REFERENCE" "$ROOT_FOLDER"
 To restrict to files whose names contain a substring (e.g. `pattern`):
 
 ```bash
-python superimpose_coot_SSM.py --filter=set_a "$REFERENCE" "$ROOT_FOLDER"
+python superimposition/superimpose_coot_SSM.py --filter=set_a "$REFERENCE" "$ROOT_FOLDER"
 ```
 
 Or only models that have `_model_` in the name:
 
 ```bash
-python superimpose_coot_SSM.py --filter=model_ "$REFERENCE" "$ROOT_FOLDER"
+python superimposition/superimpose_coot_SSM.py --filter=model_ "$REFERENCE" "$ROOT_FOLDER"
 ```
 
 **Note:** `--filter` is a **substring** match (no glob). Use e.g. `--filter=tag` to include only matching models; don’t use `*` in the filter.
@@ -67,7 +65,7 @@ python superimpose_coot_SSM.py --filter=model_ "$REFERENCE" "$ROOT_FOLDER"
 Use **`superimpose_coot_SSM.py`** with **`--ref-chain`** and/or **`--model-chain`** (the other defaults to `A` if only one is set):
 
 ```bash
-python superimpose_coot_SSM.py --ref-chain=B --model-chain=B --filter=set_a "$REFERENCE" "$ROOT_FOLDER"
+python superimposition/superimpose_coot_SSM.py --ref-chain=B --model-chain=B --filter=set_a "$REFERENCE" "$ROOT_FOLDER"
 ```
 
 - You will be prompted if `SSMaligned2_<ref_name>/` already exists (files may be overwritten).
@@ -102,8 +100,8 @@ Use **`extract_rmsd.py`**: one script for both SSM and LSQ logs. Pass **`--forma
 Parses **SSM** Coot logs: recognises “Superposing &lt;model&gt; (chain X) onto reference (chain Y)” and, if present, Coot’s “Aligning … to …”, then writes that alignment line plus the RMSD block (core rmsd, number of residues, etc.) for each pair. Output: **`SSMaligned2_<ref_name>/rmsd_SSM_values.txt`**.
 
 ```bash
-python extract_rmsd.py --format ssm "SSMaligned2_<ref_name>/coot_log.txt"
-# or: python extract_rmsd.py --format auto "SSMaligned2_<ref_name>/coot_log.txt"
+python ranking/extract_rmsd.py --format ssm "SSMaligned2_<ref_name>/coot_log.txt"
+# or: python ranking/extract_rmsd.py --format auto "SSMaligned2_<ref_name>/coot_log.txt"
 ```
 
 ### For LSQ logs
@@ -111,7 +109,7 @@ python extract_rmsd.py --format ssm "SSMaligned2_<ref_name>/coot_log.txt"
 Use **`--format lsq`** (or auto on an LSQ-only log). Optional: `--aligned=PATTERN`, `--reference=PATTERN`, `--debug`.
 
 ```bash
-python extract_rmsd.py --format lsq "LSQaligned2_<ref_name>/coot_log.txt"
+python ranking/extract_rmsd.py --format lsq "LSQaligned2_<ref_name>/coot_log.txt"
 ```
 
 ---
@@ -120,10 +118,10 @@ python extract_rmsd.py --format lsq "LSQaligned2_<ref_name>/coot_log.txt"
 
 | Step | Action | Result |
 |------|--------|--------|
-| 1 | `cd` to scripts directory, set `REFERENCE` and `ROOT_FOLDER` | — |
-| 2 | `python superimpose_coot_SSM.py [--filter=...] [--ref-chain=...] [--model-chain=...] "$REFERENCE" "$ROOT_FOLDER"` | `SSMaligned2_<ref>/` with aligned PDBs + `coot_log.txt` |
+| 1 | From repo root, set `REFERENCE` and `ROOT_FOLDER` | — |
+| 2 | `python superimposition/superimpose_coot_SSM.py [--filter=...] [--ref-chain=...] [--model-chain=...] "$REFERENCE" "$ROOT_FOLDER"` | `SSMaligned2_<ref>/` with aligned PDBs + `coot_log.txt` |
 | 3 | (automatic) | Log in `SSMaligned2_<ref>/coot_log.txt` |
-| 4 | `python extract_rmsd.py --format ssm SSMaligned2_<ref>/coot_log.txt` | `SSMaligned2_<ref>/rmsd_SSM_values.txt` (alignment + RMSD per pair) |
+| 4 | `python ranking/extract_rmsd.py --format ssm SSMaligned2_<ref>/coot_log.txt` | `SSMaligned2_<ref>/rmsd_SSM_values.txt` (alignment + RMSD per pair) |
 
 ---
 
@@ -132,7 +130,7 @@ python extract_rmsd.py --format lsq "LSQaligned2_<ref_name>/coot_log.txt"
 For **SSM** logs (this workflow):
 
 ```bash
-python extract_rmsd.py --format ssm SSMaligned2_REFNAME/coot_log.txt
+python ranking/extract_rmsd.py --format ssm SSMaligned2_REFNAME/coot_log.txt
 ```
 
 Replace `REFNAME` with your reference base name (no extension).
@@ -144,10 +142,10 @@ Replace `REFNAME` with your reference base name (no extension).
 If you want the RMSD output in a different file or directory:
 
 ```bash
-python extract_rmsd.py file SSMaligned2_<ref_name>/coot_log.txt -o /path/to/rmsd_output.txt
+python ranking/extract_rmsd.py file SSMaligned2_<ref_name>/coot_log.txt -o /path/to/rmsd_output.txt
 ```
 
-For SSM and LSQ logs use **`extract_rmsd.py`** (single-log mode or its `file`/`dir` batch modes) to get alignment and RMSD information into separate text files.
+For SSM and LSQ logs use **`extract_rmsd.py`** (single-log mode, optional **`file`** keyword, or **`--dir=...`** to scan logs under a tree) to get alignment and RMSD information into separate text files.
 
 ---
 

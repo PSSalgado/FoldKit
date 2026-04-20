@@ -255,19 +255,19 @@ def main():
         description="Crystal packing analysis pipeline (packing metrics, interfaces, contacts).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
+Examples (from repository root):
   # Analyse single structure
-  python crystal_packing_analyser.py --input model_01.pdb
+  python metrics/crystal_packing_analyser.py --input model_01.pdb
 
   # Analyse all PDBs in a directory
-  python crystal_packing_analyser.py --input models/
+  python metrics/crystal_packing_analyser.py --input models/
 
   # Combine per-structure JSON into one file (batch export)
-  python crystal_packing_analyser.py --input *.pdb --compare
+  python metrics/crystal_packing_analyser.py --input *.pdb --compare
 
   # Filter by set(s): one output dir per set (use {} in --output)
-  python crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
-  python crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
+  python metrics/crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
+  python metrics/crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
         """
     )
 

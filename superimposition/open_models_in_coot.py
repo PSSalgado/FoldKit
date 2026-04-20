@@ -11,9 +11,9 @@ Two ways to select files:
      Recursive search under each directory; supports PDB and mmCIF.
 
 Examples:
-  python open_models_in_coot.py models/
-  python open_models_in_coot.py --filter set_a dir1/ dir2/
-  python open_models_in_coot.py '*tag*LSQaligned2*ref*pdb' models/
+  python superimposition/open_models_in_coot.py models/
+  python superimposition/open_models_in_coot.py --filter set_a dir1/ dir2/
+  python superimposition/open_models_in_coot.py '*tag*LSQaligned2*ref*pdb' models/
 """
 
 from __future__ import annotations
@@ -119,6 +119,13 @@ for model_path in {0}:
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Open PDB/mmCIF models in Coot with CA representation.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples (from repository root):
+  python superimposition/open_models_in_coot.py models/
+  python superimposition/open_models_in_coot.py --filter set_a dir1/ dir2/
+  python superimposition/open_models_in_coot.py '*model_*.cif' /path/to/search
+""",
     )
     ap.add_argument(
         "--filter",

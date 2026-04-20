@@ -146,9 +146,15 @@ def run_superposition(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Run superimpose_coot_LSQ.py --pattern across conditions and tags "
+            "Run superimposition/superimpose_coot_LSQ.py --pattern across conditions and tags "
             "(reference + models layout; same naming style as LSQ/SSM examples)."
-        )
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples (from repository root):
+  python superimposition/run_all_superpositions.py --tags set_a set_b --ref-base /path/to/refs --models-base /path/to/models
+  python superimposition/run_all_superpositions.py --tags set_a --conditions condition_1 condition_2 --ref-base /path/to/refs --models-base /path/to/models
+""",
     )
     parser.add_argument(
         "--tags",
@@ -207,7 +213,7 @@ def main() -> None:
     print("Done.")
     print(
         "Outputs are written under each models_base/<condition>/ tree "
-        "(superimpose_coot_LSQ.py --pattern convention)."
+        "(superimposition/superimpose_coot_LSQ.py --pattern convention)."
     )
 
 

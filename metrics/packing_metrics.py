@@ -338,13 +338,14 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="Calculate crystal packing metrics (Matthews coefficient, solvent content, etc.).",
-        epilog="""Examples:
-  python packing_metrics.py model_01.pdb
-  python packing_metrics.py dir/
-  python packing_metrics.py *.pdb -o results.txt
-  python packing_metrics.py *.pdb --sets set_a set_b set_c -o "analysis_{}.txt"
-  python packing_metrics.py *.pdb --per-structure -o "{}_metrics.txt"
-  python packing_metrics.py *.pdb --per-structure --sets set_a set_b -o "{}_metrics.txt"
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples (from repository root):
+  python metrics/packing_metrics.py model_01.pdb
+  python metrics/packing_metrics.py dir/
+  python metrics/packing_metrics.py *.pdb -o results.txt
+  python metrics/packing_metrics.py *.pdb --sets set_a set_b set_c -o "analysis_{}.txt"
+  python metrics/packing_metrics.py *.pdb --per-structure -o "{}_metrics.txt"
+  python metrics/packing_metrics.py *.pdb --per-structure --sets set_a set_b -o "{}_metrics.txt"
 """,
     )
     parser.add_argument(

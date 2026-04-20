@@ -145,7 +145,14 @@ def main() -> None:
             "Rename files under a directory. "
             "Legacy: pass DIRECTORY and PREFIX to strip date segments from PREFIX_*_*.pdb. "
             "Or use --remove / --replace for regex-based renames (recursive by default)."
-        )
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=r"""
+Examples (from repository root):
+  python file_management/rename_files.py /path/to/dir sample_prefix
+  python file_management/rename_files.py /path/to/dir --remove='\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_'
+  python file_management/rename_files.py /path/to/dir --replace='fold_' --with='protein_'
+""",
     )
     parser.add_argument(
         "directory",

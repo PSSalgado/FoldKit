@@ -9,9 +9,9 @@ atom2, distance_A, contact_type.
 
 Examples::
 
-  python FoldKit/contact_molecule_report_csv.py contact_results.txt -m A -m B -o contacts_AB.csv
-  python FoldKit/contact_molecule_report_csv.py contact_results.txt --pdb model_01.pdb --chains A,B --output-dir ./out
-  python FoldKit/contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb -m A -o model_01_contacts.csv
+  python metrics/contact_molecule_report_csv.py contact_results.txt -m A -m B -o contacts_AB.csv
+  python metrics/contact_molecule_report_csv.py contact_results.txt --pdb model_01.pdb --chains A,B --output-dir ./out
+  python metrics/contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb -m A -o model_01_contacts.csv
 """
 
 from __future__ import annotations

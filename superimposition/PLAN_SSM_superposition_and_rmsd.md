@@ -18,9 +18,8 @@ Scripts already collect **all `.pdb` and `.cif`** files from the given directory
 Use **`superimpose_coot_SSM.py`**:
 
 ```bash
-cd /path/to/scripts
-
-python superimpose_coot_SSM.py reference.pdb /path/to/models
+# From the FoldKit repository root:
+python superimposition/superimpose_coot_SSM.py reference.pdb /path/to/models
 ```
 
 - **reference.pdb**: path to your reference structure (PDB or CIF).
@@ -34,13 +33,13 @@ Examples:
 
 ```bash
 # All PDBs/CIFs under models/ and subfolders
-python superimpose_coot_SSM.py reference.pdb models/
+python superimposition/superimpose_coot_SSM.py reference.pdb models/
 
 # Multiple root folders
-python superimpose_coot_SSM.py reference.pdb dir1 dir2
+python superimposition/superimpose_coot_SSM.py reference.pdb dir1 dir2
 
 # Only files matching a substring in the name
-python superimpose_coot_SSM.py reference.pdb models/ --filter=set_a
+python superimposition/superimpose_coot_SSM.py reference.pdb models/ --filter=set_a
 ```
 
 **Result:**
@@ -56,7 +55,7 @@ python superimpose_coot_SSM.py reference.pdb models/ --filter=set_a
 Use **`superimpose_coot_SSM.py`** with the same flags:
 
 ```bash
-python superimpose_coot_SSM.py [--ref-chain=CHAIN] [--model-chain=CHAIN] [--filter=PATTERN] reference.pdb /path/to/models
+python superimposition/superimpose_coot_SSM.py [--ref-chain=CHAIN] [--model-chain=CHAIN] [--filter=PATTERN] reference.pdb /path/to/models
 ```
 
 - **`--ref-chain=CHAIN`**: chain ID in the **reference** (default: `A`).
@@ -67,13 +66,13 @@ Examples:
 
 ```bash
 # Reference chain A, model chain A (default)
-python superimpose_coot_SSM.py reference.pdb models/
+python superimposition/superimpose_coot_SSM.py reference.pdb models/
 
 # Reference chain B, all models use chain A
-python superimpose_coot_SSM.py --ref-chain=B reference.pdb models/
+python superimposition/superimpose_coot_SSM.py --ref-chain=B reference.pdb models/
 
 # Both chains specified
-python superimpose_coot_SSM.py --ref-chain=A --model-chain=A reference.pdb models/
+python superimposition/superimpose_coot_SSM.py --ref-chain=A --model-chain=A reference.pdb models/
 ```
 
 **Result:** Same as Option A: `SSMaligned2_<ref_name>/` with aligned PDBs and **`coot_log.txt`**.
@@ -100,14 +99,14 @@ Use one of the extractors on the Coot log produced in Step 1. They look for SSM-
 For **SSM** logs, use **`--format ssm`** or **`--format auto`** (default). Writes **`rmsd_SSM_values.txt`** next to the log:
 
 ```bash
-python extract_rmsd.py --format ssm SSMaligned2_<ref_name>/coot_log.txt
-python extract_rmsd.py --format auto SSMaligned2_ref/coot_log.txt
+python ranking/extract_rmsd.py --format ssm SSMaligned2_<ref_name>/coot_log.txt
+python ranking/extract_rmsd.py --format auto SSMaligned2_ref/coot_log.txt
 ```
 
 For **LSQ** logs, use **`--format lsq`** with optional **`--aligned`**, **`--reference`**, **`--debug`**:
 
 ```bash
-python extract_rmsd.py --format lsq LSQaligned2_ref/coot_log.txt --aligned=set_a --debug
+python ranking/extract_rmsd.py --format lsq LSQaligned2_ref/coot_log.txt --aligned=set_a --debug
 ```
 
 ---
@@ -117,18 +116,18 @@ python extract_rmsd.py --format lsq LSQaligned2_ref/coot_log.txt --aligned=set_a
 - **Single log file** (output path optional):
 
   ```bash
-  python extract_rmsd.py file SSMaligned2_ref/coot_log.txt
-  python extract_rmsd.py file SSMaligned2_ref/coot_log.txt -o /path/to/rmsd_output.txt
+  python ranking/extract_rmsd.py file SSMaligned2_ref/coot_log.txt
+  python ranking/extract_rmsd.py file SSMaligned2_ref/coot_log.txt -o /path/to/rmsd_output.txt
   ```
 
 - **All `coot_log.txt` under a directory** (e.g. after several runs):
 
   ```bash
-  python extract_rmsd.py dir /path/to/base_dir
-  python extract_rmsd.py dir /path/to/base_dir -o /path/to/rmsd_output_dir
+  python ranking/extract_rmsd.py --dir=/path/to/base_dir --format ssm
+  python ranking/extract_rmsd.py --dir /path/to/base_dir -o /path/to/rmsd_output_dir
   ```
 
-Use **`extract_rmsd.py`** in default (single-log) mode, or with the **`file`** / **`dir`** subcommands, for batch extraction and optional custom output paths.
+Use **`extract_rmsd.py`** in default (single-log) mode, with the optional **`file`** keyword, or with **`--dir=DIR`**, for batch extraction and optional custom output paths.
 
 ---
 
@@ -136,15 +135,15 @@ Use **`extract_rmsd.py`** in default (single-log) mode, or with the **`file`** /
 
 1. **Superimpose (all PDBs in folder + subfolders, SSM, optional chain)**  
    - Default (first chain in each structure):  
-     `python superimpose_coot_SSM.py reference.pdb /path/to/models`  
+     `python superimposition/superimpose_coot_SSM.py reference.pdb /path/to/models`  
    - Specific chains:  
-     `python superimpose_coot_SSM.py --ref-chain=A --model-chain=A reference.pdb /path/to/models`
+     `python superimposition/superimpose_coot_SSM.py --ref-chain=A --model-chain=A reference.pdb /path/to/models`
 
 2. **Log**  
    Already in `SSMaligned2_<ref_name>/coot_log.txt`.
 
 3. **Extract RMSD to a separate file**  
-   `python extract_rmsd.py --format ssm SSMaligned2_<ref_name>/coot_log.txt`  
+   `python ranking/extract_rmsd.py --format ssm SSMaligned2_<ref_name>/coot_log.txt`  
    → RMSD text in `SSMaligned2_<ref_name>/rmsd_SSM_values.txt`.
 
 ---
@@ -152,7 +151,7 @@ Use **`extract_rmsd.py`** in default (single-log) mode, or with the **`file`** /
 ## One-liner (after superimposition)
 
 ```bash
-python extract_rmsd.py --format ssm SSMaligned2_REFNAME/coot_log.txt
+python ranking/extract_rmsd.py --format ssm SSMaligned2_REFNAME/coot_log.txt
 ```
 
 Replace `REFNAME` with the reference filename (no extension).

@@ -84,7 +84,7 @@ def _announce_superposition_finished(
         lines.append("")
         lines.append("To extract RMSD values, run:")
         lines.append(
-            "python extract_rmsd.py --format {} {}".format(rmsd_format, log_file)
+            "python ranking/extract_rmsd.py --format {} {}".format(rmsd_format, log_file)
         )
     text = "\n".join(lines) + "\n"
     print(text, file=sys.stderr, end="", flush=True)
@@ -1015,7 +1015,7 @@ def main_pattern_mode():
         print("This mode cannot be combined with --all-vs-all, --reference, --filter, AxB filters, etc.")
         print("")
         print(
-            "Usage: python superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
+            "Usage: python superimposition/superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
         )
         print("\nOptions:")
         print("  --strict-position        ref_pattern before divider and target_pattern after")
@@ -1025,8 +1025,8 @@ def main_pattern_mode():
         print("  --output-suffix=STRING   output dir suffix (default: \"_SSMaligned_\")")
         print("  --not-interactive        exit Coot after each alignment set (default: keep open)")
         print("\nExamples:")
-        print("  python superimpose_coot_SSM.py --pattern /path/to/refs /path/to/models ref_id model_id")
-        print("  python superimpose_coot_SSM.py --pattern --not-interactive /path/to/refs /path/to/models ref_id model_id")
+        print("  python superimposition/superimpose_coot_SSM.py --pattern /path/to/refs /path/to/models ref_id model_id")
+        print("  python superimposition/superimpose_coot_SSM.py --pattern --not-interactive /path/to/refs /path/to/models ref_id model_id")
         sys.exit(1)
 
     ref_dir = os.path.abspath(args[0])
@@ -1079,11 +1079,11 @@ def main():
     positionals = []
 
     if len(sys.argv) < 2:
-        print("Usage: python superimpose_coot_SSM.py [options] reference_file dir1 [dir2 ...]")
-        print("       python superimpose_coot_SSM.py [options] --reference=REF_FILE --filter=TAG dir1 [dir2 ...]")
-        print("       python superimpose_coot_SSM.py [options] --all-vs-all dir1 [dir2 ...]")
+        print("Usage: python superimposition/superimpose_coot_SSM.py [options] reference_file dir1 [dir2 ...]")
+        print("       python superimposition/superimpose_coot_SSM.py [options] --reference=REF_FILE --filter=TAG dir1 [dir2 ...]")
+        print("       python superimposition/superimpose_coot_SSM.py [options] --all-vs-all dir1 [dir2 ...]")
         print(
-            "       python superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
+            "       python superimposition/superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
         )
         print("Options:")
         print("  --filter=TAG         Substring or glob (* ? [) on basename / stem (single set)")
@@ -1100,11 +1100,11 @@ def main():
         print("  --not-interactive    One-to-many and single-set all-vs-all: exit Coot when done (default: keep open)")
         print("Without --ref-chain/--model-chain: first chain per structure (Coot SSM superposition).")
         print("Examples:")
-        print("  python superimpose_coot_SSM.py /path/to/reference.pdb dir1 dir2 dir3")
-        print("  python superimpose_coot_SSM.py --reference=/path/to/reference.pdb dir1 dir2")
-        print("  python superimpose_coot_SSM.py --ref-chain=B --model-chain=B reference.pdb models/")
-        print("  python superimpose_coot_SSM.py --all-vs-all --filter=set_a /path/to/models/")
-        print("  python superimpose_coot_SSM.py --pattern /path/to/refs /path/to/models ref_id model_id")
+        print("  python superimposition/superimpose_coot_SSM.py /path/to/reference.pdb dir1 dir2 dir3")
+        print("  python superimposition/superimpose_coot_SSM.py --reference=/path/to/reference.pdb dir1 dir2")
+        print("  python superimposition/superimpose_coot_SSM.py --ref-chain=B --model-chain=B reference.pdb models/")
+        print("  python superimposition/superimpose_coot_SSM.py --all-vs-all --filter=set_a /path/to/models/")
+        print("  python superimposition/superimpose_coot_SSM.py --pattern /path/to/refs /path/to/models ref_id model_id")
         print("")
         print("Pattern mode (--pattern) is a separate entry point, not combinable with the lines above:")
         print("  --pattern must be the FIRST argument after the script name.")

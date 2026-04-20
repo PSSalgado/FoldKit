@@ -307,6 +307,13 @@ def analyse_lattice_packing(
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Analyse packing-style metrics for a symmetry-expanded lattice/supercell coordinate model.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples (from repository root):
+  python metrics/lattice_packing_analyser.py supercell.pdb --volume-source bbox --bbox-pad 2.0
+  python metrics/lattice_packing_analyser.py supercell.pdb --expected-chains 12 --volume-source bbox
+  python metrics/lattice_packing_analyser.py supercells/ --sets set_a set_b --output-dir "lattice_pack_{}" --output-txt "lattice_{}.txt"
+""",
     )
     ap.add_argument(
         "input",

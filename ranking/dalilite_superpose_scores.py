@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Run DaliLite pairwise or all-vs-all, optionally write superposed PDBs (target onto query frame),
-and emit Dali-style scores, Z-matrix, ranking, and Newick tree.
+and emit Dali-style scores, Z-matrix, ranking, Newick tree, and an optional matplotlib Z-score heatmap
+(same heatmap machinery as rmsd_to_csv.py).
 
 Superposition uses the translation–rotation block from DaliLite output (--outfmt transrot):
 for target coordinates X, the superposition onto the query frame is R @ X + t
@@ -541,26 +542,93 @@ def run_all_pairs(
     }
 
 
+def _matrix_from_zscores(labels: list[str], zscores: dict) -> list[list[float | None]]:
+    """Square matrix of Z-scores; diagonal None; missing pairs None."""
+    mat: list[list[float | None]] = []
+    for i, la in enumerate(labels):
+        row: list[float | None] = []
+        for j, lb in enumerate(labels):
+            if i == j:
+                row.append(None)
+                continue
+            z = zscores.get((la, lb))
+            if z is None:
+                z = zscores.get((lb, la))
+            row.append(float(z) if z is not None else None)
+        mat.append(row)
+    return mat
+
+
+def _write_dalilite_z_heatmap(
+    labels: list[str],
+    zscores: dict,
+    heatmap_path: str,
+    *,
+    title: str,
+    cmap: str,
+    vmin: float | None,
+    vmax: float | None,
+    short_labels: bool,
+    diverging_center: str | None,
+    colorbar_orientation: str,
+    y_axis_right: bool,
+) -> None:
+    """Square Dali Z heatmap via ``rmsd_to_csv.plot_heatmap`` (shared layout and colour-bar behaviour)."""
+    try:
+        import rmsd_to_csv as _rhm
+    except ImportError as e:
+        print("Error: --heatmap requires rmsd_to_csv in the same package.", file=sys.stderr)
+        raise SystemExit(1) from e
+    mat = _matrix_from_zscores(labels, zscores)
+    _rhm.plot_heatmap(
+        labels,
+        mat,
+        os.path.abspath(heatmap_path),
+        title=title,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        short_labels=short_labels,
+        diverging_center=diverging_center or None,
+        vcenter=None,
+        colorbar_orientation=colorbar_orientation,
+        y_axis_right=y_axis_right,
+        cbar_label="Dali Z",
+        autoscale_positive_offdiag_only=False,
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
-            "Run DaliLite, write superposed PDBs (target on query frame via transrot) "
-            "and pairwise scores / Z-matrix / tree (via dali_score)."
+            "Run DaliLite, write superposed PDBs (target on query frame via transrot), "
+            "pairwise scores / Z-matrix / tree (via dali_score), and an optional matplotlib Z heatmap."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   Pairwise:
-    %(prog)s model_01.pdb model_02.pdb -d ./out --dalilite-path /path/to/DaliLite
+    %(prog)s /path/to/project/model_01.pdb /path/to/project/model_02.pdb \\
+      -d /path/to/project/out --dalilite-path /path/to/DaliLite
 
-  All-vs-all (need at least two path arguments; quote glob filters):
-    %(prog)s --all-vs-all models_dir/ models_dir/ -d run_01/ --filter '*.pdb'
+  All-vs-all (at least two paths; quote glob filters; directory roots only unless --recursive):
+    %(prog)s --all-vs-all /path/to/project/models/ /path/to/project/models/ \\
+      -d /path/to/project/run_01/ --filter '*.pdb' --dalilite-path /path/to/DaliLite
+
+  All-vs-all including subdirectories:
+    %(prog)s --all-vs-all /path/to/project/models/ /path/to/project/models/ \\
+      -d /path/to/project/run_01/ --filter '*.pdb' --recursive --dalilite-path /path/to/DaliLite
+
+  All-vs-all with Z-score heatmap (SVG) and median-centred colour scale:
+    %(prog)s --all-vs-all /path/to/project/models/ /path/to/project/models/ \\
+      -d /path/to/project/run_01/ --filter '*.pdb' --dalilite-path /path/to/DaliLite \\
+      --heatmap /path/to/project/run_01/z_matrix.svg --heatmap-diverging-center median
 
   When DaliLite omits a hit (Z<~2) but models still superpose in Coot (e.g. SSM):
     %(prog)s ... --fallback-biotite   # needs: pip install biotite
 
 Environment: DALILITE_HOME or --dalilite-path. DaliLite runs from a short path under
-the system temp directory (very long paths can hit Fortran 80-char limits inside import.pl).
+the system temp directory (very long paths can hit Fortran 80-character limits inside import.pl).
 
 mkdssp: DaliLite's import.pl calls mkdssp via bin/mpidali.pm ($DSSP_EXE). That binary
 must exist (symlink a compatible mkdssp to the expected path, or edit mpidali.pm).
@@ -570,7 +638,10 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
     ap.add_argument(
         "paths",
         nargs="*",
-        help="Pairwise: model_01.pdb model_02.pdb. All-vs-all: directories or files.",
+        help=(
+            "Pairwise: two structure files. All-vs-all: directories and/or files; "
+            "per-directory files default to the directory root only (see --recursive)."
+        ),
     )
     ap.add_argument(
         "-d",
@@ -583,6 +654,14 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         "--all-vs-all",
         action="store_true",
         help="All unordered pairs from collected PDB/CIF paths.",
+    )
+    ap.add_argument(
+        "--recursive",
+        action="store_true",
+        help=(
+            "With --all-vs-all: search each given directory recursively for "
+            "*.pdb / *.cif / *.ent (default: only the root of each directory, not subfolders)."
+        ),
     )
     ap.add_argument("--filter", metavar="PATTERN", help="Filename filter (see dali_score.py).")
     ap.add_argument("--chain-a", metavar="ID", help="Chain ID for structure A (first/query).")
@@ -643,6 +722,63 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         "--no-midpoint-root",
         action="store_true",
         help="Disable midpoint rooting when no --root.",
+    )
+    ap.add_argument(
+        "--heatmap",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Write a pairwise Dali Z-score heatmap (PNG, PDF, or SVG from the extension). "
+            "All-vs-all: full matrix; pairwise: 2×2. Uses the same layout options as ranking/rmsd_to_csv.py; "
+            "requires matplotlib."
+        ),
+    )
+    ap.add_argument(
+        "--heatmap-title",
+        metavar="STR",
+        default="DaliLite pairwise Z-scores",
+        help="Figure title for --heatmap (default: DaliLite pairwise Z-scores).",
+    )
+    ap.add_argument(
+        "--cmap",
+        default="viridis_r",
+        help="Matplotlib colour map for --heatmap (default: viridis_r).",
+    )
+    ap.add_argument(
+        "--vmin",
+        type=float,
+        default=None,
+        metavar="VAL",
+        help="Lower colour scale limit for --heatmap (Dali Z).",
+    )
+    ap.add_argument(
+        "--vmax",
+        type=float,
+        default=None,
+        metavar="VAL",
+        help="Upper colour scale limit for --heatmap (Dali Z).",
+    )
+    ap.add_argument(
+        "--short-heatmap-labels",
+        action="store_true",
+        help="Shorten --heatmap axis labels (same convention as rmsd_to_csv.py).",
+    )
+    ap.add_argument(
+        "--heatmap-diverging-center",
+        choices=("none", "median"),
+        default="none",
+        help="For --heatmap: linear scale (none) or TwoSlopeNorm at the median Z (median).",
+    )
+    ap.add_argument(
+        "--heatmap-colorbar-orientation",
+        choices=("vertical", "horizontal"),
+        default="vertical",
+        help="Colour bar placement for --heatmap (default: vertical).",
+    )
+    ap.add_argument(
+        "--heatmap-y-axis-right",
+        action="store_true",
+        help="Draw row labels on the right for --heatmap (vertical bar moves to the left).",
     )
     ap.add_argument(
         "-q",
@@ -711,7 +847,7 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
     if args.all_vs_all:
         if len(args.paths) < 2:
             ap.error("--all-vs-all requires at least two paths (dirs or structure files)")
-        files = _ds._collect_pdb_files(args.paths, args.filter)
+        files = _ds._collect_pdb_files(args.paths, args.filter, recursive=args.recursive)
         if len(files) < 2:
             ap.error(f"need at least 2 structure files; found {len(files)}")
         if verbose:
@@ -821,6 +957,23 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
         with open(tree_p, "w") as f:
             f.write(newick)
         print(f"Wrote {tree_p}")
+
+        if args.heatmap:
+            hp = out_path(args.heatmap)
+            assert hp
+            _write_dalilite_z_heatmap(
+                labels,
+                zscores,
+                hp,
+                title=args.heatmap_title,
+                cmap=args.cmap,
+                vmin=args.vmin,
+                vmax=args.vmax,
+                short_labels=args.short_heatmap_labels,
+                diverging_center=args.heatmap_diverging_center,
+                colorbar_orientation=args.heatmap_colorbar_orientation,
+                y_axis_right=args.heatmap_y_axis_right,
+            )
 
         plot_p = out_path(args.output_plot)
         if plot_p:
@@ -935,6 +1088,26 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
             )
         print(f"Wrote {pair_csv}")
 
+    if args.heatmap:
+        la = _ds._label_from_path(pdb_a)
+        lb = _ds._label_from_path(pdb_b)
+        z = float(meta["z_score"])
+        zm = {(la, lb): z, (lb, la): z}
+        hp = out_path(args.heatmap)
+        assert hp
+        _write_dalilite_z_heatmap(
+            [la, lb],
+            zm,
+            hp,
+            title=args.heatmap_title,
+            cmap=args.cmap,
+            vmin=args.vmin,
+            vmax=args.vmax,
+            short_labels=args.short_heatmap_labels,
+            diverging_center=args.heatmap_diverging_center,
+            colorbar_orientation=args.heatmap_colorbar_orientation,
+            y_axis_right=args.heatmap_y_axis_right,
+        )
 
     if not args.keep_dalilite_work:
         shutil.rmtree(work, ignore_errors=True)

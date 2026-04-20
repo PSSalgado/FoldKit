@@ -12,9 +12,9 @@ Scripts and docs are grouped in top-level folders that mirror this README:
 
 From the repository root run `python <category>/script_name.py` (or `Rscript ranking/...` where noted).
 
-**Example naming (this file, `metrics/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged interface text report (e.g. from `interface_analyser_asu_charge.py -o`); `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv` or `rmsd_heatmap_<suffix>.png` match the scripts that create them.
+**Example naming (this file, `metrics/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged interface text report (e.g. from `interface_analyser_asu_charge.py -o`); `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv` or `rmsd_heatmap_<suffix>.<ext>` (for example `.svg` from `rmsd_to_csv.py` batch mode) match the scripts that create them.
 
-**Paths in examples:** `/path/to/...` is a placeholder—substitute your own directories or files (absolute paths are safest). Command lines assume you run `python <category>/<script>.py` from the **repository root** unless stated otherwise.
+**Paths in examples:** `/path/to/project/...` marks a generic working tree (substitute your own directories or files; absolute paths are safest). Third-party installs may use placeholders such as `/path/to/DaliLite`. Command lines assume you run `python <category>/<script>.py` from the **repository root** unless stated otherwise.
 
 ## Contents
 
@@ -64,10 +64,10 @@ Options (regex mode): `--remove`, `--replace`, `--with` (required with `--replac
 Examples:
 
 ```bash
-python file_management/rename_files.py /path/to/dir sample_prefix
-python file_management/rename_files.py /path/to/dir --remove='\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_'
-python file_management/rename_files.py /path/to/dir --replace='fold_' --with='protein_'
-python file_management/rename_files.py /path/to/dir --remove='temp_' --no-recursive
+python file_management/rename_files.py /path/to/project/workdir sample_prefix
+python file_management/rename_files.py /path/to/project/workdir --remove='\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_'
+python file_management/rename_files.py /path/to/project/workdir --replace='fold_' --with='protein_'
+python file_management/rename_files.py /path/to/project/workdir --remove='temp_' --no-recursive
 ```
 
 ### `pdb_rechain.py`
@@ -80,12 +80,12 @@ Rewrite chain IDs on coordinate records (ATOM/HETATM/ANISOU/TER). Optionally mer
   - **`--rename-sequential`**: Relabel all chains to `A..Z` after merges/renumbering.
   - **`--chain-order 'ID,ID,...'`**: Used with `--rename-sequential`. Specifies the preferred order of existing chain IDs (post-merge) that should become new `A,B,C,...` first; any remaining chains are appended in first-appearance order.
   - **`--renumber-per-chain`**: Renumber residues per chain starting at 1 (in residue first-appearance order). Keeps insertion codes unchanged.
-  - **`-o/--output`**: For multiple input files, use either an output directory (one output per input) or a path template containing `{}` (replaced by the input stem), for example `-o '/path/to/out/{}_rechain.pdb'`.
+  - **`-o/--output`**: For multiple input files, use either an output directory (one output per input) or a path template containing `{}` (replaced by the input stem), for example `-o '/path/to/project/out/{}_rechain.pdb'`.
 
 ```bash
 # Merge chain B into chain A; residues from the former chain B continue after the last residue on chain A:
-python file_management/pdb_rechain.py /path/to/input_dir --pattern '*_models.pdb' -f B -t A \
-  --merge-renumber -o /path/to/output_dir/
+python file_management/pdb_rechain.py /path/to/project/input_dir --pattern '*_models.pdb' -f B -t A \
+  --merge-renumber -o /path/to/project/output_dir/
 
 # Rename only (target chain must not already exist in the file):
 python file_management/pdb_rechain.py model_01.pdb -f X -t Y -o model_01_Y.pdb
@@ -106,11 +106,11 @@ python file_management/pdb_rechain.py multicopy.pdb \
   -o multicopy_merged_ordered.pdb
 
 # Batch processing (several files with identical chain conventions):
-python file_management/pdb_rechain.py /path/to/models/ --pattern '*.pdb' \
+python file_management/pdb_rechain.py /path/to/project/models/ --pattern '*.pdb' \
   --merge-map 'B:A,D:C,F:E,H:G' \
   --reorder-chains --rename-sequential --chain-order 'A,C,E,G' \
   --renumber-per-chain \
-  -o '/path/to/out/{}_merged_ordered.pdb'
+  -o '/path/to/project/out/{}_merged_ordered.pdb'
 ```
 
 `SEQRES` and `CRYST1` records are not rewritten; update these separately if required by downstream tools.
@@ -163,25 +163,25 @@ These scripts align models to a reference or run all-vs-all jobs. **Coot-based**
 
 - `**--pattern` must be `argv[1]`** (the first token after the script). If it is not first, the script uses the main flow instead and will not treat the rest as pattern mode.
 - **Do not** combine `--pattern` with `--all-vs-all`, `--reference` / `--ref`, `--filter`, `--ref-filter`, `--model-filter`, or a leading reference positional in the same command.
-- Pairing is implemented in `**FoldKit/superimpose_pattern_match.py`** (`find_ref_model_matches`), shared by SSM and LSQ so neither script depends on the other.
+- Pairing is implemented in `**superimposition/superimpose_pattern_match.py`** (`find_ref_model_matches`), shared by SSM and LSQ so neither script depends on the other.
 
 **Examples — pattern mode (correct)**
 
 ```bash
-python FoldKit/superimpose_coot_SSM.py --pattern /path/to/refs /path/to/models proteinA fold1
-python FoldKit/superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models proteinA fold1
-python FoldKit/superimpose_coot_SSM.py --pattern --not-interactive /path/to/refs /path/to/models proteinA fold1
+python superimposition/superimpose_coot_SSM.py --pattern /path/to/project/refs /path/to/project/models proteinA fold1
+python superimposition/superimpose_coot_LSQ.py --pattern /path/to/project/refs /path/to/project/models proteinA fold1
+python superimposition/superimpose_coot_SSM.py --pattern --not-interactive /path/to/project/refs /path/to/project/models proteinA fold1
 ```
 
 **Examples — invalid (do not use)**
 
 ```bash
 # --pattern not first → not pattern mode; paths/options will be misread
-python FoldKit/superimpose_coot_SSM.py /path/to/refs /path/to/models --pattern proteinA fold1
+python superimposition/superimpose_coot_SSM.py /path/to/project/refs /path/to/project/models --pattern proteinA fold1
 
 # cannot mix pattern mode with all-vs-all or filters
-python FoldKit/superimpose_coot_SSM.py --all-vs-all --pattern refs/ models/ id_a id_b
-python FoldKit/superimpose_coot_SSM.py --pattern --all-vs-all refs/ models/ id_a id_b
+python superimposition/superimpose_coot_SSM.py --all-vs-all --pattern refs/ models/ id_a id_b
+python superimposition/superimpose_coot_SSM.py --pattern --all-vs-all refs/ models/ id_a id_b
 ```
 
 ### `superimpose_coot_SSM.py`
@@ -194,24 +194,24 @@ Secondary Structure Matching (SSM) superposition: one-to-many or all-vs-all.
 
 ```bash
 # One-to-many: align all models to a reference (reference is first positional, or use --reference= / --ref=)
-python FoldKit/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] reference.pdb dir1 [dir2 ...]
-python FoldKit/superimpose_coot_SSM.py [--filter=set_a] --reference=reference.pdb dir1 [dir2 ...]
+python superimposition/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] reference.pdb dir1 [dir2 ...]
+python superimposition/superimpose_coot_SSM.py [--filter=set_a] --reference=reference.pdb dir1 [dir2 ...]
 
 # All-vs-all: each structure used as reference in turn
-python FoldKit/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] --all-vs-all dir1 [dir2 ...]
+python superimposition/superimpose_coot_SSM.py [--filter=set_a] [--output-dir=DIR] --all-vs-all dir1 [dir2 ...]
 
 # Explicit chains (one-to-many or all-vs-all)
-python FoldKit/superimpose_coot_SSM.py --ref-chain=B --model-chain=B reference.pdb models/
-python FoldKit/superimpose_coot_SSM.py --all-vs-all --ref-chain=B --model-chain=B models/
+python superimposition/superimpose_coot_SSM.py --ref-chain=B --model-chain=B reference.pdb models/
+python superimposition/superimpose_coot_SSM.py --all-vs-all --ref-chain=B --model-chain=B models/
 
 # All-vs-all between two sets (AxB), potentially from different trees
-python FoldKit/superimpose_coot_SSM.py --all-vs-all \
+python superimposition/superimpose_coot_SSM.py --all-vs-all \
   --ref-filter='*set_a*' --model-filter='*set_b*' \
   --ref-chain=A --model-chain=B \
   dir_for_set_a/ dir_for_set_b/
 
 # Same AxB run but keep the Coot window open after all superpositions (default is batch: Coot exits)
-python FoldKit/superimpose_coot_SSM.py --all-vs-all --interactive \
+python superimposition/superimpose_coot_SSM.py --all-vs-all --interactive \
   --ref-filter='*set_a*' --model-filter='*set_b*' \
   --ref-chain=A --model-chain=B \
   dir_for_set_a/ dir_for_set_b/
@@ -222,11 +222,11 @@ python FoldKit/superimpose_coot_SSM.py --all-vs-all --interactive \
 Examples:
 
 ```bash
-python FoldKit/superimpose_coot_SSM.py reference.pdb dir1 dir2 dir3
-python FoldKit/superimpose_coot_SSM.py --all-vs-all --filter=set_a models/
-python FoldKit/superimpose_coot_SSM.py --filter=set_a --output-dir=SSM_run reference.pdb models/
-python FoldKit/superimpose_coot_SSM.py --ref-chain=C --model-chain=B reference.pdb models/
-python FoldKit/superimpose_coot_SSM.py --all-vs-all --ref-filter=set_a --model-filter=set_b --ref-chain=A --model-chain=B models_a/ models_b/
+python superimposition/superimpose_coot_SSM.py reference.pdb dir1 dir2 dir3
+python superimposition/superimpose_coot_SSM.py --all-vs-all --filter=set_a models/
+python superimposition/superimpose_coot_SSM.py --filter=set_a --output-dir=SSM_run reference.pdb models/
+python superimposition/superimpose_coot_SSM.py --ref-chain=C --model-chain=B reference.pdb models/
+python superimposition/superimpose_coot_SSM.py --all-vs-all --ref-filter=set_a --model-filter=set_b --ref-chain=A --model-chain=B models_a/ models_b/
 ```
 
 Options: `--filter` (single-set substring or glob on basename, e.g. `set_a`), `--ref-filter` (reference set A), `--model-filter` (model set B; both require `--all-vs-all`), `--reference` / `--ref` (one-to-many: reference file instead of a leading positional), `--interactive` (AxB only: keep Coot open after reload), `--not-interactive` (one-to-many and single-set all-vs-all: exit Coot when done; default keeps Coot open), `--output-dir` / `--out-dir` (placeholders: `[reference_name]`, `[filter]`), `--ref-chain`, `--model-chain`, `--all-vs-all`
@@ -237,7 +237,7 @@ Output: `SSMaligned2_[reference_name]` or `SSMaligned_all_vs_all[*]`; `[model]_S
 
 ```bash
 # --pattern must be first; optional flags can appear before the directories
-python FoldKit/superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]
+python superimposition/superimpose_coot_SSM.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]
 ```
 
 Pattern-only options (same idea as LSQ): `--strict-position`, `--divider=`, `--ref-file-pattern=`, `--model-file-pattern=`, `--output-suffix=`, `--not-interactive`.
@@ -248,21 +248,21 @@ Least Squares (LSQ) superposition: one-to-many or all-vs-all. By default uses th
 
 ```bash
 # One-to-many: specify reference explicitly
-python FoldKit/superimpose_coot_LSQ.py [--output-dir=DIR] --reference=reference.pdb dir1 [dir2 ...]
+python superimposition/superimpose_coot_LSQ.py [--output-dir=DIR] --reference=reference.pdb dir1 [dir2 ...]
 
 # One-to-many: interactive reference selection from directories
-python FoldKit/superimpose_coot_LSQ.py [--output-dir=DIR] dir1 [dir2 ...]
+python superimposition/superimpose_coot_LSQ.py [--output-dir=DIR] dir1 [dir2 ...]
 
 # All-vs-all
-python FoldKit/superimpose_coot_LSQ.py --all-vs-all [--output-dir=DIR] dir1 [dir2 ...]
+python superimposition/superimpose_coot_LSQ.py --all-vs-all [--output-dir=DIR] dir1 [dir2 ...]
 
 # All-vs-all between two sets (AxB), potentially from different trees (first chain per structure)
-python FoldKit/superimpose_coot_LSQ.py --all-vs-all \
+python superimposition/superimpose_coot_LSQ.py --all-vs-all \
   --ref-filter='*set_a*' --model-filter='*set_b*' \
   dir_for_set_a/ dir_for_set_b/
 
 # AxB with Coot left open when finished
-python FoldKit/superimpose_coot_LSQ.py --all-vs-all --interactive \
+python superimposition/superimpose_coot_LSQ.py --all-vs-all --interactive \
   --ref-filter='*set_a*' --model-filter='*set_b*' \
   dir_for_set_a/ dir_for_set_b/
 ```
@@ -272,10 +272,10 @@ python FoldKit/superimpose_coot_LSQ.py --all-vs-all --interactive \
 Examples:
 
 ```bash
-python FoldKit/superimpose_coot_LSQ.py --reference=reference.cif --filter=set_a models/
-python FoldKit/superimpose_coot_LSQ.py --all-vs-all --filter=set_a models/
-python FoldKit/superimpose_coot_LSQ.py --all-vs-all --ref-filter=set_a --model-filter=set_b models_a/ models_b/
-python FoldKit/superimpose_coot_LSQ.py dir1 dir2
+python superimposition/superimpose_coot_LSQ.py --reference=reference.cif --filter=set_a models/
+python superimposition/superimpose_coot_LSQ.py --all-vs-all --filter=set_a models/
+python superimposition/superimpose_coot_LSQ.py --all-vs-all --ref-filter=set_a --model-filter=set_b models_a/ models_b/
+python superimposition/superimpose_coot_LSQ.py dir1 dir2
 ```
 
 Options: `--reference` / `--ref`, `--filter` (single-set substring/glob match, e.g. `set_a`), `--ref-filter` (reference set A), `--model-filter` (model set B; both require `--all-vs-all`), `--interactive` (AxB only: keep Coot open after reload), `--not-interactive` (one-to-many and single-set all-vs-all: exit Coot when done; default keeps Coot open), `--ref-chain`, `--model-chain` (one-to-many explicit chains only), `--output-dir` / `--out-dir`
@@ -286,7 +286,7 @@ Output: `LSQaligned2_[reference_name]` or `LSQaligned_all_vs_all[*]`; `coot_log.
 
 ```bash
 # --pattern must be first; optional flags can appear before the directories
-python FoldKit/superimpose_coot_LSQ.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]
+python superimposition/superimpose_coot_LSQ.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]
 ```
 
 Options:
@@ -301,9 +301,9 @@ Options:
 Examples:
 
 ```bash
-python FoldKit/superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id
-python FoldKit/superimpose_coot_LSQ.py --pattern --ref-file-pattern="*final.pdb" --model-file-pattern="*.pdb" /path/to/refs /path/to/models ref_id model_id
-python FoldKit/superimpose_coot_LSQ.py --pattern --divider=LSQaligned2 /path/to/refs /path/to/models ref_id model_id
+python superimposition/superimpose_coot_LSQ.py --pattern /path/to/project/refs /path/to/project/models ref_id model_id
+python superimposition/superimpose_coot_LSQ.py --pattern --ref-file-pattern="*final.pdb" --model-file-pattern="*.pdb" /path/to/project/refs /path/to/project/models ref_id model_id
+python superimposition/superimpose_coot_LSQ.py --pattern --divider=LSQaligned2 /path/to/project/refs /path/to/project/models ref_id model_id
 ```
 
 Output: `[subdir]_LSQaligned_[ref_name]/`; aligned PDBs named `[model]_LSQaligned_[ref].pdb` inside each output directory.
@@ -314,23 +314,23 @@ Trims models to a **common residue span** (shortest model among the set, optiona
 
 ```bash
 # Trim and superimpose (all-vs-all or one-to-many with interactive reference)
-python FoldKit/trim_superimposeLSQ.py --trim [--all-vs-all] [--filter=set_a,set_b] dir1 [dir2 ...]
+python superimposition/trim_superimposeLSQ.py --trim [--all-vs-all] [--filter=set_a,set_b] dir1 [dir2 ...]
 
 # Only trim (no Coot) — same implementation as trim_models.py
-python FoldKit/trim_superimposeLSQ.py --trim-only [--filter=set_a,set_b,...] dir1 [dir2 ...]
+python superimposition/trim_superimposeLSQ.py --trim-only [--filter=set_a,set_b,...] dir1 [dir2 ...]
 
 # Superimpose without trimming
-python FoldKit/trim_superimposeLSQ.py [--all-vs-all] [--filter=set_a] dir1 [dir2 ...]
+python superimposition/trim_superimposeLSQ.py [--all-vs-all] [--filter=set_a] dir1 [dir2 ...]
 ```
 
 Examples:
 
 ```bash
-python FoldKit/trim_superimposeLSQ.py --trim --all-vs-all --filter=set_a,set_b models/
-python FoldKit/trim_superimposeLSQ.py --all-vs-all models/
-python FoldKit/trim_superimposeLSQ.py --trim dir1 dir2
-python FoldKit/trim_models.py --filter=set_a dir1
-python FoldKit/trim_superimposeLSQ.py --trim-only --filter=set_a dir1
+python superimposition/trim_superimposeLSQ.py --trim --all-vs-all --filter=set_a,set_b models/
+python superimposition/trim_superimposeLSQ.py --all-vs-all models/
+python superimposition/trim_superimposeLSQ.py --trim dir1 dir2
+python file_management/trim_models.py --filter=set_a dir1
+python superimposition/trim_superimposeLSQ.py --trim-only --filter=set_a dir1
 ```
 
 Options: `--trim`, `--trim-only` (implies `--trim`; incompatible with `--all-vs-all`), `--all-vs-all`, `--filter=set_a[,set_b,...]` (comma-separated substrings)
@@ -339,28 +339,34 @@ Output: With trimming, creates `trimmed_set_a/`, `trimmed_set_b/` (or `trimmed_a
 
 ### `run_all_superpositions.py`
 
-Batch driver for `**superimpose_coot_LSQ.py --pattern**`: loops over **conditions** (subfolders under each base, e.g. `condition_1`) and **tags** (same role as `--filter=set_a` in SSM/LSQ). Expects `refs_base/<condition>/<REFERENCE_SUBDIR>/` for reference PDBs (default subdir `LSQaligned2_reference_m0` in the script) and `models_base/<condition>/*_fl_<set>*` for models. The script passes `**--pattern`**, `**--divider=LSQ_**`, and globs derived from `**CONDITION_PREFIX**` (e.g. `run1_sd_set_a` vs `run1_sd_reference`); edit `**CONDITION_PREFIX**`, `**REFERENCE_SUBDIR**`, `**REFERENCE_STEM**`, and `**TAGS**` in the script to match your layout.
+Batch driver for **`superimpose_coot_LSQ.py --pattern`**: loops over **conditions** (subfolders under each base, e.g. `condition_1`) and **tags** (same role as `--filter=set_a` in SSM/LSQ). Expects `refs_base/<condition>/<REFERENCE_SUBDIR>/` for reference PDBs (default subdir `LSQaligned2_reference_m0` in the script) and `models_base/<condition>/*_fl_<set>*` for models. The script passes **`--pattern`**, **`--divider=LSQ_`**, and globs derived from **`CONDITION_PREFIX`** (e.g. `run1_sd_set_a` vs `run1_sd_reference`); edit **`CONDITION_PREFIX`**, **`REFERENCE_SUBDIR`**, **`REFERENCE_STEM`**, and **`TAGS`** in the script to match your layout.
 
 ```bash
-python FoldKit/run_all_superpositions.py --tags set_a set_b \
-  --ref-base /path/to/refs --models-base /path/to/models
+python superimposition/run_all_superpositions.py --tags set_a set_b \
+  --ref-base /path/to/project/refs --models-base /path/to/project/models
 
 # Subset of conditions (default: all keys in CONDITION_PREFIX)
-python FoldKit/run_all_superpositions.py --tags set_a --conditions condition_1 condition_2 \
-  --ref-base /path/to/refs --models-base /path/to/models
+python superimposition/run_all_superpositions.py --tags set_a --conditions condition_1 condition_2 \
+  --ref-base /path/to/project/refs --models-base /path/to/project/models
 ```
 
 Options: `--tags` (required unless `TAGS` is set in the script), `--conditions`, `--ref-base`, `--models-base`.
 
 ### `dalilite_superpose_scores.py`
 
-Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target on query frame) plus CSV / Z-matrix / Newick tree. Requires DaliLite and **mkdssp** (same constraints as `dali_score.py`; see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)).
+Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target on query frame), pairwise or merged CSV, optional Z-matrix CSV, Newick tree, optional dendrogram image, and an optional **Z-score heatmap** (matplotlib; same layout and colour-bar conventions as `rmsd_to_csv.py`). Requires DaliLite and **mkdssp** (same constraints as `dali_score.py`; see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)). In **all-vs-all** mode, structure files are taken from the **root of each given directory only** unless **`--recursive`** is set (then subfolders are included, matching the **default** directory scan in `dali_score.py`; that script can match root-only behaviour with **`--root-only-dirs`**).
 
-**Optional run summary log:** most scripts accept `--log [FILE]` to write a short summary of tasks and errors (no stdout/stderr tee). For DaliLite workflows, the main outputs are the CSV/tree/superposed PDBs; logging is optional and summary-only.
+**Optional run summary log:** most scripts accept `--log [FILE]` to write a short summary of tasks and errors (no stdout/stderr tee). Logging is optional and summary-only.
+
+**Heatmap (`--heatmap PATH`):** writes a square figure from pairwise Dali Z (colour bar label **Dali Z**). The file extension selects **PNG**, **PDF**, or **SVG**. Options aligned with `rmsd_to_csv.py` include `--heatmap-title`, `--cmap`, `--vmin`, `--vmax`, `--short-heatmap-labels`, `--heatmap-diverging-center` (`none` or `median`), `--heatmap-colorbar-orientation` (`vertical` or `horizontal`), and `--heatmap-y-axis-right`. Autoscale and median use **all finite off-diagonal** Z values (not RMSD-style “positive only”). All-vs-all produces the full matrix; pairwise mode produces a 2×2 plot.
 
 ```bash
-python FoldKit/dalilite_superpose_scores.py model_01.pdb model_02.pdb -d ./out \
-  --dalilite-path /path/to/DaliLite
+python ranking/dalilite_superpose_scores.py /path/to/project/models/model_01.pdb /path/to/project/models/model_02.pdb \
+  -d /path/to/project/out --dalilite-path /path/to/DaliLite
+
+python ranking/dalilite_superpose_scores.py --all-vs-all /path/to/project/models/ /path/to/project/models/ \
+  -d /path/to/project/dali_run1/ --filter '*.pdb' --dalilite-path /path/to/DaliLite \
+  --heatmap /path/to/project/dali_run1/z_scores.svg --heatmap-diverging-center median --cmap RdYlBu_r
 ```
 
 ### `open_models_in_coot.py`
@@ -368,17 +374,17 @@ python FoldKit/dalilite_superpose_scores.py model_01.pdb model_02.pdb -d ./out \
 Opens PDB/mmCIF in Coot with C-alpha representation. **Directory mode:** pass one or more directories (top-level `*.pdb`, `*.cif`, `*.mmcif`); optional `--filter SUBSTRING` on basename. **Pattern mode:** pass glob patterns, with optional directories to search (recursive).
 
 ```bash
-python FoldKit/open_models_in_coot.py [--filter SUBSTRING] dir1 [dir2 ...]
-python FoldKit/open_models_in_coot.py pattern [pattern ...] [dir1] [dir2 ...]
+python superimposition/open_models_in_coot.py [--filter SUBSTRING] dir1 [dir2 ...]
+python superimposition/open_models_in_coot.py pattern [pattern ...] [dir1] [dir2 ...]
 ```
 
 Examples:
 
 ```bash
-python FoldKit/open_models_in_coot.py models/
-python FoldKit/open_models_in_coot.py --filter set_a dir1 dir2
-python FoldKit/open_models_in_coot.py '*set_a*LSQaligned2*ref*pdb'
-python FoldKit/open_models_in_coot.py '*model_*.cif' models/
+python superimposition/open_models_in_coot.py models/
+python superimposition/open_models_in_coot.py --filter set_a dir1 dir2
+python superimposition/open_models_in_coot.py '*set_a*LSQaligned2*ref*pdb'
+python superimposition/open_models_in_coot.py '*model_*.cif' models/
 ```
 
 #### References (superimposition)
@@ -391,14 +397,14 @@ python FoldKit/open_models_in_coot.py '*model_*.cif' models/
 
 ## Ranking, scoring, phylogeny, and graphical outputs
 
-Turn superposition logs or similarity tables into **tables, heatmaps, rankings, and trees** (Newick, PDF/PNG plots where supported).
+Scripts here convert superposition logs or similarity tables into **tables, heatmaps, rankings, and trees** (Newick, and PDF, PNG, or SVG figures where supported).
 
 ### `extract_rmsd.py`
 
-Extracts RMSD blocks from Coot logs. **LSQ** logs use “Aligning … to …” (optional `--aligned` / `--reference` filters). **SSM** logs use “Superposing … onto …”. Use `--format lsq`, `--format ssm`, or `**--format auto`** (default) to detect from the log.
+Extracts RMSD blocks from Coot logs. **LSQ** logs use “Aligning … to …” (optional `--aligned` / `--reference` filters). **SSM** logs use “Superposing … onto …”. Use `--format lsq`, `--format ssm`, or `--format auto` (default) to detect from the log.
 
 ```bash
-python FoldKit/extract_rmsd.py path/to/coot_log.txt [--format auto|lsq|ssm] [LSQ options]
+python ranking/extract_rmsd.py /path/to/project/coot_log.txt [--format auto|lsq|ssm] [LSQ options]
 ```
 
 LSQ-only options: `--aligned`, `-a`; `--reference`, `-r`; `--case-sensitive`, `-c`; `--debug`, `-d`.
@@ -406,11 +412,11 @@ LSQ-only options: `--aligned`, `-a`; `--reference`, `-r`; `--case-sensitive`, `-
 Examples:
 
 ```bash
-python FoldKit/extract_rmsd.py LSQaligned2_ref/coot_log.txt --format lsq
-python FoldKit/extract_rmsd.py SSMaligned2_ref/coot_log.txt --format ssm
-python FoldKit/extract_rmsd.py coot_log.txt   # auto: picks SSM vs LSQ from log content
-python FoldKit/extract_rmsd.py coot_log.txt --aligned=set_a --reference=ref_01 --format lsq
-python FoldKit/extract_rmsd.py coot_log.txt --debug --format lsq
+python ranking/extract_rmsd.py /path/to/project/LSQaligned2_ref/coot_log.txt --format lsq
+python ranking/extract_rmsd.py /path/to/project/SSMaligned2_ref/coot_log.txt --format ssm
+python ranking/extract_rmsd.py /path/to/project/coot_log.txt   # auto: picks SSM vs LSQ from log content
+python ranking/extract_rmsd.py /path/to/project/coot_log.txt --aligned=set_a --reference=ref_01 --format lsq
+python ranking/extract_rmsd.py /path/to/project/coot_log.txt --debug --format lsq
 ```
 
 Output: `rmsd_values*.txt` (LSQ) or `rmsd_SSM_values*.txt` (SSM).
@@ -419,28 +425,28 @@ Output: `rmsd_values*.txt` (LSQ) or `rmsd_SSM_values*.txt` (SSM).
 
 ```bash
 # File mode: single log with optional explicit output path
-python FoldKit/extract_rmsd.py file SSMaligned2_ref/coot_log.txt
-python FoldKit/extract_rmsd.py file SSMaligned2_ref/coot_log.txt -o /path/to/rmsd_output.txt
+python ranking/extract_rmsd.py file /path/to/project/SSMaligned2_ref/coot_log.txt
+python ranking/extract_rmsd.py file /path/to/project/SSMaligned2_ref/coot_log.txt -o /path/to/project/rmsd_output.txt
 
-# Dir mode: sweep all Coot logs under a base directory
-python FoldKit/extract_rmsd.py dir /path/to/base_dir
-python FoldKit/extract_rmsd.py dir /path/to/base_dir -o /path/to/rmsd_output_dir
+# Directory scan: sweep all Coot logs under a base directory (--dir=DIR or --dir DIR)
+python ranking/extract_rmsd.py --dir=/path/to/project/run1 --format ssm
+python ranking/extract_rmsd.py --dir /path/to/project/run1 -o /path/to/project/rmsd_output_dir
 ```
 
 - **Single-log mode (default)**: same as before; pick SSM vs LSQ automatically or via `--format`, with LSQ filters (`--aligned`, `--reference`, `--case-sensitive`, `--debug`), writing standard `rmsd_SSM_values*.txt` / `rmsd_values*.txt` next to the log.
-- `**file` / `dir` modes**: convenience wrappers around the same extractors, optionally mirroring results into a separate output root while keeping one invocation for many logs.
+- **`file` keyword** (optional) and **`--dir`**: same extractors; optional `file` disambiguates a log literally named `file`. **`--dir`** scans recursively; **`-o`** with **`--dir`** sets a mirror root for outputs.
 
 ### `create_rmsd_heatmap.R`
 
 Creates heatmap PDFs from RMSD tables.
 
 ```bash
-Rscript FoldKit/create_rmsd_heatmap.R base_directory
-Rscript FoldKit/create_rmsd_heatmap.R base_directory viridis
-Rscript FoldKit/create_rmsd_heatmap.R base_directory YlOrRd
+Rscript ranking/create_rmsd_heatmap.R /path/to/project/base_directory
+Rscript ranking/create_rmsd_heatmap.R /path/to/project/base_directory viridis
+Rscript ranking/create_rmsd_heatmap.R /path/to/project/base_directory YlOrRd
 ```
 
-Usage: `Rscript FoldKit/create_rmsd_heatmap.R <base_directory> [palette]`  
+Usage: `Rscript ranking/create_rmsd_heatmap.R <base_directory> [palette]` (use a directory that contains the RMSD tables this script expects).  
 Palette: RdYlBu (default), RdYlGn, YlOrRd, viridis, plasma, etc. (RColorBrewer or viridis options)
 
 Requirements: R with viridis, pheatmap, RColorBrewer
@@ -449,96 +455,95 @@ Output: `rmsd_heatmap_[subdomain].pdf`, `combined_rmsd_heatmap.pdf`, `combined_r
 
 ### `rmsd_to_csv.py`
 
-Converts pairwise RMSD inputs (all-vs-all SSM/LSQ text, or an existing square RMSD CSV) to a square CSV table. Optional matplotlib heatmap (no R).
+Converts pairwise RMSD inputs (all-vs-all SSM or LSQ text, or an existing square RMSD CSV) to a square CSV table. Optional **matplotlib** heatmaps require no R.
 
 #### Single-file mode (default)
 
-Pass **one path** as `INPUT` (do **not** use `--scan-dir`). Use this when you have a **single** Coot / `extract_rmsd` log (or an RMSD table you want to reformat).
+Pass a single path as `INPUT`; do not use `--scan-dir`. Suitable for one Coot or `extract_rmsd` log, or one RMSD table to reformat.
 
-What it does:
+1. **Read and detect format** — LSQ-style text (`Alignment: Aligning A to B` plus a `core rmsd` line), SSM-style text (`Superposing` / `Aligning` plus `core rmsd`), or a square CSV with a `Model` column and one column per structure (same rules as `structure_phylogeny.py`).
+2. **Build one symmetric matrix** — All structure names from pairwise lines are collected; missing pairs remain empty. Row and column order default to a natural sort unless ordering options override it.
+3. **Write one CSV** — Square table: column `Model`, then one column per structure, diagonal `-`, off-diagonals RMSD in Å (four decimal places). Default output is `rmsd_table_<suffix>.csv` beside the input (`rmsd_values_run1.txt` → `run1`; generic names fall back to `rmsd`). Use `-o` / `--output` for an explicit path.
+4. **Optional heatmap** — `--plot PATH` writes one figure; the extension selects **PNG**, **PDF**, or **SVG**. Use `--title`, `--cmap`, `--vmin`, `--vmax`, and the options in [Heatmap colours](#heatmap-colours).
+5. **Optional row/column order** — `--order` (comma-separated list or path to one label per line) or `--order-dir` with `--order-glob` (recursive scan of PDB/mmCIF stems) reorders the matrix before the CSV and plot. Labels must match names in the RMSD file.
 
-1. **Read and detect format** — The file may be **LSQ-style** text (`Alignment: Aligning A to B` plus a `core rmsd` line), **SSM-style** text (`Superposing` / `Aligning` plus `core rmsd`), or an existing **square CSV** with a `Model` column and one column per structure (as produced by this script). The same detection rules as `**structure_phylogeny.py`** apply.
-2. **Build one symmetric matrix** — All structure names that appear in pairwise lines are collected; missing pairs stay empty in the table. Row and column order defaults to a **natural sort** of names (unless you override with ordering options).
-3. **Write one CSV** — Output is a **square table**: first column `**Model`**, then one column per structure, **diagonal** cells `**-`**, off-diagonals **RMSD in Å** (four decimal places). Default path is `**rmsd_table_<suffix>.csv` next to the input file** (`<suffix>` is derived from names like `rmsd_values_run1.txt` → `run1`; generic names fall back to `rmsd`). Use `**-o` / `--output`** to set the path explicitly.
-4. **Optional heatmap** — `**--plot PATH`** writes **one** figure (PNG, PDF, or SVG) for that matrix. Tuning: `**--title`**, `**--cmap**`, `**--vmin` / `--vmax**`.
-5. **Optional row/column order** — `**--order`** (comma-separated or file of labels) or `**--order-dir**` + `**--order-glob**` (scan PDB/mmCIF stems under a tree) reorder the matrix before writing CSV and plot. Labels must match the names embedded in the RMSD log.
-
-For a **neighbour-joining tree** from this one file, run `**structure_phylogeny.py`** on the same log or on the CSV you just wrote.
+For a neighbour-joining tree from one file, run `structure_phylogeny.py` on the same log or on the written CSV.
 
 #### Heatmap colours
 
-All **matplotlib** heatmaps from this script share the same colour controls: single-file `**--plot`**, batch `**--heatmap-dir**` (per-log and `**combined_rmsd_heatmap.png**`), and `**--combined-heatmap**`.
+Heatmaps share the following controls for `--plot`, for figures under `--heatmap-dir`, and for `--combined-heatmap`.
 
+| Option | Meaning |
+| ------ | ------- |
+| `--cmap` | Matplotlib colour map (`cmap`). Default `viridis_r`. Other registered maps include `plasma_r`, `inferno_r`, `RdYlBu_r`, `coolwarm`, `YlOrRd`. |
+| `--vmin`, `--vmax` | Colour scale limits in Å. If omitted: square matrices use positive off-diagonal RMSDs only; the combined heatmap uses positive finite values in the merged matrix. |
+| `--short-heatmap-labels` | Shortens axis labels on figures only; CSV data unchanged. On the combined heatmap, row ticks use the shortened model name when this flag is set. |
+| `--heatmap-diverging-center` | `none` (default): linear normalisation. `median`: `TwoSlopeNorm` with the centre at the median RMSD (suited to diverging maps). In batch mode, the median is taken from the merged CSV when that file is written; with `--no-combined`, each subdomain matrix uses its own median. |
+| `--heatmap-colorbar-orientation` | `vertical` (default) or `horizontal` (colour bar below the matrix). |
+| `--heatmap-y-axis-right` | Row labels on the right. With a vertical colour bar, the bar is drawn on the left to avoid overlap. |
+| Missing / diagonal | No value, same-structure diagonal, or combined-table gaps map to white (below the scale). The colour bar is a plain rectangle (no triangular extension). Tick values in Å are chosen for both linear and median-centred scales. |
 
-| Option                     | Meaning                                                                                                                                                                                                                                                                                       |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `**--cmap**`               | Matplotlib colour map name (`cmap`). **Default: `viridis_r`** (reversed viridis). Other useful choices: `**plasma_r**`, `**inferno_r**`, `**RdYlBu_r**`, `**coolwarm**`, `**YlOrRd**` — any registered matplotlib colour map; reversed variants often put emphasis on low vs high RMSD the way you expect. |
-| `**--vmin**`, `**--vmax**` | Colour scale limits in **Å**. If omitted, limits are set from the data: for **square** matrices, from **positive off-diagonal** RMSDs only (so diagonal zeros do not compress the scale). For the **combined** heatmap, from positive finite RMSD cells in the merged matrix.                 |
-| **Missing / diagonal**     | Cells with no value, diagonal “same structure”, or combined-table gaps are shown as **white** (mapped *below* the colour scale).                                                                                                                                                              |
+**Figure format (single file):** set the extension on `--plot` (`.png`, `.pdf`, or `.svg`). PNG is often the most robust on headless systems.
 
+**Batch figure format:** `--heatmap-format` selects `png`, `pdf`, or `svg` for auto-named outputs under `--heatmap-dir` (default **svg**). The file extension on `--combined-heatmap`, when present, selects the format for that path. SVG and PDF heatmaps use vector cells with an embedded raster colour bar; PNG uses a raster matrix. Paths may use `~`; they are expanded to absolute paths internally.
 
-**Figure format** is chosen from the output path extension (`**.png`**, `**.pdf**`, `**.svg**`); **PNG** is usually the most reliable on headless servers. `**--title`** sets the heatmap title (batch mode appends the subdomain suffix on per-file plots and adds “(combined)” on the merged figure when using the default title pattern).
+`--title` sets the heatmap title. Batch mode appends the subdomain suffix on per-file plots and “(combined)” on the merged figure when using the default title pattern.
 
 #### Batch mode (`--scan-dir`)
 
-Batch mode is for projects where **each subdirectory (or nested path) holds its own Coot / extract RMSD log**, and you want **one spreadsheet that lists every subdomain’s pairwise RMSDs together**, plus the usual **per-subdomain square tables** on disk.
+For a directory tree of RMSD logs where each match produces its own square CSV and optionally one merged wide table.
 
-What it does, step by step:
+1. **Recursive search** — Under `--scan-dir`, every file matching `--scan-glob` is collected (default `rmsd_values_*.txt` for LSQ logs; use `rmsd_SSM_values*.txt` for SSM logs).
+2. **One square CSV per match** — Each file is parsed and written as `rmsd_table_<suffix>.csv` in the same directory. The suffix is the subdomain label for that block in the combined table.
+3. **Combined table** — Unless `--no-combined` is set, `combined_rmsd_table.csv` is written (default: `<scan-dir>/combined_rmsd_table.csv`, or `--combined-csv`). Rows are sorted by `Subdomain` then `Model` (natural sort), unless `--combined-subdomain-order` fixes block order (comma-separated tokens or a file of tokens; each token matches a subdomain label with an underscore boundary, e.g. `D1` matches `…_D1s` but not `…_D10s`; unmatched subdomains follow in natural order). Structure columns follow the merged row order (first-seen model order, then any remaining names). Cells are empty where a subdomain has no value for that column.
 
-1. **Recursive search** — Starting at the directory you pass to `--scan-dir`, the script walks **all subdirectories** and collects every file whose name matches `**--scan-glob`** (default: `rmsd_values_*.txt`, i.e. LSQ-style logs such as `rmsd_values_Nterm.txt`, not a single literal `rmsd_values.txt` unless you rename or change the glob). Use `rmsd_SSM_values*.txt` for SSM logs.
-2. **One square CSV per source file** — For each matched file, it parses pairwise RMSDs (same formats as single-file mode), then writes `**rmsd_table_<suffix>.csv` in the same folder as that file**. The `**<suffix>`** is taken from the log name: e.g. `.../domain_A/rmsd_values_domain_A.txt` → `rmsd_table_domain_A.csv`. That suffix is your **group label** for that file’s block of rows in the combined table.
-3. **Combined table** — Unless you pass `**--no-combined`**, it also writes `**combined_rmsd_table.csv**` (default location: the top-level `**--scan-dir**` folder, or `**--combined-csv**` if you set it). This file is **one long table**, not a separate small matrix per folder:
-  - **Rows** are sorted by `**Subdomain`** then `**Model**` (natural sort). Within each subdomain, model order follows that subdomain’s square table (after any `**--order**` / `**--order-dir**` applied during the batch run).
-  - **Structure columns** (between `Model` and `Subdomain`) use the **same order as rows**: each structure name appears as a column the first time it appears as a `**Model`** in that sorted row list; any name that only appears as a column elsewhere is appended at the end (natural sort). So the combined heatmap’s **x-axis order matches the sequence of distinct row models** down the sorted table (like a square matrix extended with subdomain blocks).
-  - Cells are **empty** where a given subdomain has no RMSD for that column (e.g. another subdomain’s models).
+If two logs in different directories share the same basename, they receive the same `Subdomain` string; use distinct log names when groups must stay separate.
 
-Checks **for RMSD log files across a directory tree**, turns **each** into its own CSV, and **merges all of them into one wide table**, **grouped in the sense of a** `Subdomain` **tag per row** (from the filename), not by filesystem folder alone. If two logs in different folders share the same basename, they get the **same** `Subdomain` string—use distinct `rmsd_values_<unique>.txt` names if you need distinct groups.
+**Row/column order in batch** — `--order`, `--order-dir`, and `--order-glob` apply to every matched log, with the same semantics as single-file mode (`reorder_matrix` skips missing labels per file, then appends the rest).
 
-**Row/column order in batch** — The same `**--order`** and `**--order-dir` / `--order-glob**` options as single-file mode are applied **to every matched RMSD log** before writing that log’s CSV and heatmap. `**--order`**: the same explicit list (or file of labels) is reused for each file; only labels that appear in that log’s matrix are ordered first, then any remaining names (same rule as single-file). `**--order-dir**`: the same directory + glob is scanned once; the resulting label order is applied to **each** log—useful when all logs use the same model names and your PDBs live under one tree (e.g. project root). If different subdomains use different model sets, ordering still runs per file; missing labels in a given log are simply skipped by `reorder_matrix`, then appended.
+**Heatmaps in batch** — With `--heatmap-dir`, the script writes `rmsd_heatmap_<suffix>.<fmt>` for each log and, by default, `combined_rmsd_heatmap.<fmt>` from the merged CSV (`<fmt>` from `--heatmap-format`). Use `--no-combined-heatmap` to skip the combined figure. Use `--combined-heatmap /path/to/project/figs/combined_rmsd_heatmap.svg` (or `.png` / `.pdf`) to set the combined path explicitly; that option can be used without `--heatmap-dir` to emit only the combined figure. Batch mode does not use `--plot`.
 
-**Heatmaps in batch** — `**--heatmap-dir`** writes one matplotlib PNG per matched log (`rmsd_heatmap_<suffix>.png`) and, when the merged table is written (default), also `**combined_rmsd_heatmap.png**` in the same directory: **row and column order match the merged CSV** (rows `Subdomain | Model` in sorted order; columns the same structure order as the CSV header). Empty or diagonal cells are white; colour scale matches `**--cmap`**, `**--vmin**`, `**--vmax**` like the per-file plots. Use `**--no-combined-heatmap**` if you only want per-log PNGs. Use `**--combined-heatmap /path/to/out.png**` to set the combined figure path explicitly (you can use this **without** `**--heatmap-dir`** to generate **only** the combined image). Batch mode does not use `**--plot`** (that remains single-file only).
+Unless `--no-shared-heatmap-scale` is set, per-subdomain heatmaps use the same vmin/vmax as the merged table (or combined limits when the merged file is absent). `--vmin` / `--vmax` still bound the scale when supplied.
 
 ```bash
-python FoldKit/rmsd_to_csv.py rmsd_SSM_values.txt
-python FoldKit/rmsd_to_csv.py rmsd_values.txt -o rmsd_table.csv
-python FoldKit/rmsd_to_csv.py rmsd_SSM_values.txt --plot heatmap.pdf --order model_01,model_02,model_03
-python FoldKit/rmsd_to_csv.py rmsd_SSM_values.txt --plot heatmap.pdf --cmap RdYlBu_r
-python FoldKit/rmsd_to_csv.py rmsd_values.txt --plot heatmap.png --vmin 0 --vmax 5
+python ranking/rmsd_to_csv.py /path/to/project/rmsd_SSM_values.txt
+python ranking/rmsd_to_csv.py /path/to/project/rmsd_values.txt -o /path/to/project/rmsd_table.csv
+python ranking/rmsd_to_csv.py /path/to/project/rmsd_SSM_values.txt --plot /path/to/project/heatmap.svg --order model_01,model_02,model_03
+python ranking/rmsd_to_csv.py /path/to/project/rmsd_SSM_values.txt --plot /path/to/project/heatmap.pdf --cmap RdYlBu_r --heatmap-diverging-center median
+python ranking/rmsd_to_csv.py /path/to/project/rmsd_values.txt --plot /path/to/project/heatmap.png --vmin 0 --vmax 5
 
-# Row/column order from a directory (recursive); each label is the file stem and must match the RMSD file
-python FoldKit/rmsd_to_csv.py rmsd_values.txt --order-dir /path/to/root --order-glob 'model_*.pdb'
-python FoldKit/rmsd_to_csv.py rmsd_values.txt --order-dir /path/to/root   # glob defaults to *.pdb
+python ranking/rmsd_to_csv.py /path/to/project/rmsd_values.txt --order-dir /path/to/project/models --order-glob 'model_*.pdb'
+python ranking/rmsd_to_csv.py /path/to/project/rmsd_values.txt --order-dir /path/to/project/models
 
-# Batch: default glob rmsd_values_*.txt; optional heatmaps; optional --scan-glob for SSM logs
-python FoldKit/rmsd_to_csv.py --scan-dir SSMaligned_all_vs_all/
-python FoldKit/rmsd_to_csv.py --scan-dir /path/to/base --scan-glob 'rmsd_SSM_values*.txt'
-python FoldKit/rmsd_to_csv.py --scan-dir /path/to/base --heatmap-dir /path/to/figs --combined-csv /path/to/combined_rmsd_table.csv
-python FoldKit/rmsd_to_csv.py --scan-dir /path/to/base --no-combined
+python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/
+python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --scan-glob 'rmsd_SSM_values*.txt'
+python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --heatmap-dir /path/to/project/figs --heatmap-format png --combined-csv /path/to/project/combined_rmsd_table.csv
+python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --heatmap-dir /path/to/project/figs --combined-subdomain-order 'token_1,token_2,token_3'
+python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --no-combined
 
-# Batch with same row/column order for every log (PDB stems under /path/to/models)
-python FoldKit/rmsd_to_csv.py --scan-dir /path/to/base --order-dir /path/to/models --order-glob 'model_*.pdb'
+python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --order-dir /path/to/project/models --order-glob 'model_*.pdb'
 ```
 
-**Single-file options:** `-o` / `--output`; `--plot PATH`; `--title`; `**--cmap`**, `**--vmin**`, `**--vmax**` (see [Heatmap colours](#heatmap-colours)); `--order` / `--order-dir` / `--order-glob`.
+**Single-file options:** `-o` / `--output`; `--plot`; `--title`; `--cmap`, `--vmin`, `--vmax`; `--short-heatmap-labels`; `--heatmap-diverging-center`; `--heatmap-colorbar-orientation`; `--heatmap-y-axis-right`; `--order` / `--order-dir` / `--order-glob` (see [Heatmap colours](#heatmap-colours)).
 
-**Batch (`--scan-dir`) options:** `--scan-glob` (default `rmsd_values_*.txt`); `--combined-csv` (default `<scan-dir>/combined_rmsd_table.csv`); `--no-combined`; `--heatmap-dir` (per-log PNGs + default combined PNG; use instead of `--plot`); `--combined-heatmap` (optional path for the merged-table heatmap); `--no-combined-heatmap` (skip combined PNG when using `--heatmap-dir`). `**--cmap`**, `**--vmin**`, `**--vmax**`, `**--title**` apply to all batch heatmaps (see [Heatmap colours](#heatmap-colours)). `**--order**`, `**--order-dir**`, and `**--order-glob**` apply to **each** matched log (see “Row/column order in batch” above). For a structure tree from **one** RMSD file, use `**structure_phylogeny.py`** on that log or CSV after conversion.
+**Batch (`--scan-dir`) options:** `--scan-glob`; `--combined-csv`; `--no-combined`; `--combined-subdomain-order`; `--heatmap-dir`; `--heatmap-format`; `--combined-heatmap`; `--no-combined-heatmap`; `--no-shared-heatmap-scale`; `--cmap`, `--vmin`, `--vmax`, `--title`; `--short-heatmap-labels`; `--heatmap-diverging-center`; `--heatmap-colorbar-orientation`; `--heatmap-y-axis-right`; `--order` / `--order-dir` / `--order-glob`. For a tree from one RMSD input, run `structure_phylogeny.py` on that log or CSV after conversion.
 
 ### `structure_phylogeny.py`
 
 Structure-based phylogenetic tree from pairwise RMSD (Coot LSQ/SSM or CSV). Uses neighbour-joining; midpoint or outgroup rooting. Optionally computes distances from PDBs via TM-align.
 
 ```bash
-python FoldKit/structure_phylogeny.py rmsd_values.txt -o structure_tree.nwk
-python FoldKit/structure_phylogeny.py rmsd_values.txt -o tree.nwk --plot tree.pdf
+python ranking/structure_phylogeny.py /path/to/project/rmsd_values.txt -o /path/to/project/structure_tree.nwk
+python ranking/structure_phylogeny.py /path/to/project/rmsd_values.txt -o /path/to/project/tree.nwk --plot /path/to/project/tree.pdf
 
 # Root on outgroup
-python FoldKit/structure_phylogeny.py rmsd_values.txt -o tree.nwk --root "outgroup"
+python ranking/structure_phylogeny.py /path/to/project/rmsd_values.txt -o /path/to/project/tree.nwk --root "outgroup"
 
 # Unrooted tree
-python FoldKit/structure_phylogeny.py rmsd_values.txt -o tree.nwk --unrooted --plot tree.pdf
+python ranking/structure_phylogeny.py /path/to/project/rmsd_values.txt -o /path/to/project/tree.nwk --unrooted --plot /path/to/project/tree.pdf
 
 # Compute distances from PDBs (TM-align required)
-python FoldKit/structure_phylogeny.py --from-pdb /path/to/models -o tree.nwk --plot tree.pdf
+python ranking/structure_phylogeny.py --from-pdb /path/to/project/models -o /path/to/project/tree.nwk --plot /path/to/project/tree.pdf
 ```
 
 Options: `-o`, `--output`; `--plot PATH`; `--root LABEL`; `--unrooted`; `--from-pdb [DIR]`; `--format auto|lsq_txt|ssm_txt|csv`
@@ -555,14 +560,14 @@ Enable it with `--pseudo-z per_query`. Internally the mode does: RMSD → simila
 
 ```bash
 # Default pseudo-Z settings (similarity = exp(-RMSD/tau), zdist = inv, tau = 2.0)
-python FoldKit/structure_phylogeny.py rmsd_values.txt -o dali_like_tree.nwk --pseudo-z per_query
+python ranking/structure_phylogeny.py rmsd_values.txt -o dali_like_tree.nwk --pseudo-z per_query
 
 # Tune similarity kernel and z→distance transform
-python FoldKit/structure_phylogeny.py rmsd_values.txt -o dali_like_tree.nwk --pseudo-z per_query \
+python ranking/structure_phylogeny.py rmsd_values.txt -o dali_like_tree.nwk --pseudo-z per_query \
   --similarity exp --tau 2.5 --zdist exp --zscale 1.0
 
 # Also write the per-query pseudo-Z ranking table
-python FoldKit/structure_phylogeny.py rmsd_values.txt -o dali_like_tree.nwk --pseudo-z per_query \
+python ranking/structure_phylogeny.py rmsd_values.txt -o dali_like_tree.nwk --pseudo-z per_query \
   --ranking-csv dali_like_ranking.csv
 ```
 
@@ -575,7 +580,7 @@ Related options:
 
 ### `dali_phylogeny.py`
 
-If you already have pairwise DALI Z-scores (for example from DaliLite or `dali_score.py`), `dali_phylogeny.py` can rank structures, convert Z to distances, and build a Newick tree.
+If you already have pairwise Dali Z-scores (for example from DaliLite or `dali_score.py`), `dali_phylogeny.py` can rank structures, convert Z to distances, and build a Newick tree.
 
 Input format: a delimited text table (TSV/CSV/space-delimited) with 3 fields per row:  
 `model_01  model_02  zscore`
@@ -584,13 +589,13 @@ Comment lines starting with `#` are ignored.
 
 ```bash
 # Basic usage
-python FoldKit/dali_phylogeny.py pairwise_zscores.tsv -o dali_tree.nwk
+python ranking/dali_phylogeny.py pairwise_zscores.tsv -o dali_tree.nwk
 
 # Write ranking CSV
-python FoldKit/dali_phylogeny.py pairwise_zscores.tsv -o dali_tree.nwk --output-ranking dali_ranking.csv
+python ranking/dali_phylogeny.py pairwise_zscores.tsv -o dali_tree.nwk --output-ranking dali_ranking.csv
 
 # Choose how to convert Z → distance
-python FoldKit/dali_phylogeny.py pairwise_zscores.tsv -o dali_tree.nwk --transform exp --exp-scale 10.0
+python ranking/dali_phylogeny.py pairwise_zscores.tsv -o dali_tree.nwk --transform exp --exp-scale 10.0
 ```
 
 Options:
@@ -607,25 +612,30 @@ Options:
 
 Computes Dali-equivalent structural similarity scores from two or more structures. It can optionally run **DaliLite** locally (if the user specifies its path) or use biotite/alignment file for residue equivalences. Supports pairwise and all-vs-all modes with tree/dendrogram output.
 
-With DaliLite, the script runs `**import.pl`** then `**dali.pl --cd1/--cd2**` from a short temporary work directory (not bare `--pdbfile1/--pdbfile2`). `**import.pl` requires `mkdssp**` at the path set in DaliLite’s `**bin/mpidali.pm**` (`$DSSP_EXE`; symlink your site’s `mkdssp` there if the default path is wrong). Set `**DALILITE_HOME**` or `**--dalilite-path**` to the DaliLite root. Optional `**MKDSSP**` can point to your `mkdssp` binary for clearer error messages.
+With DaliLite, the script runs `import.pl` then `dali.pl --cd1/--cd2` from a short temporary work directory (not bare `--pdbfile1/--pdbfile2`). `import.pl` requires `mkdssp` at the path set in DaliLite’s `bin/mpidali.pm` (`$DSSP_EXE`; symlink your site’s `mkdssp` there if the default path is wrong). Set `DALILITE_HOME` or `--dalilite-path` to the DaliLite root. Optional `MKDSSP` can point to your `mkdssp` binary for clearer error messages.
 
 **Pairwise:**
 
 ```bash
-python FoldKit/dali_score.py model_01.pdb model_02.pdb -o result.csv
+python ranking/dali_score.py /path/to/project/model_01.pdb /path/to/project/model_02.pdb \
+  -o /path/to/project/result.csv
 # With DaliLite (canonical Z-score): set DALILITE_HOME or --dalilite-path
 export DALILITE_HOME=/path/to/DaliLite
-python FoldKit/dali_score.py model_01.pdb model_02.pdb
+python ranking/dali_score.py /path/to/project/model_01.pdb /path/to/project/model_02.pdb
 ```
 
 **All-vs-all with tree:**
 
 ```bash
-python FoldKit/dali_score.py --all-vs-all models_dir/ -o pairs.csv \
-  --output-tree dali_tree.nwk --output-plot dendrogram.png --output-ranking ranking.csv
+python ranking/dali_score.py --all-vs-all /path/to/project/models/ -o /path/to/project/pairs.csv \
+  --output-tree /path/to/project/dali_tree.nwk \
+  --output-plot /path/to/project/dendrogram.png \
+  --output-ranking /path/to/project/ranking.csv
 ```
 
-Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob on basename for directory inputs); tree: `--output-tree`, `--output-plot`, `--output-matrix`, `--transform`, `--root`. **Optional summary log:** `--log [FILE]`.
+**All-vs-all directory scan:** by default, each directory argument is searched **recursively** for `*.pdb`, `*.cif`, and `*.ent`. Pass **`--root-only-dirs`** to use only the **top level** of each directory (aligned with `dalilite_superpose_scores.py` default).
+
+Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob on basename for directory inputs), `--root-only-dirs` (all-vs-all: no subdirectory scan); tree: `--output-tree`, `--output-plot`, `--output-matrix`, `--transform`, `--root`. **Optional summary log:** `--log [FILE]`.
 
 #### References (ranking, scoring, phylogeny)
 
@@ -684,7 +694,7 @@ Install packages needed for the crystal-packing stack (for example `biopython`, 
 
 - **BioPython:** structure parsing
 - **NumPy, SciPy (optional), pandas**
-- **R** (optional; only for documented `FoldKit/*.R` scripts such as `create_rmsd_heatmap.R`)
+- **R** (optional; only for documented `ranking/*.R` scripts such as `create_rmsd_heatmap.R`)
 
 ### Crystal packing scripts
 
@@ -693,13 +703,13 @@ Install packages needed for the crystal-packing stack (for example `biopython`, 
 Runs packing metrics, interface analysis, and contact analysis per structure. With `--compare`, also writes `batch_analysis_results.json`.
 
 ```bash
-python FoldKit/crystal_packing_analyser.py --input model_01.pdb
-python FoldKit/crystal_packing_analyser.py --input dir/
-python FoldKit/crystal_packing_analyser.py --input *.pdb --compare --output analysis_run
-python FoldKit/crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
-python FoldKit/crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
-python FoldKit/crystal_packing_analyser.py --input model_01.pdb --chains A --output analysis_chainA
-python FoldKit/crystal_packing_analyser.py --input expanded_assembly.pdb --reference-chain A --output ./analysis_expanded
+python metrics/crystal_packing_analyser.py --input model_01.pdb
+python metrics/crystal_packing_analyser.py --input dir/
+python metrics/crystal_packing_analyser.py --input *.pdb --compare --output analysis_run
+python metrics/crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output "crystal_analysis_{}"
+python metrics/crystal_packing_analyser.py --input *.pdb --sets set_a set_b --output analysis_output --dry-run
+python metrics/crystal_packing_analyser.py --input model_01.pdb --chains A --output analysis_chainA
+python metrics/crystal_packing_analyser.py --input expanded_assembly.pdb --reference-chain A --output ./analysis_expanded
 ```
 
 Options: `--input`, `--output` (use `{}` for one dir per set), `--set`, `--sets`, `--compare` (combined JSON), `--verbose`, `--dry-run`, `--chains`, `--reference-chain` (multi-copy lattice metrics in the interface stage)
@@ -709,13 +719,13 @@ Options: `--input`, `--output` (use `{}` for one dir per set), `--set`, `--sets`
 Matthews coefficient, solvent content, packing efficiency.
 
 ```bash
-python FoldKit/packing_metrics.py model_01.pdb
-python FoldKit/packing_metrics.py dir/
-python FoldKit/packing_metrics.py *.pdb -o results.txt
-python FoldKit/packing_metrics.py *.pdb -q -o summary.txt
-python FoldKit/packing_metrics.py *.pdb --sets set_a set_b -o "analysis_{}.txt"
-python FoldKit/packing_metrics.py *.pdb --per-structure -o "{}_metrics.txt"
-python FoldKit/packing_metrics.py *.pdb --per-structure --sets set_a set_b -o "{}_metrics.txt"
+python metrics/packing_metrics.py model_01.pdb
+python metrics/packing_metrics.py dir/
+python metrics/packing_metrics.py *.pdb -o results.txt
+python metrics/packing_metrics.py *.pdb -q -o summary.txt
+python metrics/packing_metrics.py *.pdb --sets set_a set_b -o "analysis_{}.txt"
+python metrics/packing_metrics.py *.pdb --per-structure -o "{}_metrics.txt"
+python metrics/packing_metrics.py *.pdb --per-structure --sets set_a set_b -o "{}_metrics.txt"
 ```
 
 Options: `-o`, `-q` (quiet), `--per-structure`, `--set`, `--sets`
@@ -734,19 +744,19 @@ Key options:
 
 ```bash
 # Single supercell (stdout JSON by default)
-python FoldKit/lattice_packing_analyser.py supercell.pdb --volume-source bbox --bbox-pad 2.0
+python metrics/lattice_packing_analyser.py supercell.pdb --volume-source bbox --bbox-pad 2.0
 
 # Require expected number of chains (helpful for fixed expansion protocols)
-python FoldKit/lattice_packing_analyser.py supercell.pdb --expected-chains 12 --volume-source bbox
+python metrics/lattice_packing_analyser.py supercell.pdb --expected-chains 12 --volume-source bbox
 
 # Multiple structures: write per-structure JSON/TXT under an output directory
-python FoldKit/lattice_packing_analyser.py supercells/ --sets set_a set_b --output-dir "lattice_pack_{}" --output-txt "lattice_{}.txt"
+python metrics/lattice_packing_analyser.py supercells/ --sets set_a set_b --output-dir "lattice_pack_{}" --output-txt "lattice_{}.txt"
 
 # Multiple structures: write one combined JSON
-python FoldKit/lattice_packing_analyser.py supercells/*.pdb --output-json lattice_packing_combined.json
+python metrics/lattice_packing_analyser.py supercells/*.pdb --output-json lattice_packing_combined.json
 ```
 
-Output fields (high level): chosen volume metadata, atom/mass densities, packing density fraction/percent, Matthews-like ratio (Å³/Da) and heuristic solvent content (see `FoldKit/metrics_details.md`, Section 1.6).
+Output fields (high level): chosen volume metadata, atom/mass densities, packing density fraction/percent, Matthews-like ratio (Å³/Da) and heuristic solvent content (see `metrics/metrics_details.md`, Section 1.6).
 
 #### Interface analysis decision table
 
@@ -762,8 +772,8 @@ Output fields (high level): chosen volume metadata, atom/mass densities, packing
 Protein–protein interface analysis (buried surface area, contacts, complementarity).
 
 ```bash
-python FoldKit/interface_analyser_asu_charge.py model_01.pdb
-python FoldKit/interface_analyser_asu_charge.py model_01.pdb --chains A -o chainA_interfaces.txt
+python metrics/interface_analyser_asu_charge.py model_01.pdb
+python metrics/interface_analyser_asu_charge.py model_01.pdb --chains A -o chainA_interfaces.txt
 ```
 
 Options: `-o` (use `{}` for per-set or per-structure), `--per-structure`, `--set`, `--sets`, `--dry-run`, `--chains`, `--reference-chain` (focal chain: isolated vs embedded SASA, lattice burial fraction, cross-chain contact-residue fraction)
@@ -773,26 +783,26 @@ The text report summary lists **isolated SASA** (Shrake–Rupley, each chain alo
 **Complementarity metrics (naming and methods).**
 
 - **Charge-tag complementarity (contact-based metrics)**: reported by `interface_analyser_asu_charge.py` and `interface_analyser_lattice_charge.py` as `charge_complementarity*` (and lattice fields `lattice_charge_*`). These are derived from charged residue identities within the filtered atom–atom contact set.
-- **Electrostatic complementarity (EC; McCoy method)**: reported by `interface_analyser_asu_ec.py` and `interface_analyser_lattice_ec.py` as `ec_*` (per interface) and `lattice_ec_*` (lattice summaries). EC is a Pearson correlation of electrostatic potentials on facing surface points, following McCoy, Epa & Colman (1997). Definitions and reported fields: `FoldKit/EC_details.md` and `FoldKit/metrics_details.md` (Section 2.5.4).
+- **Electrostatic complementarity (EC; McCoy method)**: reported by `interface_analyser_asu_ec.py` and `interface_analyser_lattice_ec.py` as `ec_*` (per interface) and `lattice_ec_*` (lattice summaries). EC is a Pearson correlation of electrostatic potentials on facing surface points, following McCoy, Epa & Colman (1997). Definitions and reported fields: `metrics/EC_details.md` and `metrics/metrics_details.md` (Section 2.5.4).
 
 #### `interface_analyser_asu_ec.py`
 
 Electrostatic complementarity (EC) for interfaces using the McCoy method (per-interface `ec_r`, `ec_n_pairs`, and density; plus lattice-weighted summaries in lattice mode).
 
 ```bash
-python FoldKit/interface_analyser_asu_ec.py model_01.pdb -o ec_results.txt
+python metrics/interface_analyser_asu_ec.py model_01.pdb -o ec_results.txt
 ```
 
 #### `interface_analyser_lattice_charge.py`
 
 ```bash
-python FoldKit/interface_analyser_lattice_charge.py expanded_assembly.pdb --reference-chain A -o lattice_charge.txt
+python metrics/interface_analyser_lattice_charge.py expanded_assembly.pdb --reference-chain A -o lattice_charge.txt
 ```
 
 #### `interface_analyser_lattice_ec.py`
 
 ```bash
-python FoldKit/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
+python metrics/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
 ```
 
 #### Lattice entrypoints (reference-chain reports)
@@ -800,13 +810,13 @@ python FoldKit/interface_analyser_lattice_ec.py expanded_assembly.pdb --referenc
 For multi-copy coordinate models, use the lattice interface entrypoints:
 
 ```bash
-python FoldKit/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
-python FoldKit/interface_analyser_lattice_charge.py expanded_assembly.pdb --reference-chain A -o lattice_charge.txt
+python metrics/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
+python metrics/interface_analyser_lattice_charge.py expanded_assembly.pdb --reference-chain A -o lattice_charge.txt
 ```
 
 ### Multi-copy models (crystallographic interfaces)
 
-Applicable when the coordinate file contains **several chains** representing **repeated molecules** in one frame (symmetry expansion, expanded lattice fragment, oligomer with one chain per subunit). Space-group operators are **not** applied; outputs describe the supplied Cartesian geometry only. Pairwise interface metrics (BSA, contacts, complementarity) are reported **per chain pair**. Each **BSA** value uses the usual formula with a **two-chain-only** complex (isolated SASA for each chain minus SASA of those two chains together), so pairs such as A–B, A–C, and A–D are each well-defined. Summed BSA over many pairs still aggregates separate pairwise terms and is **not** a single global burial measure for one molecule in the full assembly. The focal-copy **`lattice_burial_fraction`** is a geometric occlusion index, **not** a thermodynamic **ΔSASA**. Definitions, limitations, and interpretation: **`FoldKit/metrics_details.md`** (Sections 2.7.1–2.7.2).
+Applicable when the coordinate file contains **several chains** representing **repeated molecules** in one frame (symmetry expansion, expanded lattice fragment, oligomer with one chain per subunit). Space-group operators are **not** applied; outputs describe the supplied Cartesian geometry only. Pairwise interface metrics (BSA, contacts, complementarity) are reported **per chain pair**. Each **BSA** value uses the usual formula with a **two-chain-only** complex (isolated SASA for each chain minus SASA of those two chains together), so pairs such as A–B, A–C, and A–D are each well-defined. Summed BSA over many pairs still aggregates separate pairwise terms and is **not** a single global burial measure for one molecule in the full assembly. The focal-copy **`lattice_burial_fraction`** is a geometric occlusion index, **not** a thermodynamic **ΔSASA**. Definitions, limitations, and interpretation: **`metrics/metrics_details.md`** (Sections 2.7.1–2.7.2).
 
 **Typical workflow**
 
@@ -818,24 +828,24 @@ Applicable when the coordinate file contains **several chains** representing **r
 
 ```bash
 # All pairwise interfaces in an expanded multi-chain model
-python FoldKit/interface_analyser_lattice_charge.py /path/to/expanded_assembly.pdb --reference-chain A -o assembly_interfaces.txt
+python metrics/interface_analyser_lattice_charge.py /path/to/project/expanded_assembly.pdb --reference-chain A -o assembly_interfaces.txt
 
 # Only interfaces where the focal chain participates (partner chains still listed per pair)
-python FoldKit/interface_analyser_lattice_charge.py /path/to/expanded_assembly.pdb --reference-chain A --chains A -o interfaces_focal_A.txt
+python metrics/interface_analyser_lattice_charge.py /path/to/project/expanded_assembly.pdb --reference-chain A --chains A -o interfaces_focal_A.txt
 
 # Focal-copy summary: isolated vs embedded SASA, lattice_burial_fraction, contact-residue fraction
-python FoldKit/interface_analyser_lattice_charge.py /path/to/expanded_assembly.pdb --reference-chain A --chains A -o lattice_focal_A.txt
+python metrics/interface_analyser_lattice_charge.py /path/to/project/expanded_assembly.pdb --reference-chain A --chains A -o lattice_focal_A.txt
 
 # Full pipeline; per-structure JSON under the output directory includes the interface summary
-python FoldKit/crystal_packing_analyser.py --input /path/to/expanded_assembly.pdb \
+python metrics/crystal_packing_analyser.py --input /path/to/project/expanded_assembly.pdb \
   --chains A --reference-chain A --interface-metrics charge --output ./analysis_expanded_assembly
 
 # Full pipeline with EC (McCoy) interface metrics
-python FoldKit/crystal_packing_analyser.py --input /path/to/expanded_assembly.pdb \
+python metrics/crystal_packing_analyser.py --input /path/to/project/expanded_assembly.pdb \
   --chains A --reference-chain A --interface-metrics ec --output ./analysis_expanded_assembly_ec
 
 # Batch with combined JSON (--compare); same focal chain for every file matched by the glob
-python FoldKit/crystal_packing_analyser.py --input '/path/to/models/*_assembly.pdb' \
+python metrics/crystal_packing_analyser.py --input '/path/to/project/models/*_assembly.pdb' \
   --reference-chain A --interface-metrics charge --compare --output ./batch_lattice_analysis
 ```
 
@@ -846,12 +856,12 @@ python FoldKit/crystal_packing_analyser.py --input '/path/to/models/*_assembly.p
 Filter an interface text report into CSV (optional filters by PDB basename and chain). Input is typically the file from `interface_analyser_asu_charge.py … -o results.txt` (or the EC analogue). Writes one file per structure when using `--output-dir` or `-o` with `{}`.
 
 ```bash
-python FoldKit/interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
-python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
-python FoldKit/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
-python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\d+[^_]*)_' --output-dir ./out
-python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'run_a*' --combine-glob 'run_b*' --output-dir ./out
-python FoldKit/interface_molecule_report_csv.py results.txt --chains A,B \
+python metrics/interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
+python metrics/interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
+python metrics/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
+python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\d+[^_]*)_' --output-dir ./out
+python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'run_a*' --combine-glob 'run_b*' --output-dir ./out
+python metrics/interface_molecule_report_csv.py results.txt --chains A,B \
   --combine-glob 'run_a*' --combine-glob 'run_b*' --combine-glob 'run_*' --output-dir ./out
 ```
 
@@ -864,12 +874,12 @@ The regex above captures `model`, digits, then **any suffix without an underscor
 Crystal contact and symmetry interaction analysis.
 
 ```bash
-python FoldKit/contact_analyser.py model_01.pdb
-python FoldKit/contact_analyser.py *.pdb -o contact_results.txt
-python FoldKit/contact_analyser.py *.pdb --sets set_a set_b -o "contact_{}.txt"
-python FoldKit/contact_analyser.py *.pdb --per-structure -o "{}_contact.txt"
-python FoldKit/contact_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
-python FoldKit/contact_analyser.py model_01.pdb --chains A -o chainA_contacts.txt
+python metrics/contact_analyser.py model_01.pdb
+python metrics/contact_analyser.py *.pdb -o contact_results.txt
+python metrics/contact_analyser.py *.pdb --sets set_a set_b -o "contact_{}.txt"
+python metrics/contact_analyser.py *.pdb --per-structure -o "{}_contact.txt"
+python metrics/contact_analyser.py *.pdb --per-structure --sets set_a set_b -o "{}_contact.txt"
+python metrics/contact_analyser.py model_01.pdb --chains A -o chainA_contacts.txt
 ```
 
 Options: same core options as the interface analysers (including `--chains`).
@@ -879,14 +889,14 @@ Options: same core options as the interface analysers (including `--chains`).
 Filter a `contact_analyser.py` text report into CSV rows (one per atom–atom contact). Columns include `chain1`, `chain2`, `res1`, `atom1`, `res2`, `atom2`, `distance_A`, `contact_type`, plus `set_label` and `structure_basename`. Same filtering and merge options as `interface_molecule_report_csv.py` (`--pdb`, `--pdbs`, `-m`, `--chains`, `-o`, `--output-dir`, `--combine-regex`, `--combine-glob`). For `*_asu_contacts.txt` sidecars (no progress lines in file), use `--structure-basename model_01.pdb` or rely on the filename heuristic (`…_<stem>_asu_contacts.txt`).
 
 ```bash
-python FoldKit/contact_molecule_report_csv.py contact_results.txt -m A -m B --output-dir ./out
-python FoldKit/contact_molecule_report_csv.py contact_results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
-python FoldKit/contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb --chains A,B -o model_01_contacts.csv
+python metrics/contact_molecule_report_csv.py contact_results.txt -m A -m B --output-dir ./out
+python metrics/contact_molecule_report_csv.py contact_results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
+python metrics/contact_molecule_report_csv.py contact_results_model_01_asu_contacts.txt --structure-basename model_01.pdb --chains A,B -o model_01_contacts.csv
 ```
 
 ### Python API usage
 
-Run Python with `FoldKit` on the module path (for example `cd FoldKit` or `PYTHONPATH=FoldKit` from the repo root).
+Run Python with **`metrics/`** on the module path (for example `PYTHONPATH=metrics` from the repository root, or `cd metrics`).
 
 ```python
 from crystal_packing_analyser import CrystalPackingAnalyser
@@ -969,8 +979,8 @@ crystal_analysis_output/
 **After FoldKit superposition:**
 
 ```bash
-python FoldKit/superimpose_coot_SSM.py reference.pdb dir1 dir2 dir3
-python FoldKit/crystal_packing_analyser.py --input SSMaligned2_ref/*.pdb --compare --output packing_batch
+python superimposition/superimpose_coot_SSM.py reference.pdb dir1 dir2 dir3
+python metrics/crystal_packing_analyser.py --input SSMaligned2_ref/*.pdb --compare --output packing_batch
 ```
 
 ### Scientific applications
@@ -988,9 +998,9 @@ python FoldKit/crystal_packing_analyser.py --input SSMaligned2_ref/*.pdb --compa
 ### Quick start
 
 ```bash
-python FoldKit/quick_start.py
-python FoldKit/crystal_packing_analyser.py --input model_01.pdb
-python FoldKit/crystal_packing_analyser.py --input model_01.pdb model_02.pdb model_03.pdb --compare
+python appendix/quick_start.py
+python metrics/crystal_packing_analyser.py --input model_01.pdb
+python metrics/crystal_packing_analyser.py --input model_01.pdb model_02.pdb model_03.pdb --compare
 ```
 
 #### References (metrics / crystal packing)
@@ -1005,7 +1015,7 @@ python FoldKit/crystal_packing_analyser.py --input model_01.pdb model_02.pdb mod
 
 1. **BioPython import errors:** `pip install biopython>=1.79`
 2. **Memory:** reduce contact distance cutoffs for large structures
-3. **R:** install from [r-project.org](https://www.r-project.org/) only if you run documented `FoldKit/*.R` scripts; on macOS ensure R is on `PATH` (e.g. `export PATH="/usr/local/bin:$PATH"`).
+3. **R:** install from [r-project.org](https://www.r-project.org/) only if you run documented `ranking/*.R` scripts; on macOS ensure R is on `PATH` (e.g. `export PATH="/usr/local/bin:$PATH"`).
 
 #### Features summary
 
@@ -1061,9 +1071,11 @@ working_directory/
 
 #### DaliLite (`dali_score.py`, `dalilite_superpose_scores.py`)
 
-- `**DALILITE_HOME` / `--dalilite-path`** must point at the DaliLite install root (`bin/dali.pl`).
-- `**mkdssp**` must exist at the path in `**bin/mpidali.pm**` (`$DSSP_EXE`). If imports produce empty `**DAT/*.dat**`, install or symlink `**mkdssp**` or edit `**$DSSP_EXE**`. Perl files under `**bin/**` must be readable (fix permissions if you see `Can't locate FSSP.pm: Permission denied`).
+- **`DALILITE_HOME`** or **`--dalilite-path`** must point at the DaliLite install root (`bin/dali.pl`).
+- **`mkdssp`** must exist at the path in **`bin/mpidali.pm`** (`$DSSP_EXE`). If imports produce empty **`DAT/*.dat`**, install or symlink **`mkdssp`** or edit **`$DSSP_EXE`**. Perl files under **`bin/`** must be readable (fix permissions if you see `Can't locate FSSP.pm: Permission denied`).
 - **Path length:** DaliLite Fortran limits full path length (~80 characters); these scripts stage under the system temporary directory automatically.
+- **All-vs-all file discovery:** **`dalilite_superpose_scores.py`** collects structures from the **root** of each given directory unless **`--recursive`** is set. **`dali_score.py`** defaults to a **recursive** directory scan; use **`--root-only-dirs`** for root-level only.
+- **Z heatmap:** **`dalilite_superpose_scores.py`** can write a matplotlib Z-score heatmap with **`--heatmap PATH`** and the same style options as **`rmsd_to_csv.py`** (`--cmap`, `--vmin`, `--vmax`, `--heatmap-diverging-center`, and related flags); see the **`dalilite_superpose_scores.py`** subsection under [Superimposition](#superimposition).
 
 ### Notes
 

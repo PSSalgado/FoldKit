@@ -6,21 +6,21 @@ of the target chain (e.g. B → A with numbering after the last A residue).
 
 Examples:
   # Rename chain B to A only (fails if chain A already has atoms):
-  python pdb_rechain.py models/ --pattern '*_models.pdb' --from B --to A
+  python file_management/pdb_rechain.py models/ --pattern '*_models.pdb' --from B --to A
 
   # Merge B into A: all former-B atoms become chain A, residue numbers continue
   # after the highest residue number on the current chain A:
-  python pdb_rechain.py models/ --pattern '*_models.pdb' --from B --to A \\
+  python file_management/pdb_rechain.py models/ --pattern '*_models.pdb' --from B --to A \\
       --merge-renumber -o rechained/
 
   # Single file:
-  python pdb_rechain.py model_01.pdb --from B --to A --merge-renumber -o model_01_merged.pdb
+  python file_management/pdb_rechain.py model_01.pdb --from B --to A --merge-renumber -o model_01_merged.pdb
 
   # Multiple merges in one pass (applies left-to-right):
-  python pdb_rechain.py multicopy.pdb --merge-map 'B:A,D:C,F:E' -o merged.pdb
+  python file_management/pdb_rechain.py multicopy.pdb --merge-map 'B:A,D:C,F:E' -o merged.pdb
 
   # Multiple merges + then relabel remaining chains sequentially A..Z + renumber residues per chain:
-  python pdb_rechain.py multicopy.pdb --merge-map 'B:A,D:C,F:E,H:G' --rename-sequential --renumber-per-chain -o cleaned.pdb
+  python file_management/pdb_rechain.py multicopy.pdb --merge-map 'B:A,D:C,F:E,H:G' --rename-sequential --renumber-per-chain -o cleaned.pdb
 
   # Multi-copy assemblies: control the A..Z assignment so merged pairs map predictably.
   # Example merge list:
@@ -28,7 +28,7 @@ Examples:
   # After these merges, the surviving chain IDs are:
   #   A, C, E, G, I, K, M, P
   # Use --chain-order so merged AB becomes new A, merged CD becomes new B, etc.
-  python pdb_rechain.py multicopy.pdb \
+  python file_management/pdb_rechain.py multicopy.pdb \
       --merge-map 'B:A,D:C,F:E,H:G,J:I,L:K,N:M,O:P' \
       --reorder-chains --rename-sequential --chain-order 'A,C,E,G,I,K,M,P' \
       --renumber-per-chain -o multicopy_merged_ordered.pdb

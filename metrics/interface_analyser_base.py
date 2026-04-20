@@ -1556,43 +1556,44 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="Analyse interfaces between molecules in crystal structures.",
-        epilog="""Examples:
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples (from repository root):
   # Charge-tag metrics (ASU; single structure)
-  python interface_analyser_asu_charge.py model_01.pdb
+  python metrics/interface_analyser_asu_charge.py model_01.pdb
 
   # Charge-tag metrics (batch; write merged text report)
-  python interface_analyser_asu_charge.py *.pdb -o results.txt
+  python metrics/interface_analyser_asu_charge.py *.pdb -o results.txt
 
   # Charge-tag metrics with set filtering (batch)
-  python interface_analyser_asu_charge.py *.pdb --set set_a,set_b -o by_set.txt
+  python metrics/interface_analyser_asu_charge.py *.pdb --set set_a,set_b -o by_set.txt
 
   # Per-set output (batch)
-  python interface_analyser_asu_charge.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
+  python metrics/interface_analyser_asu_charge.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
 
   # Per-structure outputs (batch)
-  python interface_analyser_asu_charge.py *.pdb --per-structure -o "{}_interface.txt"
+  python metrics/interface_analyser_asu_charge.py *.pdb --per-structure -o "{}_interface.txt"
 
   # Dry run (no analysis; just show what would run)
-  python interface_analyser_asu_charge.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
+  python metrics/interface_analyser_asu_charge.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
 
   # Lattice metrics for a reference chain (multi-copy model)
-  python interface_analyser_lattice_charge.py supercell.pdb --reference-chain A -o lattice_charge.txt
-  python interface_analyser_lattice_ec.py supercell.pdb --reference-chain A -o lattice_ec.txt
+  python metrics/interface_analyser_lattice_charge.py supercell.pdb --reference-chain A -o lattice_charge.txt
+  python metrics/interface_analyser_lattice_ec.py supercell.pdb --reference-chain A -o lattice_ec.txt
 
   # Electrostatic complementarity (EC; McCoy) in the ASU
-  python interface_analyser_asu_ec.py model_01.pdb -o ec_results.txt
+  python metrics/interface_analyser_asu_ec.py model_01.pdb -o ec_results.txt
 
 Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
-  python interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv
-  python interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
-  python interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B --output-dir ./out
-  python interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
-  python interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+[^_]*)_' --output-dir ./out
-  python interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+(?:a|del)?)_' --output-dir ./out
-  python interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+)_' --output-dir ./out
-  python interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model1a|model1del|model1)_' --output-dir ./out
-  python interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1*' --combine-glob 'model2*' --output-dir ./out
-  python interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1a*' --combine-glob 'model1del*' --combine-glob 'model1_*' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv
+  python metrics/interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+[^_]*)_' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+(?:a|del)?)_' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+)_' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model1a|model1del|model1)_' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1*' --combine-glob 'model2*' --output-dir ./out
+  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1a*' --combine-glob 'model1del*' --combine-glob 'model1_*' --output-dir ./out
 """,
     )
     parser.add_argument(

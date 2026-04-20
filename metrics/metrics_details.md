@@ -617,7 +617,7 @@ charge_complementarity_density = N_opp / area
 - **`ec_n_pairs`**: number of facing point pairs used in the correlation.
 - **`ec_density`**: \(r/\mathrm{BSA}\) (Å\(^{-2}\)); denominator label stored as `ec_density_denominator` (currently `buried_surface_area`).
 
-**References and full notation.** See `FoldKit/EC_details.md` (definitions, Fisher z aggregation for lattice summaries, density normalisation, and references).
+**References and full notation.** See `metrics/EC_details.md` (definitions, Fisher z aggregation for lattice summaries, density normalisation, and references).
 
 ### 2.6 Contact type counts (incl. H-bonds)
 
@@ -753,7 +753,7 @@ lattice_charge_complementarity_density = N_opposite / (sasa_reference_isolated -
   - `lattice_ec_density_bsa_weighted`, `lattice_ec_density_npairs_weighted`: lattice EC density (Å\(^{-2}\)) normalised by the reference buried area.
   - `lattice_ec_by_partner_chain`: per-partner records with \(r_k\) and \(n_{\mathrm{pairs},k}\).
 
-  Definitions and aggregation details are in `FoldKit/EC_details.md`.
+  Definitions and aggregation details are in `metrics/EC_details.md`.
 
 **What it means (how to interpret)**
 
@@ -1222,7 +1222,8 @@ max_z_i = max_{j != i}( z_ij )
 
 - Compute a Dali-like structural similarity score from two structures using residue equivalences.
 - **Pairwise:** `python dali_score.py pdb_a pdb_b [-a alignment_file] [--chain-a ID] [--chain-b ID] [--dalilite-path DIR] [-o output.csv]`
-- **All-vs-all:** `python dali_score.py --all-vs-all dir_or_file [dir_or_file ...] [--filter PATTERN] [--output-tree FILE] [--output-plot FILE] [--output-matrix FILE] [--output-ranking FILE]`
+- **All-vs-all:** `python dali_score.py --all-vs-all dir_or_file [dir_or_file ...] [--filter PATTERN] [--root-only-dirs] [--output-tree FILE] [--output-plot FILE] [--output-matrix FILE] [--output-ranking FILE]`
+- **Directory scan (`_collect_pdb_files`):** default is **recursive** (`*.pdb`, `*.cif`, `*.ent` under each directory). With **`--root-only-dirs`**, only the top level of each directory is used (no subfolders).
 - Alignment sources (in order): (1) **DaliLite** (if `--dalilite-path` or `DALILITE_HOME` is set by user), (2) `--alignment` file, (3) biotite structural alignment (if installed), (4) sequence-order matching (same residue numbering). When DaliLite is used, its canonical Z-score and RMSD are reported.
 
 **Libraries / functions used (dali_score)**
@@ -1322,17 +1323,19 @@ The script parses `**dali.pl` text output** for:
 
 ### 6.3.1 dalilite_superpose_scores.py
 
-`**dalilite_superpose_scores.py`** runs the DaliLite pairwise path via `dali_score._dalilite_pair_via_dat`, then applies **translation–rotation** from `--outfmt transrot` to write a superposed target PDB (BioPython). It supports **all-vs-all**, CSV scores, Z-matrix, and Newick tree output.
+`**dalilite_superpose_scores.py`** runs the DaliLite pairwise path via `dali_score._dalilite_pair_via_dat`, then applies **translation–rotation** from `--outfmt transrot` to write a superposed target PDB (BioPython). It supports **all-vs-all**, pairwise CSV, Z-matrix CSV, Newick tree, optional dendrogram plot, and an optional **matplotlib Z-score heatmap** (`--heatmap` and related options; colour bar label “Dali Z”; implementation delegates to `rmsd_to_csv.plot_heatmap` with `autoscale_positive_offdiag_only=False`).
 
 Requirements and environment variables match `**dali_score.py`** (DaliLite path, mkdssp as above). Use `**--fallback-biotite**` when DaliLite reports no significant hit (often below Dali’s usual reporting threshold, Z ~ 2) but a structural alignment is still desired.
+
+**All-vs-all structure list:** by default, `_collect_pdb_files(..., recursive=False)` is used: only `*.pdb` / `*.cif` / `*.ent` in the **root** of each directory argument. Pass **`--recursive`** to include subdirectories (same recursive behaviour as `dali_score.py` all-vs-all by default).
 
 ### 6.3.2 run_all_superpositions.py (Coot LSQ batch)
 
 `**run_all_superpositions.py**` is a small driver that loops over **condition** subdirectories (e.g. `condition_1`) and **tags** (same idea as `--filter=set_a` in the Coot LSQ/SSM scripts), calling `**superimpose_coot_LSQ.py`** with `**--pattern**`, `**--divider=LSQ_**`, per-tag reference globs, and `**CONDITION_PREFIX**`-derived filename tokens. Defaults such as `**REFERENCE_SUBDIR**` and `**REFERENCE_STEM**` are documented in the script and in the main `**README.md**` (superposition section).
 
-### 6.4 All-vs-all and tree output
+### 6.4 All-vs-all and tree output (`dali_score.py`)
 
-When `--all-vs-all` is used with one or more directories or PDB/CIF files, the script compares every pair of structures, collects Z-scores, and optionally generates:
+When `dali_score.py` is run with `--all-vs-all` and one or more directories or PDB/CIF files, it compares every pair of structures (after `_collect_pdb_files`, recursive unless `--root-only-dirs`), collects Z-scores, and optionally generates:
 
 - **Pairwise table** (`-o`): CSV with pdb_a, pdb_b, raw_score, z_score, n_core, alignment_source, dalilite_rmsd, lali, nres, pct_id, dalilite_hit_id, description (DaliLite summary fields empty when alignment is not from DaliLite)
 - **Ranking** (`--output-ranking`, default `dali_ranking.csv`): structures ranked by average and max Z-score
@@ -1342,7 +1345,7 @@ When `--all-vs-all` is used with one or more directories or PDB/CIF files, the s
 
 **Z-score → distance transform** (`--transform`): Higher Z = more similar. For trees, Z is converted to distance: `inv` (d = 1/(1+Z)), `maxminus` (normalised), or `exp` (d = exp(-Z/scale)). Tree building uses scikit-bio or Biopython for neighbour-joining when available, else a pure-Python UPGMA fallback. See Saitou & Nei (1987) for NJ.
 
-**Filtering:** `--filter` limits which files are included: plain text matches as a substring on the basename; patterns with `*`, `?`, or `[` use `fnmatch` on basename or stem (see `_collect_pdb_files` in `dali_score.py`).
+**Filtering:** `--filter` limits which files are included: plain text matches as a substring on the basename; patterns with `*`, `?`, or `[` use `fnmatch` on basename or stem. Implementation: `_collect_pdb_files(paths, filter_pattern, recursive=...)` in `dali_score.py` (`recursive` is true unless `--root-only-dirs`; `dalilite_superpose_scores.py` passes `recursive` according to its `--recursive` flag).
 
 ### 6.5 Residue equivalences
 

@@ -12,20 +12,22 @@ Single-file mode (pass one INPUT path; omit --scan-dir):
 Batch mode (--scan-dir):
   Recursively finds logs matching --scan-glob (default rmsd_values_*.txt); for each,
   writes rmsd_table_<suffix>.csv next to the log and stacks all blocks into
-  combined_rmsd_table.csv with a Subdomain column. Optional --heatmap-dir writes figures
-  per file plus combined_rmsd_heatmap.<fmt> (--heatmap-format png|pdf|svg, default png;
-  SVG and PDF draw each matrix cell as a vector square; the colour bar may still be a bitmap strip);
+  combined_rmsd_table.csv with a Subdomain column (--combined-subdomain-order for block order).
+  Optional --heatmap-dir writes figures
+  per file plus combined_rmsd_heatmap.<fmt> (--heatmap-format png|pdf|svg, default svg;
+  SVG/PDF: vector patches per matrix cell; colour bar is one embedded raster for a smooth scale (text stays editable).
+  Per-subdomain heatmaps use the same colour scale as the merged CSV by default (--no-shared-heatmap-scale to use local auto scale).
   --combined-heatmap PATH for a custom combined path (extension overrides --heatmap-format);
   --no-combined-heatmap to skip the combined figure.
 
 Examples:
-  python rmsd_to_csv.py path/to/rmsd_SSM_values.txt -o path/to/rmsd_table.csv
-  python rmsd_to_csv.py path/to/rmsd_SSM_values.txt --plot heatmap.pdf
-  python rmsd_to_csv.py path/to/rmsd_values.txt --order-dir /path/to/root --order-glob 'model_*.pdb'
-  python rmsd_to_csv.py --scan-dir /path/to/base --scan-glob 'rmsd_values_*.txt'
-  python rmsd_to_csv.py --scan-dir /path/to/base --heatmap-dir /path/to/figs
+  python ranking/rmsd_to_csv.py /path/to/project/rmsd_SSM_values.txt -o /path/to/project/rmsd_table.csv
+  python ranking/rmsd_to_csv.py /path/to/project/rmsd_SSM_values.txt --plot /path/to/project/heatmap.pdf
+  python ranking/rmsd_to_csv.py /path/to/project/rmsd_values.txt --order-dir /path/to/project/models --order-glob 'model_*.pdb'
+  python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --scan-glob 'rmsd_values_*.txt'
+  python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --heatmap-dir /path/to/project/figs
 
-Outputs feed structure_phylogeny.py and create_rmsd_heatmap.R.
+Outputs feed ranking/structure_phylogeny.py and ranking/create_rmsd_heatmap.R.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ import argparse
 import csv
 import glob
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -43,6 +46,33 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from cli_log import add_log_args, setup_log_from_args
+
+
+def _resolved_path(path: str) -> str:
+    """Expand ~ and resolve to absolute path (Python does not expand ~ in abspath)."""
+    return os.path.abspath(os.path.expanduser(path))
+
+
+def short_heatmap_label(name: str) -> str:
+    """
+    Shorten model names for heatmap axis labels only (CSV data unchanged).
+
+    Example: S1refAF3_CWB2s.pdb -> S1_CWB2s — leading letter+digits from the first underscore
+    segment, plus the segment after the last underscore. If the pattern does not apply, returns
+    the basename without extension.
+    """
+    s = (name or "").strip()
+    if not s:
+        return s
+    base = os.path.splitext(s)[0] if "." in s else s
+    parts = base.split("_")
+    if len(parts) < 2:
+        return base
+    m = re.match(r"^([A-Za-z]\d+)", parts[0])
+    if not m:
+        return base
+    return f"{m.group(1)}_{parts[-1]}"
+
 
 # Reuse parsing and matrix logic from structure_phylogeny
 try:
@@ -55,7 +85,7 @@ try:
         parse_ssm_rmsd_txt,
     )
 except ImportError:
-    # Run from repo root or FoldKit/
+    # Run from repository root (python ranking/rmsd_to_csv.py ...)
     _dir = os.path.dirname(os.path.abspath(__file__))
     if _dir not in sys.path:
         sys.path.insert(0, _dir)
@@ -210,15 +240,50 @@ def discover_rmsd_files(scan_root: str, glob_pattern: str) -> list[str]:
     return sorted(p for p in hits if os.path.isfile(p))
 
 
+def _combined_subdomain_matches_token(sub: str, tok: str) -> bool:
+    """
+    True if subdomain label should be grouped under token tok (from --combined-subdomain-order).
+
+    Uses a boundary after '_' so D1 does not match …_D10s. Token may be e.g. D1, CWB2, ID.
+    """
+    t = (tok or "").strip()
+    if not t:
+        return False
+    sl = sub.lower()
+    tl = t.lower()
+    if sl == tl:
+        return True
+    pat = r"(^|_)" + re.escape(tl) + r"(s|_|$)"
+    return re.search(pat, sl) is not None
+
+
+def _combined_subdomain_block_index(sub: str, order: list[str]) -> int:
+    """First matching token index, or len(order) for natural-sort tail."""
+    for i, tok in enumerate(order):
+        if _combined_subdomain_matches_token(sub, tok):
+            return i
+    return len(order)
+
+
 def _combined_sorted_row_specs(
     tables: list[tuple[str, list[str], list[list[float]]]],
+    subdomain_order: list[str] | None = None,
 ) -> list[tuple[str, str, list[str], list[list[float]], int]]:
     """(Subdomain, model, ids, matrix, row_index) for every row, sorted by subdomain then model."""
     specs: list[tuple[str, str, list[str], list[list[float]], int]] = []
     for sub, ids, matrix in tables:
         for i, name in enumerate(ids):
             specs.append((sub, name, ids, matrix, i))
-    specs.sort(key=lambda t: (_natural_sort_key(t[0]), _natural_sort_key(t[1])))
+    if subdomain_order:
+        specs.sort(
+            key=lambda t: (
+                _combined_subdomain_block_index(t[0], subdomain_order),
+                _natural_sort_key(t[0]),
+                _natural_sort_key(t[1]),
+            )
+        )
+    else:
+        specs.sort(key=lambda t: (_natural_sort_key(t[0]), _natural_sort_key(t[1])))
     return specs
 
 
@@ -242,12 +307,13 @@ def _combined_structure_column_order(
 def write_combined_rmsd_csv(
     tables: list[tuple[str, list[str], list[list[float]]]],
     out_path: str,
+    subdomain_order: list[str] | None = None,
 ) -> None:
     """Wide CSV: rows sorted by (Subdomain, Model); structure columns match row order (first-seen model order)."""
     if not tables:
         return
     all_models = {x for _, ids, _ in tables for x in ids}
-    specs = _combined_sorted_row_specs(tables)
+    specs = _combined_sorted_row_specs(tables, subdomain_order=subdomain_order)
     col_order = _combined_structure_column_order(specs, all_models)
     out_dir = os.path.dirname(out_path)
     if out_dir and not os.path.isdir(out_dir):
@@ -274,35 +340,19 @@ def write_combined_rmsd_csv(
             w.writerow(row)
 
 
-def disp_vmin_vmax_for_combined_tables(
-    tables: list[tuple[str, list[str], list[list[float]]]],
+def disp_limits_from_rmsd_values_array(
+    arr,
     vmin: float | None,
     vmax: float | None,
 ) -> tuple[float, float] | None:
-    """Color limits matching plot_combined_rmsd_heatmap_from_csv (merged table, same vmin/vmax rules)."""
+    """
+    vmin/vmax for heatmaps from a float array of RMSD values (NaN allowed).
+    Prefers positive finite values for auto limits; honors vmin/vmax when set.
+    """
     try:
         import numpy as np
     except ImportError:
         return None
-    if not tables:
-        return None
-    all_models = {x for _, ids, _ in tables for x in ids}
-    specs = _combined_sorted_row_specs(tables)
-    col_order = _combined_structure_column_order(specs, all_models)
-    n_r, n_c = len(specs), len(col_order)
-    arr = np.full((n_r, n_c), np.nan, dtype=np.float64)
-    for i, (_sub, name, ids, matrix, ri) in enumerate(specs):
-        id_to_idx = {lab: j for j, lab in enumerate(ids)}
-        for j, cid in enumerate(col_order):
-            if cid == name:
-                continue
-            if cid not in id_to_idx:
-                continue
-            v = matrix[ri][id_to_idx[cid]]
-            if v is None or (isinstance(v, float) and (v != v or v < 0)):
-                continue
-            arr[i, j] = float(v)
-
     finite = arr[np.isfinite(arr)]
     pos = finite[finite > 0]
     if len(pos) > 0:
@@ -328,6 +378,235 @@ def disp_vmin_vmax_for_combined_tables(
         eps = 1e-6 * max(abs(mid), 1.0)
         disp_vmin, disp_vmax = mid - eps, mid + eps
     return disp_vmin, disp_vmax
+
+
+def disp_vmin_vmax_for_combined_tables(
+    tables: list[tuple[str, list[str], list[list[float]]]],
+    vmin: float | None,
+    vmax: float | None,
+    subdomain_order: list[str] | None = None,
+) -> tuple[float, float] | None:
+    """Same limits as the merged table / combined CSV (in-memory construction)."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    if not tables:
+        return None
+    all_models = {x for _, ids, _ in tables for x in ids}
+    specs = _combined_sorted_row_specs(tables, subdomain_order=subdomain_order)
+    col_order = _combined_structure_column_order(specs, all_models)
+    n_r, n_c = len(specs), len(col_order)
+    arr = np.full((n_r, n_c), np.nan, dtype=np.float64)
+    for i, (_sub, name, ids, matrix, ri) in enumerate(specs):
+        id_to_idx = {lab: j for j, lab in enumerate(ids)}
+        for j, cid in enumerate(col_order):
+            if cid == name:
+                continue
+            if cid not in id_to_idx:
+                continue
+            v = matrix[ri][id_to_idx[cid]]
+            if v is None or (isinstance(v, float) and (v != v or v < 0)):
+                continue
+            arr[i, j] = float(v)
+
+    return disp_limits_from_rmsd_values_array(arr, vmin, vmax)
+
+
+def load_combined_rmsd_csv_matrix(csv_path: str):
+    """
+    Read wide combined_rmsd_table.csv into a numpy array and metadata.
+    Returns (arr, col_ids, model_names, rows) or None if missing/invalid/empty.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    csv_path = os.path.abspath(csv_path)
+    if not os.path.isfile(csv_path):
+        return None
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames or "Model" not in reader.fieldnames or "Subdomain" not in reader.fieldnames:
+            return None
+        col_ids = [c for c in reader.fieldnames if c not in ("Model", "Subdomain")]
+        rows = list(reader)
+    if not rows or not col_ids:
+        return None
+    n_r, n_c = len(rows), len(col_ids)
+    arr = np.full((n_r, n_c), np.nan, dtype=np.float64)
+    model_names = [r.get("Model", "").strip() for r in rows]
+    for i, r in enumerate(rows):
+        m = model_names[i]
+        for j, cid in enumerate(col_ids):
+            if cid == m:
+                continue
+            v = _parse_rmsd_table_cell(r.get(cid, ""))
+            if v is not None:
+                arr[i, j] = v
+    return arr, col_ids, model_names, rows
+
+
+def vmin_vmax_from_combined_csv_path(
+    csv_path: str,
+    vmin: float | None,
+    vmax: float | None,
+) -> tuple[float, float] | None:
+    """Colour limits from the merged CSV on disk (same rules as the combined heatmap)."""
+    data = load_combined_rmsd_csv_matrix(csv_path)
+    if data is None:
+        return None
+    arr, _col_ids, _model_names, _rows = data
+    return disp_limits_from_rmsd_values_array(arr, vmin, vmax)
+
+
+def median_rmsd_from_combined_csv_path(csv_path: str) -> float | None:
+    """Median of all finite RMSD entries in the merged CSV (same cells as the combined heatmap)."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    data = load_combined_rmsd_csv_matrix(csv_path)
+    if data is None:
+        return None
+    arr, _, _, _ = data
+    finite = arr[np.isfinite(arr)]
+    if len(finite) == 0:
+        return None
+    return float(np.median(finite))
+
+
+def median_rmsd_from_square_array(arr) -> float | None:
+    """Median of off-diagonal finite RMSDs (prefer positive), before diagonal masking."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    n = int(arr.shape[0])
+    if n < 2:
+        return None
+    mask = ~np.eye(n, dtype=bool)
+    vals = arr[mask]
+    vals = vals[np.isfinite(vals)]
+    pos = vals[vals > 0]
+    use = pos if len(pos) > 0 else vals
+    if len(use) == 0:
+        return None
+    return float(np.median(use))
+
+
+def median_finite_offdiag_square_array(arr) -> float | None:
+    """Median of all finite off-diagonal entries (for Z-score or signed matrices)."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    n = int(arr.shape[0])
+    if n < 2:
+        return None
+    mask = ~np.eye(n, dtype=bool)
+    vals = arr[mask]
+    vals = vals[np.isfinite(vals)]
+    if len(vals) == 0:
+        return None
+    return float(np.median(vals))
+
+
+def median_rmsd_from_combined_array(arr) -> float | None:
+    """Median of all finite values in the combined RMSD array."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    finite = arr[np.isfinite(arr)]
+    if len(finite) == 0:
+        return None
+    return float(np.median(finite))
+
+
+def make_heatmap_norm(
+    disp_vmin: float,
+    disp_vmax: float,
+    diverging_center: str | None,
+    vcenter: float | None,
+):
+    """
+    Linear ``Normalize``, or ``TwoSlopeNorm`` with ``vcenter`` at the median for diverging colour maps.
+    If vcenter is outside (vmin, vmax) or degenerate, falls back to linear scale.
+    """
+    import matplotlib.colors as mcolors
+
+    if diverging_center is None or diverging_center == "none" or vcenter is None:
+        return mcolors.Normalize(vmin=disp_vmin, vmax=disp_vmax)
+    vc = float(vcenter)
+    span = disp_vmax - disp_vmin
+    eps = max(1e-12 * max(abs(disp_vmax), abs(disp_vmin), 1.0), 1e-15 * max(span, 1.0))
+    lo, hi = disp_vmin + eps, disp_vmax - eps
+    if lo >= hi:
+        return mcolors.Normalize(vmin=disp_vmin, vmax=disp_vmax)
+    vc = min(max(vc, lo), hi)
+    return mcolors.TwoSlopeNorm(vmin=disp_vmin, vcenter=vc, vmax=disp_vmax)
+
+
+def _nice_tick_values_linear_segment(vmin: float, vmax: float, nbins: int = 6):
+    """Return sorted unique tick values in [vmin, vmax] for linear scales (Å)."""
+    import numpy as np
+    import matplotlib.ticker as mticker
+
+    if vmax < vmin:
+        vmin, vmax = vmax, vmin
+    if not (np.isfinite(vmin) and np.isfinite(vmax)):
+        return np.array([vmin, vmax], dtype=float)
+    if vmax - vmin < 1e-30:
+        return np.array([vmin, vmax], dtype=float)
+    loc = mticker.MaxNLocator(nbins=nbins + 1, min_n_ticks=2, symmetric=False)
+    ticks = loc.tick_values(vmin, vmax)
+    ticks = np.asarray(ticks, dtype=float)
+    ticks = ticks[np.isfinite(ticks)]
+    ticks = ticks[(ticks >= vmin - 1e-12) & (ticks <= vmax + 1e-12)]
+    if ticks.size == 0:
+        return np.array([vmin, vmax], dtype=float)
+    return np.unique(ticks)
+
+
+def _set_heatmap_colorbar_ticks(cbar, norm) -> None:
+    """
+    Set colour-bar ticks in data units. TwoSlopeNorm (median centre) is non-linear in display
+    space, so we pick nice ticks separately below and above vcenter instead of a uniform locator.
+    """
+    import matplotlib.colors as mcolors
+    import matplotlib.ticker as mticker
+    import numpy as np
+
+    vmin, vmax = float(norm.vmin), float(norm.vmax)
+    if isinstance(norm, mcolors.TwoSlopeNorm):
+        vc = float(norm.vcenter)
+        span = max(vmax - vmin, 1e-30)
+        if abs(vc - vmin) < 1e-9 * span or abs(vc - vmax) < 1e-9 * span:
+            ticks = _nice_tick_values_linear_segment(vmin, vmax)
+        else:
+            t_lo = _nice_tick_values_linear_segment(vmin, vc, nbins=5)
+            t_hi = _nice_tick_values_linear_segment(vc, vmax, nbins=5)
+            ticks = np.unique(np.concatenate([t_lo, t_hi]))
+    else:
+        ticks = _nice_tick_values_linear_segment(vmin, vmax, nbins=8)
+
+    cbar.set_ticks(ticks)
+    fmt = mticker.ScalarFormatter()
+    fmt.set_scientific(False)
+    fmt.set_useOffset(False)
+    orient = getattr(cbar, "orientation", "vertical")
+    if orient == "vertical":
+        cbar.ax.yaxis.set_major_formatter(fmt)
+    else:
+        cbar.ax.xaxis.set_major_formatter(fmt)
+
+
+def _apply_heatmap_y_axis_right(ax) -> None:
+    """Put row (y) tick labels on the right; hide y ticks on the left."""
+    ax.yaxis.set_ticks_position("right")
+    ax.yaxis.set_label_position("right")
+    ax.tick_params(axis="y", which="major", left=False, right=True, labelleft=False, labelright=True)
 
 
 def _apply_label_order(
@@ -392,46 +671,191 @@ def _heatmap_vector_format(fmt: str) -> bool:
     return fmt in ("svg", "pdf")
 
 
-def _draw_heatmap_vector_cells(ax, arr, cmap_obj, vmin: float, vmax: float):
+def _draw_heatmap_vector_cells(ax, arr, cmap_obj, norm) -> None:
     """
-    Draw one matplotlib Rectangle per matrix cell, matching imshow(origin='upper') layout.
-    Returns a ScalarMappable suitable for ``plt.colorbar(..., extend='min')``.
+    Draw one matplotlib Rectangle per matrix cell, matching imshow(origin='lower') layout.
+    Row 0 is at the bottom, column 0 at the left, so the diagonal runs bottom-left → top-right.
+    Each patch has a stable SVG id (gid) for editing. No bitmaps.
+    ``norm`` is a matplotlib Normalize or TwoSlopeNorm (vmin/vmax for under-colour).
     """
     import matplotlib.colors as mcolors
     import numpy as np
-    from matplotlib.cm import ScalarMappable
     from matplotlib.patches import Rectangle
 
     nrow, ncol = int(arr.shape[0]), int(arr.shape[1])
-    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    vmin_plot = float(norm.vmin)
     under_rgba = mcolors.to_rgba(cmap_obj.get_under())
     for i in range(nrow):
         for j in range(ncol):
             v = arr[i, j]
             if np.isnan(v):
                 fc = (1.0, 1.0, 1.0, 1.0)
-            elif v < vmin:
+            elif v < vmin_plot:
                 fc = under_rgba
             else:
                 fc = cmap_obj(norm(v))
-            y0 = (nrow - 1 - i) - 0.5
+            y0 = i - 0.5
             x0 = j - 0.5
-            ax.add_patch(
-                Rectangle(
-                    (x0, y0),
-                    1.0,
-                    1.0,
-                    linewidth=0,
-                    edgecolor="none",
-                    facecolor=fc,
-                )
+            rect = Rectangle(
+                (x0, y0),
+                1.0,
+                1.0,
+                linewidth=0,
+                edgecolor="none",
+                facecolor=fc,
             )
+            rect.set_gid(f"rmsd_cell_r{i}_c{j}")
+            ax.add_patch(rect)
     ax.set_xlim(-0.5, ncol - 0.5)
-    ax.set_ylim(nrow - 0.5, -0.5)
-    ax.set_aspect("auto")
-    sm = ScalarMappable(cmap=cmap_obj, norm=norm)
-    sm.set_array(np.linspace(vmin, vmax, 256))
-    return sm
+    ax.set_ylim(-0.5, nrow - 0.5)
+    # Keep cells square (same scale on x and y); avoids stretch when a horizontal colour bar reshapes the axes box.
+    ax.set_aspect("equal", adjustable="box")
+
+
+def _axes_lower_edge_figure(fig, ax) -> float:
+    """Lowest y in figure coordinates (0–1, origin bottom) of the axes tight bbox (includes tick labels)."""
+    import numpy as np
+
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    bb = ax.get_tightbbox(r)
+    if bb is None:
+        pos = ax.get_position()
+        return float(pos.y0)
+    corners = np.array([[bb.x0, bb.y0], [bb.x1, bb.y0]], dtype=float)
+    fig_y = fig.transFigure.inverted().transform(corners)[:, 1]
+    return float(np.min(fig_y))
+
+
+def _heatmap_data_bbox_in_figure(ax, nrows: int, ncols: int) -> tuple[float, float, float, float]:
+    """
+    Bounding box in figure coordinates (0–1) for the heatmap cell region
+    x in [-0.5, ncols-0.5], y in [-0.5, nrows-0.5] — matches the square grid, not the full axes box.
+    """
+    import numpy as np
+
+    fig = ax.figure
+    fig.canvas.draw()
+    pts = np.array(
+        [
+            [-0.5, -0.5],
+            [ncols - 0.5, -0.5],
+            [ncols - 0.5, nrows - 0.5],
+            [-0.5, nrows - 0.5],
+        ],
+        dtype=float,
+    )
+    disp = ax.transData.transform(pts)
+    f = fig.transFigure.inverted().transform(disp)
+    xmin, xmax = float(np.min(f[:, 0])), float(np.max(f[:, 0]))
+    ymin, ymax = float(np.min(f[:, 1])), float(np.max(f[:, 1]))
+    return xmin, ymin, xmax - xmin, ymax - ymin
+
+
+def _add_raster_colorbar(
+    ax,
+    cmap_obj,
+    norm,
+    *,
+    nrows: int,
+    ncols: int,
+    label: str = "RMSD (Å)",
+    orientation: str = "vertical",
+    mappable=None,
+    vertical_colorbar_on_left: bool = False,
+):
+    """
+    Colour bar as a raster, sized to match the heatmap grid extent (vertical: same height as the
+    square; horizontal: same width), not the full axes.
+    Call after tight_layout() on the heatmap axes.
+    If vertical_colorbar_on_left is True, place the vertical bar to the left of the heatmap grid
+    (e.g. when the y-axis labels are on the right).
+    """
+    import numpy as np
+    from matplotlib.cm import ScalarMappable
+
+    fig = ax.figure
+    orient = orientation.lower() if orientation else "vertical"
+    if orient not in ("vertical", "horizontal"):
+        orient = "vertical"
+
+    if mappable is None:
+        sm = ScalarMappable(cmap=cmap_obj, norm=norm)
+        sm.set_array(np.linspace(float(norm.vmin), float(norm.vmax), 256))
+        mappable = sm
+
+    fig.canvas.draw()
+    xmin, ymin, bw, bh = _heatmap_data_bbox_in_figure(ax, nrows, ncols)
+    if bw < 1e-9 or bh < 1e-9:
+        pos = ax.get_position()
+        xmin, ymin, bw, bh = pos.x0, pos.y0, pos.width, min(pos.width, pos.height)
+
+    pad = 0.012
+    if orient == "vertical":
+        cw = max(0.007, min(0.024, 0.016 * ncols / max(nrows, ncols, 8)))
+        if vertical_colorbar_on_left:
+            right = xmin - pad
+            left = right - cw
+            if left < 0.03:
+                cur = float(fig.subplotpars.left)
+                fig.subplots_adjust(left=min(0.22, cur + (0.04 - left)))
+                fig.canvas.draw()
+                xmin, ymin, bw, bh = _heatmap_data_bbox_in_figure(ax, nrows, ncols)
+                right = xmin - pad
+                left = right - cw
+            cax = fig.add_axes([max(0.015, left), ymin, cw, bh])
+        else:
+            left = xmin + bw + pad
+            if left + cw > 0.995:
+                fig.subplots_adjust(right=0.99)
+                fig.canvas.draw()
+                xmin, ymin, bw, bh = _heatmap_data_bbox_in_figure(ax, nrows, ncols)
+                left = xmin + bw + pad
+            cax = fig.add_axes([left, ymin, cw, bh])
+    else:
+        ch = max(0.007, min(0.032, 0.022))
+        hpad = 0.022
+        bottom = 0.0
+        for _ in range(10):
+            lo = _axes_lower_edge_figure(fig, ax)
+            bottom = lo - hpad - ch
+            if bottom >= 0.02:
+                break
+            cur = float(fig.subplotpars.bottom)
+            fig.subplots_adjust(bottom=min(0.45, cur + 0.07))
+            fig.canvas.draw()
+            xmin, ymin, bw, bh = _heatmap_data_bbox_in_figure(ax, nrows, ncols)
+        if bottom < 0.01:
+            bottom = 0.01
+        cax = fig.add_axes([xmin, bottom, bw, ch])
+
+    cbar = fig.colorbar(mappable, cax=cax, orientation=orient, extend="neither", label=label)
+    _set_heatmap_colorbar_ticks(cbar, norm)
+    if hasattr(cbar, "solids") and cbar.solids is not None:
+        cbar.solids.set_rasterized(True)
+    for p in cbar.ax.patches:
+        if hasattr(p, "set_rasterized"):
+            p.set_rasterized(True)
+    return cbar
+
+
+def _savefig_vector_heatmap(fig, tmp_path: str, fmt: str, dpi: int = 150) -> None:
+    """SVG/PDF: editable text; keep heatmap cells vector; leave colour bar raster (single image)."""
+    import matplotlib as mpl
+
+    if fig.axes:
+        main_ax = fig.axes[0]
+        for artist in main_ax.get_children():
+            if hasattr(artist, "set_rasterized"):
+                try:
+                    artist.set_rasterized(False)
+                except (AttributeError, TypeError):
+                    pass
+    rc_extra: dict = {}
+    if fmt == "svg":
+        rc_extra["svg.fonttype"] = "none"
+    with mpl.rc_context(rc_extra):
+        fig.savefig(tmp_path, format=fmt, dpi=dpi, bbox_inches="tight")
 
 
 def plot_heatmap(
@@ -442,15 +866,29 @@ def plot_heatmap(
     cmap: str = "viridis_r",
     vmin: float | None = None,
     vmax: float | None = None,
+    short_labels: bool = False,
+    diverging_center: str | None = None,
+    vcenter: float | None = None,
+    colorbar_orientation: str = "vertical",
+    y_axis_right: bool = False,
+    *,
+    cbar_label: str = "RMSD (Å)",
+    autoscale_positive_offdiag_only: bool = True,
 ) -> None:
-    """Draw heatmap with matplotlib and save to out_path as an image (PNG/SVG/PDF)."""
+    """
+    Draw heatmap with matplotlib and save to out_path as an image (PNG/SVG/PDF).
+
+    RMSD tables: leave cbar_label and autoscale_positive_offdiag_only at defaults.
+    Other square matrices (e.g. Dali Z): set cbar_label (e.g. \"Dali Z\") and
+    autoscale_positive_offdiag_only=False so autoscale and median use all finite off-diagonals.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import numpy as np
     except ImportError as e:
-        print("Matplotlib required for --plot. Install with: pip install matplotlib", file=sys.stderr)
+        print("Matplotlib is required for heatmap output. Install with: pip install matplotlib", file=sys.stderr)
         raise SystemExit(1) from e
 
     out_path = os.path.abspath(out_path)
@@ -473,19 +911,26 @@ def plot_heatmap(
             else:
                 arr[i, j] = float(v)
 
-    # Default colour scale: off-diagonal pairwise RMSDs only, and > 0 (exclude diagonal zeros).
+    # Default colour scale from finite off-diagonal values (RMSD: prefer positive only).
     mask = ~np.eye(n, dtype=bool)
     off = arr[mask]
     off_finite = off[np.isfinite(off)]
-    pos = off_finite[off_finite > 0]
-    if len(pos) > 0:
-        data_min = float(np.min(pos))
-        data_max = float(np.max(pos))
+    if autoscale_positive_offdiag_only:
+        pos = off_finite[off_finite > 0]
+        if len(pos) > 0:
+            data_min = float(np.min(pos))
+            data_max = float(np.max(pos))
+        elif len(off_finite) > 0:
+            data_min = float(np.min(off_finite))
+            data_max = float(np.max(off_finite))
+        else:
+            print("No finite off-diagonal values to plot.", file=sys.stderr)
+            return
     elif len(off_finite) > 0:
         data_min = float(np.min(off_finite))
         data_max = float(np.max(off_finite))
     else:
-        print("No finite off-diagonal RMSD values to plot.", file=sys.stderr)
+        print("No finite off-diagonal values to plot.", file=sys.stderr)
         return
     disp_vmin = float(vmin) if vmin is not None else data_min
     disp_vmax = float(vmax) if vmax is not None else data_max
@@ -500,6 +945,23 @@ def plot_heatmap(
         mid = 0.5 * (disp_vmin + disp_vmax)
         eps = 1e-6 * max(abs(mid), 1.0)
         disp_vmin, disp_vmax = mid - eps, mid + eps
+
+    dc = diverging_center if diverging_center else "none"
+    vc_for_norm: float | None = None
+    if dc == "median":
+        if vcenter is not None:
+            vc_for_norm = vcenter
+        elif autoscale_positive_offdiag_only:
+            vc_for_norm = median_rmsd_from_square_array(arr)
+        else:
+            vc_for_norm = median_finite_offdiag_square_array(arr)
+        if vc_for_norm is None:
+            print("Warning: could not compute median; using linear colour scale.", file=sys.stderr)
+            dc = "none"
+        elif vcenter is None:
+            print("Heatmap: median centre = %.4g" % vc_for_norm, file=sys.stderr)
+    norm = make_heatmap_norm(disp_vmin, disp_vmax, dc, vc_for_norm if dc == "median" else None)
+
     # Diagonal: below scale so it maps to the colour map "under" colour (white)
     np.fill_diagonal(arr, disp_vmin - 1.0)
 
@@ -513,33 +975,75 @@ def plot_heatmap(
     ext = os.path.splitext(out_path)[1].lower()
     fmt = "png" if ext == ".png" else "pdf" if ext == ".pdf" else "svg" if ext == ".svg" else "png"
 
-    fig, ax = plt.subplots(figsize=(max(6, n * 0.4), max(5, n * 0.35)))
+    cb_orient = colorbar_orientation.lower() if colorbar_orientation else "vertical"
+    if cb_orient not in ("vertical", "horizontal"):
+        cb_orient = "vertical"
+    fig_h = max(5, n * 0.35)
+    if cb_orient == "horizontal":
+        fig_h += 1.25
+    fig, ax = plt.subplots(figsize=(max(6, n * 0.4), fig_h))
+    im = None
     if _heatmap_vector_format(fmt):
-        sm = _draw_heatmap_vector_cells(ax, arr, cmap_obj, disp_vmin, disp_vmax)
-        plt.colorbar(sm, ax=ax, label="RMSD (Å)", extend="min")
+        _draw_heatmap_vector_cells(ax, arr, cmap_obj, norm)
     else:
         im = ax.imshow(
             arr,
-            aspect="auto",
+            aspect="equal",
+            origin="lower",
             cmap=cmap_obj,
             interpolation="nearest",
-            vmin=disp_vmin,
-            vmax=disp_vmax,
+            norm=norm,
         )
-        plt.colorbar(im, ax=ax, label="RMSD (Å)", extend="min")
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
-    ax.set_xticklabels(ids, rotation=45, ha="right")
-    ax.set_yticklabels(ids)
+    tick_labels = [short_heatmap_label(x) if short_labels else x for x in ids]
+    ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+    ax.set_yticklabels(tick_labels)
     ax.set_title(title)
-    plt.tight_layout()
+    if y_axis_right:
+        _apply_heatmap_y_axis_right(ax)
+    cbar_left = y_axis_right and cb_orient == "vertical"
+    if cb_orient == "horizontal":
+        r_edge = 0.86 if y_axis_right else 0.94
+        plt.tight_layout(rect=(0.06, 0.22, r_edge, 0.94))
+    elif cbar_left:
+        plt.tight_layout(rect=(0.16, 0.06, 0.90, 0.92))
+    else:
+        plt.tight_layout(rect=(0.08, 0.06, 0.88, 0.92))
+    if _heatmap_vector_format(fmt):
+        _add_raster_colorbar(
+            ax,
+            cmap_obj,
+            norm,
+            nrows=n,
+            ncols=n,
+            label=cbar_label,
+            orientation=cb_orient,
+            mappable=None,
+            vertical_colorbar_on_left=cbar_left,
+        )
+    else:
+        _add_raster_colorbar(
+            ax,
+            cmap_obj,
+            norm,
+            nrows=n,
+            ncols=n,
+            label=cbar_label,
+            orientation=cb_orient,
+            mappable=im,
+            vertical_colorbar_on_left=cbar_left,
+        )
 
     # Save to a temp file in the same directory, then move to target (avoids partial/CSV overwrite)
     fd, tmp_path = tempfile.mkstemp(suffix=ext, prefix="rmsd_heatmap_", dir=plot_dir or ".")
     try:
         os.close(fd)
         try:
-            fig.savefig(tmp_path, format=fmt, dpi=150, bbox_inches="tight")
+            if _heatmap_vector_format(fmt):
+                _savefig_vector_heatmap(fig, tmp_path, fmt, dpi=150)
+            else:
+                fig.savefig(tmp_path, format=fmt, dpi=150, bbox_inches="tight")
         except Exception as e:
             plt.close(fig)
             if os.path.exists(tmp_path):
@@ -597,6 +1101,11 @@ def plot_combined_rmsd_heatmap_from_csv(
     cmap: str = "viridis_r",
     vmin: float | None = None,
     vmax: float | None = None,
+    short_labels: bool = False,
+    diverging_center: str | None = None,
+    vcenter: float | None = None,
+    colorbar_orientation: str = "vertical",
+    y_axis_right: bool = False,
 ) -> None:
     """Heatmap from wide combined_rmsd_table.csv (Model + structure columns + Subdomain)."""
     try:
@@ -608,61 +1117,30 @@ def plot_combined_rmsd_heatmap_from_csv(
         print("Matplotlib required for combined heatmap. Install with: pip install matplotlib", file=sys.stderr)
         raise SystemExit(1) from e
 
-    csv_path = os.path.abspath(csv_path)
-    if not os.path.isfile(csv_path):
-        print("Error: Combined CSV not found:", csv_path, file=sys.stderr)
+    data = load_combined_rmsd_csv_matrix(csv_path)
+    if data is None:
+        print("Error: Combined CSV not found or invalid:", csv_path, file=sys.stderr)
         raise SystemExit(1)
+    arr, col_ids, model_names, rows = data
 
-    with open(csv_path, newline="") as f:
-        reader = csv.DictReader(f)
-        if not reader.fieldnames or "Model" not in reader.fieldnames or "Subdomain" not in reader.fieldnames:
-            print("Error: Combined CSV must have Model and Subdomain columns:", csv_path, file=sys.stderr)
-            raise SystemExit(1)
-        col_ids = [c for c in reader.fieldnames if c not in ("Model", "Subdomain")]
-        rows = list(reader)
-
-    if not rows or not col_ids:
-        print("Error: Combined CSV is empty or has no structure columns:", csv_path, file=sys.stderr)
-        raise SystemExit(1)
-
-    # Preserve CSV row and column order (columns follow row order as written by write_combined_rmsd_csv).
-    n_r, n_c = len(rows), len(col_ids)
-    arr = np.full((n_r, n_c), np.nan, dtype=np.float64)
-    model_names = [r.get("Model", "").strip() for r in rows]
-    for i, r in enumerate(rows):
-        m = model_names[i]
-        for j, cid in enumerate(col_ids):
-            if cid == m:
-                continue
-            v = _parse_rmsd_table_cell(r.get(cid, ""))
-            if v is not None:
-                arr[i, j] = v
-
-    finite = arr[np.isfinite(arr)]
-    pos = finite[finite > 0]
-    if len(pos) > 0:
-        data_min = float(np.min(pos))
-        data_max = float(np.max(pos))
-    elif len(finite) > 0:
-        data_min = float(np.min(finite))
-        data_max = float(np.max(finite))
-    else:
-        print("No finite RMSD values in combined CSV to plot.", file=sys.stderr)
+    limits = disp_limits_from_rmsd_values_array(arr, vmin, vmax)
+    if limits is None:
+        print("No finite RMSD values in combined CSV to plot.", csv_path, file=sys.stderr)
         return
+    disp_vmin, disp_vmax = limits
 
-    disp_vmin = float(vmin) if vmin is not None else data_min
-    disp_vmax = float(vmax) if vmax is not None else data_max
-    if disp_vmin > disp_vmax:
-        print(
-            "Error: heatmap scale requires vmin < vmax (got vmin=%s vmax=%s)."
-            % (disp_vmin, disp_vmax),
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    if disp_vmax - disp_vmin <= 1e-15:
-        mid = 0.5 * (disp_vmin + disp_vmax)
-        eps = 1e-6 * max(abs(mid), 1.0)
-        disp_vmin, disp_vmax = mid - eps, mid + eps
+    dc = diverging_center if diverging_center else "none"
+    vc_for_norm: float | None = None
+    if dc == "median":
+        vc_for_norm = vcenter if vcenter is not None else median_rmsd_from_combined_array(arr)
+        if vc_for_norm is None:
+            print("Warning: could not compute median for combined heatmap; using linear colour scale.", file=sys.stderr)
+            dc = "none"
+        elif vcenter is None:
+            print("Combined heatmap: median centre = %.4g Å" % vc_for_norm, file=sys.stderr)
+    norm = make_heatmap_norm(disp_vmin, disp_vmax, dc, vc_for_norm if dc == "median" else None)
+
+    n_r, n_c = arr.shape
 
     arr_disp = arr.copy()
     for i, m in enumerate(model_names):
@@ -670,7 +1148,12 @@ def plot_combined_rmsd_heatmap_from_csv(
             if cid == m or not np.isfinite(arr[i, j]):
                 arr_disp[i, j] = disp_vmin - 1.0
 
-    row_labels = [f"{r.get('Subdomain', '')} | {r.get('Model', '')}" for r in rows]
+    if short_labels:
+        row_labels = [short_heatmap_label(r.get("Model", "").strip()) for r in rows]
+        col_tick_labels = [short_heatmap_label(c) for c in col_ids]
+    else:
+        row_labels = [f"{r.get('Subdomain', '')} | {r.get('Model', '')}" for r in rows]
+        col_tick_labels = list(col_ids)
 
     try:
         cmap_obj = plt.get_cmap(cmap).copy()
@@ -690,32 +1173,73 @@ def plot_combined_rmsd_heatmap_from_csv(
     ext = os.path.splitext(out_path)[1].lower()
     fmt = "png" if ext == ".png" else "pdf" if ext == ".pdf" else "svg" if ext == ".svg" else "png"
 
-    fig, ax = plt.subplots(figsize=(max(8, n_c * 0.35), max(6, n_r * 0.22)))
+    cb_orient = colorbar_orientation.lower() if colorbar_orientation else "vertical"
+    if cb_orient not in ("vertical", "horizontal"):
+        cb_orient = "vertical"
+    fig_h = max(6, n_r * 0.22)
+    if cb_orient == "horizontal":
+        fig_h += 1.45
+    fig, ax = plt.subplots(figsize=(max(8, n_c * 0.35), fig_h))
+    im = None
     if _heatmap_vector_format(fmt):
-        sm = _draw_heatmap_vector_cells(ax, arr_disp, cmap_obj, disp_vmin, disp_vmax)
-        plt.colorbar(sm, ax=ax, label="RMSD (Å)", extend="min")
+        _draw_heatmap_vector_cells(ax, arr_disp, cmap_obj, norm)
     else:
         im = ax.imshow(
             arr_disp,
-            aspect="auto",
+            aspect="equal",
+            origin="lower",
             cmap=cmap_obj,
             interpolation="nearest",
-            vmin=disp_vmin,
-            vmax=disp_vmax,
+            norm=norm,
         )
-        plt.colorbar(im, ax=ax, label="RMSD (Å)", extend="min")
     ax.set_xticks(range(n_c))
     ax.set_yticks(range(n_r))
-    ax.set_xticklabels(col_ids, rotation=45, ha="right", fontsize=x_fs)
+    ax.set_xticklabels(col_tick_labels, rotation=45, ha="right", fontsize=x_fs)
     ax.set_yticklabels(row_labels, fontsize=y_fs)
     ax.set_title(title)
-    plt.tight_layout()
+    if y_axis_right:
+        _apply_heatmap_y_axis_right(ax)
+    cbar_left = y_axis_right and cb_orient == "vertical"
+    if cb_orient == "horizontal":
+        r_edge = 0.86 if y_axis_right else 0.94
+        plt.tight_layout(rect=(0.06, 0.22, r_edge, 0.94))
+    elif cbar_left:
+        plt.tight_layout(rect=(0.16, 0.06, 0.90, 0.92))
+    else:
+        plt.tight_layout(rect=(0.08, 0.06, 0.88, 0.92))
+    if _heatmap_vector_format(fmt):
+        _add_raster_colorbar(
+            ax,
+            cmap_obj,
+            norm,
+            nrows=n_r,
+            ncols=n_c,
+            label="RMSD (Å)",
+            orientation=cb_orient,
+            mappable=None,
+            vertical_colorbar_on_left=cbar_left,
+        )
+    else:
+        _add_raster_colorbar(
+            ax,
+            cmap_obj,
+            norm,
+            nrows=n_r,
+            ncols=n_c,
+            label="RMSD (Å)",
+            orientation=cb_orient,
+            mappable=im,
+            vertical_colorbar_on_left=cbar_left,
+        )
 
     fd, tmp_path = tempfile.mkstemp(suffix=ext, prefix="rmsd_combined_heatmap_", dir=plot_dir or ".")
     try:
         os.close(fd)
         try:
-            fig.savefig(tmp_path, format=fmt, dpi=150, bbox_inches="tight")
+            if _heatmap_vector_format(fmt):
+                _savefig_vector_heatmap(fig, tmp_path, fmt, dpi=150)
+            else:
+                fig.savefig(tmp_path, format=fmt, dpi=150, bbox_inches="tight")
         except Exception as e:
             plt.close(fig)
             if os.path.exists(tmp_path):
@@ -793,11 +1317,16 @@ def run_single_file(args: argparse.Namespace) -> None:
             cmap=args.cmap,
             vmin=args.vmin,
             vmax=args.vmax,
+            short_labels=args.short_heatmap_labels,
+            diverging_center=args.heatmap_diverging_center,
+            vcenter=None,
+            colorbar_orientation=args.heatmap_colorbar_orientation,
+            y_axis_right=args.heatmap_y_axis_right,
         )
 
 
 def run_scan_dir(args: argparse.Namespace) -> None:
-    root = os.path.abspath(args.scan_dir)
+    root = _resolved_path(args.scan_dir)
     if not os.path.isdir(root):
         print("Error: --scan-dir is not a directory:", root, file=sys.stderr)
         sys.exit(1)
@@ -816,7 +1345,7 @@ def run_scan_dir(args: argparse.Namespace) -> None:
     print(f"Scan {root!r}: {len(sources)} file(s) matching {args.scan_glob!r}", file=sys.stderr)
 
     if args.heatmap_dir:
-        hdir = os.path.abspath(args.heatmap_dir)
+        hdir = _resolved_path(args.heatmap_dir)
         os.makedirs(hdir, exist_ok=True)
 
     tables: list[tuple[str, list[str], list[list[float]]]] = []
@@ -836,30 +1365,83 @@ def run_scan_dir(args: argparse.Namespace) -> None:
         print("Error: No valid RMSD tables produced.", file=sys.stderr)
         sys.exit(1)
 
+    combined_path: str | None = None
+    combined_sub_order: list[str] | None = None
+    if args.combined_subdomain_order:
+        combined_sub_order = parse_order(args.combined_subdomain_order)
+        if not combined_sub_order:
+            print("Warning: --combined-subdomain-order produced no tokens; using default subdomain sort.", file=sys.stderr)
+
+    if not args.no_combined:
+        combined_path = _resolved_path(args.combined_csv or os.path.join(root, "combined_rmsd_table.csv"))
+        write_combined_rmsd_csv(
+            tables,
+            combined_path,
+            subdomain_order=combined_sub_order if combined_sub_order else None,
+        )
+        print("Wrote", combined_path)
+
+    use_shared_scale = bool(args.heatmap_dir) and not args.no_shared_heatmap_scale
     shared_vmin: float | None = None
     shared_vmax: float | None = None
-    if args.heatmap_dir and args.shared_heatmap_scale:
-        sv = disp_vmin_vmax_for_combined_tables(tables, args.vmin, args.vmax)
-        if sv is not None:
-            shared_vmin, shared_vmax = sv
+    if use_shared_scale:
+        sv = None
+        if combined_path is not None:
+            sv = vmin_vmax_from_combined_csv_path(combined_path, args.vmin, args.vmax)
+            if sv is not None:
+                shared_vmin, shared_vmax = sv
+                print(
+                    "Using merged CSV colour scale for per-subdomain heatmaps: vmin=%s vmax=%s"
+                    % (shared_vmin, shared_vmax),
+                    file=sys.stderr,
+                )
+        if sv is None:
+            sv = disp_vmin_vmax_for_combined_tables(
+                tables,
+                args.vmin,
+                args.vmax,
+                subdomain_order=combined_sub_order if combined_sub_order else None,
+            )
+            if sv is not None:
+                shared_vmin, shared_vmax = sv
+                note = (
+                    " (--no-combined)"
+                    if combined_path is None
+                    else " (fallback: same limits as merged table)"
+                )
+                print(
+                    "Using merged-table scale from memory%s: vmin=%s vmax=%s"
+                    % (note, shared_vmin, shared_vmax),
+                    file=sys.stderr,
+                )
+        if sv is None:
             print(
-                "Using combined-table colour scale for per-log heatmaps: vmin=%s vmax=%s"
-                % (shared_vmin, shared_vmax),
+                "Warning: could not derive merged-table colour scale; per-subdomain heatmaps use local auto scale.",
                 file=sys.stderr,
             )
-        else:
+
+    global_median: float | None = None
+    if (
+        args.heatmap_diverging_center == "median"
+        and combined_path is not None
+        and os.path.isfile(combined_path)
+    ):
+        global_median = median_rmsd_from_combined_csv_path(combined_path)
+        if global_median is not None:
             print(
-                "Warning: could not derive combined scale; per-log heatmaps use local auto scale.",
+                "Diverging centre (median from merged CSV): %.4g Å" % global_median,
                 file=sys.stderr,
             )
 
     if args.heatmap_dir:
         hf = args.heatmap_format
-        hdir_abs = os.path.abspath(args.heatmap_dir)
+        hdir_abs = _resolved_path(args.heatmap_dir)
         for label, ids, matrix in tables:
             hp = os.path.join(hdir_abs, f"rmsd_heatmap_{label}.{hf}")
-            pv = shared_vmin if shared_vmin is not None else args.vmin
-            px = shared_vmax if shared_vmax is not None else args.vmax
+            if use_shared_scale and shared_vmin is not None and shared_vmax is not None:
+                pv, px = shared_vmin, shared_vmax
+            else:
+                pv, px = args.vmin, args.vmax
             plot_heatmap(
                 ids,
                 matrix,
@@ -868,25 +1450,25 @@ def run_scan_dir(args: argparse.Namespace) -> None:
                 cmap=args.cmap,
                 vmin=pv,
                 vmax=px,
+                short_labels=args.short_heatmap_labels,
+                diverging_center=args.heatmap_diverging_center,
+                vcenter=global_median,
+                colorbar_orientation=args.heatmap_colorbar_orientation,
+                y_axis_right=args.heatmap_y_axis_right,
             )
 
-    if not args.no_combined:
-        combined_path = args.combined_csv or os.path.join(root, "combined_rmsd_table.csv")
-        combined_path = os.path.abspath(combined_path)
-        write_combined_rmsd_csv(tables, combined_path)
-        print("Wrote", combined_path)
-
+    if not args.no_combined and combined_path is not None:
         want_combined_hm = (args.heatmap_dir or args.combined_heatmap) and not args.no_combined_heatmap
         if want_combined_hm:
             hf = args.heatmap_format
             if args.combined_heatmap:
                 ch_out = ensure_batch_heatmap_path(
-                    os.path.abspath(args.combined_heatmap),
+                    _resolved_path(args.combined_heatmap),
                     hf,
                 )
             else:
                 ch_out = os.path.join(
-                    os.path.abspath(args.heatmap_dir),
+                    _resolved_path(args.heatmap_dir),
                     f"combined_rmsd_heatmap.{hf}",
                 )
             comb_title = f"{args.title} (combined)" if args.title else "Combined RMSD (all subdomains)"
@@ -897,6 +1479,11 @@ def run_scan_dir(args: argparse.Namespace) -> None:
                 cmap=args.cmap,
                 vmin=args.vmin,
                 vmax=args.vmax,
+                short_labels=args.short_heatmap_labels,
+                diverging_center=args.heatmap_diverging_center,
+                vcenter=global_median,
+                colorbar_orientation=args.heatmap_colorbar_orientation,
+                y_axis_right=args.heatmap_y_axis_right,
             )
 
 
@@ -924,15 +1511,20 @@ BATCH MODE (--scan-dir DIR):
   For each match: parse like single-file mode, apply --order / --order-dir / --order-glob if set
   (same rules as single-file, repeated for every matched log), then write rmsd_table_<suffix>.csv
   beside that file (<suffix> from the log filename). Then stack every subdomain into one wide
-  combined CSV (default DIR/combined_rmsd_table.csv): rows sorted by Subdomain then Model; structure
+  combined CSV (default DIR/combined_rmsd_table.csv): rows sorted by Subdomain then Model (override block
+  order with --combined-subdomain-order, e.g. D1,D2,ID,CWB2); structure
   columns follow that row order (first-seen model per sorted rows). Columns Model + those names +
   Subdomain. Empty cells where a subdomain has no pair. Use --no-combined to skip the merged file. For figures in batch mode use --heatmap-dir
-  (one PNG per log plus combined_rmsd_heatmap.png from the merged CSV), or set --combined-heatmap
+  (one SVG per log plus combined_rmsd_heatmap.svg from the merged CSV by default), or set --combined-heatmap
   PATH to write only the combined figure (file extension sets format if present; else --heatmap-format).
-  Use --heatmap-format png|pdf|svg for auto-named batch outputs (default png). Use --no-combined-heatmap
+  Use --heatmap-format png|pdf|svg for auto-named batch outputs (default svg). Use --no-combined-heatmap
   to skip the combined figure when using --heatmap-dir. Single-file mode uses --plot (extension sets format).
-  Use --shared-heatmap-scale so per-log heatmaps use the same vmin/vmax as the combined heatmap (requires
-  --heatmap-dir; honors --vmin/--vmax when set).
+  Per-subdomain heatmaps use the merged CSV colour scale by default; use --no-shared-heatmap-scale for local auto scale.
+  --vmin/--vmax apply to the merged scale and the combined heatmap when set.
+
+Examples (from repository root):
+  python ranking/rmsd_to_csv.py /path/to/project/rmsd_SSM_values.txt -o /path/to/project/rmsd_table.csv
+  python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --scan-glob 'rmsd_SSM_values*.txt'
 """
     ap = argparse.ArgumentParser(
         description="Pairwise RMSD logs or RMSD CSV -> square CSV table(s); optional matplotlib heatmaps.",
@@ -967,6 +1559,14 @@ BATCH MODE (--scan-dir DIR):
         help="Batch only: output path for the wide merged table (default: <scan-dir>/combined_rmsd_table.csv).",
     )
     ap.add_argument(
+        "--combined-subdomain-order",
+        metavar="LIST_OR_FILE",
+        default=None,
+        help="Batch only: comma-separated tokens or path (one token per line) giving subdomain block order in "
+        "combined_rmsd_table.csv and the combined heatmap. Each token matches one subdomain label with an "
+        "underscore boundary (e.g. D1 matches …_D1s but not …_D10s). Unmatched subdomains follow in natural sort.",
+    )
+    ap.add_argument(
         "--no-combined",
         action="store_true",
         help="Batch only: write per-file rmsd_table_*.csv but not combined_rmsd_table.csv.",
@@ -977,16 +1577,15 @@ BATCH MODE (--scan-dir DIR):
         default=None,
         help="Batch only: directory for rmsd_heatmap_<suffix>.<fmt> per matched log, and by default "
         "combined_rmsd_heatmap.<fmt> from the merged CSV (unless --no-combined or --no-combined-heatmap). "
-        "<fmt> is set by --heatmap-format (default png).",
+        "<fmt> is set by --heatmap-format (default svg).",
     )
     ap.add_argument(
         "--heatmap-format",
         choices=("png", "pdf", "svg"),
-        default="png",
+        default="svg",
         help="Batch only: image format extension for auto-named heatmaps under --heatmap-dir and for the "
         "default combined path. Ignored when --combined-heatmap ends with .png/.pdf/.svg. "
-        "SVG and PDF draw each matrix cell as a vector patch (PNG uses a raster grid); "
-        "the colour bar may still use a raster strip.",
+        "SVG/PDF: vector matrix cells; colour bar is one embedded image (PNG: raster matrix).",
     )
     ap.add_argument(
         "--combined-heatmap",
@@ -1002,10 +1601,10 @@ BATCH MODE (--scan-dir DIR):
         help="Batch only: with --heatmap-dir, do not write combined_rmsd_heatmap.<fmt>.",
     )
     ap.add_argument(
-        "--shared-heatmap-scale",
+        "--no-shared-heatmap-scale",
         action="store_true",
-        help="Batch only: with --heatmap-dir, use the same vmin/vmax as the combined heatmap "
-        "(from the merged table; honors --vmin/--vmax when set) for every per-log heatmap.",
+        help="Batch only: with --heatmap-dir, use auto vmin/vmax per subdomain matrix instead of the "
+        "merged CSV / combined heatmap scale.",
     )
     ap.add_argument(
         "-o", "--output",
@@ -1017,7 +1616,7 @@ BATCH MODE (--scan-dir DIR):
         metavar="PATH",
         default=None,
         help="Single-file only: save one RMSD heatmap image to PATH (PNG/SVG/PDF; PNG recommended headless). "
-        "SVG/PDF use a vector cell per matrix entry; the colour bar may still use a raster strip.",
+        "SVG/PDF: vector matrix cells; colour bar is one embedded image.",
     )
     ap.add_argument(
         "--title",
@@ -1056,16 +1655,44 @@ BATCH MODE (--scan-dir DIR):
         type=float,
         default=None,
         metavar="VAL",
-        help="Heatmap colour scale floor (Å); default: min of positive off-diagonal RMSDs in that matrix "
-        "(or in the merged table when using --shared-heatmap-scale).",
+        help="Heatmap colour scale floor (Å); default: data min in the matrix or merged CSV (unless "
+        "--no-shared-heatmap-scale for per-subdomain plots).",
     )
     ap.add_argument(
         "--vmax",
         type=float,
         default=None,
         metavar="VAL",
-        help="Heatmap colour scale ceiling (Å); default: max of positive off-diagonal RMSDs in that matrix "
-        "(or in the merged table when using --shared-heatmap-scale).",
+        help="Heatmap colour scale ceiling (Å); default: data max in the matrix or merged CSV (unless "
+        "--no-shared-heatmap-scale for per-subdomain plots).",
+    )
+    ap.add_argument(
+        "--short-heatmap-labels",
+        action="store_true",
+        help="Heatmap figures only: shorten axis labels, e.g. S1refAF3_CWB2s.pdb -> S1_CWB2s (leading "
+        "letter+digits from first segment + last underscore segment). CSV tables unchanged.",
+    )
+    ap.add_argument(
+        "--heatmap-diverging-center",
+        choices=("none", "median"),
+        default="none",
+        help="Use matplotlib TwoSlopeNorm with centre at the median RMSD so diverging colormaps "
+        "(e.g. PuOr_r, RdBu_r) map low vs high around the median. Batch: median from merged CSV for "
+        "all figures when combined_rmsd_table.csv is written; with --no-combined, per-matrix median. "
+        "Single-file: median of that matrix. Default: none (linear scale).",
+    )
+    ap.add_argument(
+        "--heatmap-colorbar-orientation",
+        choices=("vertical", "horizontal"),
+        default="vertical",
+        help="Colour bar layout for heatmap figures (single-file --plot or batch --heatmap-dir). "
+        "horizontal places the bar below the matrix.",
+    )
+    ap.add_argument(
+        "--heatmap-y-axis-right",
+        action="store_true",
+        help="Heatmap figures: draw row (y) tick labels on the right. With a vertical colour bar, "
+        "the bar is placed on the left so it does not overlap the labels.",
     )
     add_log_args(ap)
     args = ap.parse_args()
@@ -1121,10 +1748,8 @@ BATCH MODE (--scan-dir DIR):
         ap.error("Do not combine --combined-heatmap with --no-combined-heatmap")
     if args.combined_heatmap and args.no_combined:
         ap.error("--combined-heatmap requires a merged CSV; omit --no-combined")
-    if args.shared_heatmap_scale and not args.scan_dir:
-        ap.error("--shared-heatmap-scale is only used with --scan-dir")
-    if args.shared_heatmap_scale and not args.heatmap_dir:
-        ap.error("--shared-heatmap-scale requires --heatmap-dir")
+    if args.no_shared_heatmap_scale and not args.scan_dir:
+        ap.error("--no-shared-heatmap-scale is only used with --scan-dir")
 
     if args.scan_dir:
         run_scan_dir(args)

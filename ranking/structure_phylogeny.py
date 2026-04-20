@@ -644,7 +644,14 @@ def detect_format(path: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Structure-based phylogenetic tree from RMSD (Coot LSQ/SSM or CSV)."
+        description="Structure-based phylogenetic tree from RMSD (Coot LSQ/SSM or CSV).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples (from repository root):
+  python ranking/structure_phylogeny.py rmsd_values.txt -o structure_tree.nwk --plot tree.pdf
+  python ranking/structure_phylogeny.py rmsd_SSM_values.txt -o tree.nwk --format ssm_txt
+  python ranking/structure_phylogeny.py --from-pdb /path/to/models -o tree.nwk --plot tree.pdf
+""",
     )
     ap.add_argument(
         "input",

@@ -35,17 +35,17 @@ def main():
     print("="*50)
     
     print("\n1. Analyse a single structure:")
-    print("   python crystal_packing_analyser.py --input model_01.pdb")
+    print("   python metrics/crystal_packing_analyser.py --input model_01.pdb")
     
     print("\n2. Combine outputs from multiple structures:")
-    print("   python crystal_packing_analyser.py --input *.pdb --compare")
+    print("   python metrics/crystal_packing_analyser.py --input *.pdb --compare")
     
     print("\n3. Specify output directory:")
-    print("   python crystal_packing_analyser.py --input model_01.pdb --output analysis_output")
+    print("   python metrics/crystal_packing_analyser.py --input model_01.pdb --output analysis_output")
     
     print("\n4. Use individual modules:")
-    print("   python packing_metrics.py model_01.pdb")
-    print("   python interface_analyser_asu_charge.py model_01.pdb")
+    print("   python metrics/packing_metrics.py model_01.pdb")
+    print("   python metrics/interface_analyser_asu_charge.py model_01.pdb")
     
     print("\n" + "="*50)
     print("INSTALLATION:")
@@ -56,7 +56,7 @@ def main():
     print("\n2. Required packages:")
     print("   • numpy, pandas, scipy")
     print("   • biopython")
-    print("   • R (optional; only for documented FoldKit/*.R scripts)")
+    print("   • R (optional; only for documented ranking/*.R scripts)")
     
     print("\n" + "="*50)
     print("FILES CREATED:")
@@ -89,7 +89,7 @@ def main():
     print("3. Check README.md for detailed documentation")
     print("4. Customise analysis parameters as needed")
     
-    print("\nFor help: python crystal_packing_analyser.py --help")
+    print("\nFor help: python metrics/crystal_packing_analyser.py --help")
 
 if __name__ == "__main__":
     main() 

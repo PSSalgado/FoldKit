@@ -85,7 +85,7 @@ def _announce_superposition_finished(
         lines.append("")
         lines.append("To extract RMSD values, run:")
         lines.append(
-            "python extract_rmsd.py --format {} {}".format(rmsd_format, log_file)
+            "python ranking/extract_rmsd.py --format {} {}".format(rmsd_format, log_file)
         )
     text = "\n".join(lines) + "\n"
     print(text, file=sys.stderr, end="", flush=True)
@@ -697,7 +697,7 @@ def main_pattern_mode():
         print("This mode cannot be combined with --all-vs-all, --reference, --filter, AxB filters, etc.")
         print("")
         print(
-            "Usage: python superimpose_coot_LSQ.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
+            "Usage: python superimposition/superimpose_coot_LSQ.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
         )
         print("\nOptions:")
         print("  --strict-position        ref_pattern before divider and target_pattern after")
@@ -708,9 +708,9 @@ def main_pattern_mode():
         print("  --not-interactive        exit Coot after each alignment set (default: keep open)")
         print("  --lsq-match-type=TYPE    ca | main | all (default: main)")
         print("\nExamples:")
-        print("  python superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id")
+        print("  python superimposition/superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id")
         print(
-            "  python superimpose_coot_LSQ.py --pattern --ref-file-pattern=\"*final.pdb\" --model-file-pattern=\"*.pdb\" "
+            "  python superimposition/superimpose_coot_LSQ.py --pattern --ref-file-pattern=\"*final.pdb\" --model-file-pattern=\"*.pdb\" "
             "/path/to/refs /path/to/models ref_id model_id"
         )
         sys.exit(1)
@@ -770,11 +770,11 @@ def main():
 
     # Check for minimum arguments
     if len(sys.argv) < 3:
-        print("Usage: python superimpose_coot_LSQ.py [--output-dir=DIR] --all-vs-all --filter=TAG dir1 [dir2 ...]")
-        print("       python superimpose_coot_LSQ.py [--output-dir=DIR] --reference=REF_FILE --filter=TAG dir1 [dir2 ...]")
-        print("       python superimpose_coot_LSQ.py [--output-dir=DIR] dir1 [dir2 ...]")
+        print("Usage: python superimposition/superimpose_coot_LSQ.py [--output-dir=DIR] --all-vs-all --filter=TAG dir1 [dir2 ...]")
+        print("       python superimposition/superimpose_coot_LSQ.py [--output-dir=DIR] --reference=REF_FILE --filter=TAG dir1 [dir2 ...]")
+        print("       python superimposition/superimpose_coot_LSQ.py [--output-dir=DIR] dir1 [dir2 ...]")
         print(
-            "       python superimpose_coot_LSQ.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
+            "       python superimposition/superimpose_coot_LSQ.py --pattern [options] reference_dir model_dir ref_pattern model_pattern [target_pattern]"
         )
         print("\nAdditional options:")
         print("  --filter=TAG         Substring or glob on basename / stem (single-set all-vs-all)")
@@ -790,10 +790,10 @@ def main():
         print("  --interactive        AxB only: after all alignments, reload structures and keep Coot open")
         print("  --not-interactive    One-to-many and single-set all-vs-all: exit Coot when done (default: keep open)")
         print("\nExamples:")
-        print("  python superimpose_coot_LSQ.py --reference=/path/to/ref.cif --filter=set_a /path/to/models/")
-        print("  python superimpose_coot_LSQ.py --all-vs-all --filter=set_a /path/to/models/")
-        print("  python superimpose_coot_LSQ.py --all-vs-all --ref-filter=set_a --model-filter=set_b models_dir1 models_dir2")
-        print("  python superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id")
+        print("  python superimposition/superimpose_coot_LSQ.py --reference=/path/to/ref.cif --filter=set_a /path/to/models/")
+        print("  python superimposition/superimpose_coot_LSQ.py --all-vs-all --filter=set_a /path/to/models/")
+        print("  python superimposition/superimpose_coot_LSQ.py --all-vs-all --ref-filter=set_a --model-filter=set_b models_dir1 models_dir2")
+        print("  python superimposition/superimpose_coot_LSQ.py --pattern /path/to/refs /path/to/models ref_id model_id")
         print("")
         print("Pattern mode (--pattern) is a separate entry point, not combinable with the lines above:")
         print("  --pattern must be the FIRST argument after the script name.")

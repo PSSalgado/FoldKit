@@ -319,10 +319,19 @@ def plot_tree(newick: str, out_path: str, title: str) -> None:
         raise SystemExit("Install ete3 or biopython+matplotlib to generate --plot output.")
 
 
+class _ArgHelp(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
+    """Defaults in --help plus preserved epilog newlines."""
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="DALI-style analysis from all-vs-all Z-scores: ranking + tree (Newick).",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        formatter_class=_ArgHelp,
+        epilog="""
+Examples (from repository root):
+  python ranking/dali_phylogeny.py pairwise_zscores.tsv -o dali_tree.nwk
+  python ranking/dali_phylogeny.py pairwise_zscores.tsv --output-ranking dali_ranking.csv --plot tree.pdf
+""",
     )
     ap.add_argument(
         "zscores",
