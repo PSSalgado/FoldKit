@@ -2,15 +2,21 @@
 """
 Run DaliLite pairwise or all-vs-all, optionally write superposed PDBs (target onto query frame),
 and emit Dali-style scores, Z-matrix, ranking, Newick tree, and an optional matplotlib Z-score heatmap
-(same heatmap machinery as rmsd_to_csv.py).
+(via ``foldkit_heatmap``; this script does not import ``rmsd_to_csv``).
 
 Superposition uses the translation–rotation block from DaliLite output (--outfmt transrot):
 for target coordinates X, the superposition onto the query frame is R @ X + t
 (DaliLite manual; same as applymatrix.pl).
 
-Requires: BioPython, NumPy, DaliLite (DALILITE_HOME or --dalilite-path).
-import.pl needs mkdssp at the path in DaliLite's bin/mpidali.pm ($DSSP_EXE); see dali_score.py notes.
-Scores reuse dali_score helpers (raw Dali score on equivalences; Z from DaliLite when present).
+The CSV ``z_score`` column is DaliLite’s summary Z when that line is parsed; otherwise FoldKit
+fills it with the empirical (Holm-style) Z from ``dali_score.compute_z_score``; progress output
+then labels "empirical Z-score". ``raw_score`` is always the recomputed Dali sum on the
+mapped core. Pairs and Z-matrix are natural-sorted by label; the ranking table is ordered by
+Z only. Optional ``--equivalences-dir`` writes one TSV of aligned residue pairs per comparison;
+the pairs CSV can include min/max core residue numbers on each chain.
+
+Requires: BioPython, NumPy, DaliLite (DALILITE_HOME or --dalilite-path). ``import.pl`` needs
+``mkdssp`` at the path in DaliLite’s ``bin/mpidali.pm`` (``$DSSP_EXE``); see ``dali_score.py`` notes.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 import dali_score as _ds
+from structure_phylogeny import _natural_sort_key
 
 from cli_log import add_log_args, setup_log_from_args
 
@@ -408,8 +415,10 @@ def score_pair_from_dalilite(
     cb = cb_use or _ds._get_first_chain_id(coords_B)
     equivs = _ds.normalize_equivalences(dali["equivs"], coords_A, coords_B)
     raw_score, n_core = _ds.compute_dali_score(coords_A, coords_B, equivs)
+    span = _ds.core_residue_spans_from_equivs(equivs)
     L_A, L_B = len(coords_A), len(coords_B)
     z_dali = dali.get("z_score")
+    z_is_empirical = z_dali is None
     if z_dali is not None:
         z_out = float(z_dali)
     else:
@@ -418,6 +427,7 @@ def score_pair_from_dalilite(
     return {
         "raw_score": raw_score,
         "z_score": z_out,
+        "z_is_empirical": z_is_empirical,
         "n_core": n_core,
         "L_A": L_A,
         "L_B": L_B,
@@ -429,6 +439,8 @@ def score_pair_from_dalilite(
         "pct_id": dali.get("pct_id"),
         "dalilite_hit_id": dali.get("hit_id"),
         "dali_description": dali.get("description"),
+        "equivs": equivs,
+        **span,
     }
 
 
@@ -443,7 +455,13 @@ def run_all_pairs(
     verbose: bool,
     debug_dalilite: bool = False,
     fallback_biotite: bool = False,
+    equivalences_dir: str | None = None,
 ) -> dict:
+    # Match rmsd_to_csv / structure_phylogeny: axis order is natural-sorted structure labels.
+    files = sorted(
+        files,
+        key=lambda p: (_natural_sort_key(_ds._label_from_path(p)), _natural_sort_key(p)),
+    )
     labels = [_ds._label_from_path(f) for f in files]
     zscores: dict = {}
     raw_scores: dict = {}
@@ -485,6 +503,14 @@ def run_all_pairs(
                 continue
 
             meta = score_pair_from_dalilite(pa, pb, chain_a, chain_b, dali)
+            z_emp_flag = bool(meta.get("z_is_empirical"))
+            equivs = meta.pop("equivs", [])
+            meta.pop("z_is_empirical", None)
+            if equivalences_dir and equivs:
+                os.makedirs(equivalences_dir, exist_ok=True)
+                _ds.write_equivalences_tsv(
+                    os.path.join(equivalences_dir, f"{pair_tag}.tsv"), equivs
+                )
             z = meta["z_score"]
             zscores[(la, lb)] = zscores[(lb, la)] = z
             raw_scores[(la, lb)] = raw_scores[(lb, la)] = meta["raw_score"]
@@ -493,9 +519,13 @@ def run_all_pairs(
             if verbose:
                 tag = ""
                 if meta.get("alignment_source") == "biotite_fallback":
-                    tag = " [biotite fallback: Z empirical; core_rmsd ≈ Kabsch on matched Cα]"
+                    tag = " [biotite fallback; core_rmsd ≈ Kabsch on matched Cα]"
+                if z_emp_flag:
+                    z_part = f"empirical Z-score={z:.2f} (FoldKit dali-like)"
+                else:
+                    z_part = f"Z={z:.2f} (DaliLite)"
                 print(
-                    f"[{done}/{n_pairs}] {la} vs {lb}: Z={z:.2f} "
+                    f"[{done}/{n_pairs}] {la} vs {lb}: {z_part} "
                     f"raw={meta['raw_score']:.2f} n_core={meta['n_core']}{tag}",
                     file=sys.stderr,
                 )
@@ -507,6 +537,10 @@ def run_all_pairs(
                     "label_a": la,
                     "label_b": lb,
                     **{k: meta[k] for k in ("raw_score", "z_score", "n_core")},
+                    "core_resnum_min_a": meta.get("core_resnum_min_a", ""),
+                    "core_resnum_max_a": meta.get("core_resnum_max_a", ""),
+                    "core_resnum_min_b": meta.get("core_resnum_min_b", ""),
+                    "core_resnum_max_b": meta.get("core_resnum_max_b", ""),
                     "dalilite_rmsd": meta.get("dalilite_rmsd"),
                     "core_rmsd": meta.get("core_rmsd"),
                     "alignment_source": meta.get("alignment_source", "dalilite"),
@@ -559,6 +593,21 @@ def _matrix_from_zscores(labels: list[str], zscores: dict) -> list[list[float | 
     return mat
 
 
+def _matrix_from_ncore(labels: list[str], n_core: dict) -> list[list[int | float | None]]:
+    """Square matrix of n_core; diagonal None; missing pairs None."""
+    mat: list[list[int | float | None]] = []
+    for i, la in enumerate(labels):
+        row: list[int | float | None] = []
+        for j, lb in enumerate(labels):
+            if i == j:
+                row.append(None)
+                continue
+            v = n_core.get((la, lb), n_core.get((lb, la)))
+            row.append(int(v) if v is not None else None)
+        mat.append(row)
+    return mat
+
+
 def _write_dalilite_z_heatmap(
     labels: list[str],
     zscores: dict,
@@ -572,15 +621,32 @@ def _write_dalilite_z_heatmap(
     diverging_center: str | None,
     colorbar_orientation: str,
     y_axis_right: bool,
+    n_core: dict | None = None,
+    n_core_heatmap: bool = False,
+    n_core_n_equal_bins: int = 4,
+    n_core_bin_edges: list[float] | None = None,
 ) -> None:
-    """Square Dali Z heatmap via ``rmsd_to_csv.plot_heatmap`` (shared layout and colour-bar behaviour)."""
+    """Square Dali Z heatmap via ``foldkit_heatmap.plot_heatmap`` (hatch legend: aligned Cα, Dali n_core)."""
     try:
-        import rmsd_to_csv as _rhm
+        from foldkit_heatmap import plot_heatmap as _plot_heatmap
     except ImportError as e:
-        print("Error: --heatmap requires rmsd_to_csv in the same package.", file=sys.stderr)
+        print("Error: --heatmap requires foldkit_heatmap in the same package.", file=sys.stderr)
         raise SystemExit(1) from e
     mat = _matrix_from_zscores(labels, zscores)
-    _rhm.plot_heatmap(
+    n_core_mat: list | None = None
+    if n_core_heatmap and n_core and len(labels) >= 2:
+        n_core_mat = _matrix_from_ncore(labels, n_core)
+    kwargs: dict = {
+        "cbar_label": "Dali Z",
+        "autoscale_positive_offdiag_only": False,
+    }
+    if n_core_mat is not None:
+        kwargs["hatch_value_matrix"] = n_core_mat
+        kwargs["hatch_n_equal_bins"] = max(1, int(n_core_n_equal_bins))
+        kwargs["hatch_channel_name"] = "Dali n_core (aligned Cα)"
+        if n_core_bin_edges is not None:
+            kwargs["hatch_bin_edges"] = n_core_bin_edges
+    _plot_heatmap(
         labels,
         mat,
         os.path.abspath(heatmap_path),
@@ -593,8 +659,7 @@ def _write_dalilite_z_heatmap(
         vcenter=None,
         colorbar_orientation=colorbar_orientation,
         y_axis_right=y_axis_right,
-        cbar_label="Dali Z",
-        autoscale_positive_offdiag_only=False,
+        **kwargs,
     )
 
 
@@ -682,6 +747,12 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         help="Keep per-pair DaliLite work dirs under _dalilite_work/.",
     )
     ap.add_argument(
+        "--equivalences-dir",
+        metavar="DIR",
+        default=None,
+        help="Optional: write one TSV per pair listing aligned Cα pairs (structural core used for n_core and raw score).",
+    )
+    ap.add_argument(
         "--fallback-biotite",
         action="store_true",
         help=(
@@ -729,7 +800,7 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         default=None,
         help=(
             "Write a pairwise Dali Z-score heatmap (PNG, PDF, or SVG from the extension). "
-            "All-vs-all: full matrix; pairwise: 2×2. Uses the same layout options as ranking/rmsd_to_csv.py; "
+            "All-vs-all: full matrix; pairwise: 2×2. Heatmap via foldkit_heatmap (same options as rmsd_to_csv); "
             "requires matplotlib."
         ),
     )
@@ -761,7 +832,7 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
     ap.add_argument(
         "--short-heatmap-labels",
         action="store_true",
-        help="Shorten --heatmap axis labels (same convention as rmsd_to_csv.py).",
+        help="Shorten --heatmap axis labels (same convention as ranking/rmsd_to_csv.py).",
     )
     ap.add_argument(
         "--heatmap-diverging-center",
@@ -779,6 +850,31 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         "--heatmap-y-axis-right",
         action="store_true",
         help="Draw row labels on the right for --heatmap (vertical bar moves to the left).",
+    )
+    ap.add_argument(
+        "--heatmap-n-core-patterns",
+        action="store_true",
+        help=(
+            "On the Z heatmap, encode n_core in hatch patterns; colour still encodes Dali Z. "
+            "Uses equal-width n_core ranges (--heatmap-n-core-bins) or explicit "
+            "boundaries (--heatmap-n-core-edges).",
+        ),
+    )
+    ap.add_argument(
+        "--heatmap-n-core-bins",
+        type=int,
+        default=4,
+        metavar="N",
+        help="With --heatmap-n-core-patterns: number of equal-width n_core ranges (default: 4).",
+    )
+    ap.add_argument(
+        "--heatmap-n-core-edges",
+        metavar="E0,E1,…",
+        default=None,
+        help=(
+            "With --heatmap-n-core-patterns: optional comma-separated bin boundaries, low to high; "
+            "they are extended to the observed n_core min and max on the heatmap if needed.",
+        ),
     )
     ap.add_argument(
         "-q",
@@ -841,6 +937,24 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
             return None
         return name if os.path.isabs(name) else os.path.join(out_dir, name)
 
+    def n_core_heatmap_kwargs() -> dict:
+        """Argparse --heatmap-n-core-* into ``_write_dalilite_z_heatmap``."""
+        if not args.heatmap_n_core_patterns:
+            return {}
+        if int(args.heatmap_n_core_bins) < 1:
+            ap.error("--heatmap-n-core-bins must be at least 1")
+        edges: list[float] | None = None
+        if args.heatmap_n_core_edges:
+            parts = [p.strip() for p in str(args.heatmap_n_core_edges).split(",") if p.strip()]
+            if len(parts) < 2:
+                ap.error("--heatmap-n-core-edges needs at least two comma-separated values")
+            edges = [float(p) for p in parts]
+        return {
+            "n_core_heatmap": True,
+            "n_core_n_equal_bins": max(1, int(args.heatmap_n_core_bins)),
+            "n_core_bin_edges": edges,
+        }
+
     verbose = not args.quiet
     write_superpose = not args.no_superpose_pdb
 
@@ -868,6 +982,9 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
             verbose,
             debug_dalilite=args.debug_dalilite,
             fallback_biotite=args.fallback_biotite,
+            equivalences_dir=out_path(args.equivalences_dir)
+            if args.equivalences_dir
+            else None,
         )
         zscores = data["zscores"]
         labels = data["labels"]
@@ -888,6 +1005,10 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
                     "raw_score",
                     "z_score",
                     "n_core",
+                    "core_resnum_min_a",
+                    "core_resnum_max_a",
+                    "core_resnum_min_b",
+                    "core_resnum_max_b",
                     "alignment_source",
                     "dalilite_rmsd",
                     "core_rmsd",
@@ -898,7 +1019,15 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
                     "dali_description",
                 ]
             )
-            for row in data["results_rows"]:
+            for row in sorted(
+                data["results_rows"],
+                key=lambda r: (
+                    _natural_sort_key(r["label_a"]),
+                    _natural_sort_key(r["label_b"]),
+                    _natural_sort_key(r["pdb_a"]),
+                    _natural_sort_key(r["pdb_b"]),
+                ),
+            ):
                 cr = row.get("core_rmsd")
                 w.writerow(
                     [
@@ -909,6 +1038,10 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
                         f"{row['raw_score']:.6f}",
                         f"{row['z_score']:.6f}",
                         row["n_core"],
+                        row.get("core_resnum_min_a", ""),
+                        row.get("core_resnum_max_a", ""),
+                        row.get("core_resnum_min_b", ""),
+                        row.get("core_resnum_max_b", ""),
                         row.get("alignment_source", "dalilite"),
                         row["dalilite_rmsd"] if row["dalilite_rmsd"] is not None else "",
                         f"{cr:.4f}" if cr is not None else "",
@@ -921,7 +1054,11 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
                 )
         print(f"Wrote {pairs_csv}")
 
-        ranking = _ds._rank_structures(zscores)
+        # Ranking CSV: rows strictly by Z (avg then max), not label or pair-table order.
+        ranking = sorted(
+            _ds._rank_structures(zscores),
+            key=lambda r: (-float(r["avg_z"]), -float(r["max_z"]), str(r["label"])),
+        )
         rank_p = out_path(args.output_ranking)
         assert rank_p
         with open(rank_p, "w", newline="") as f:
@@ -973,6 +1110,8 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
                 diverging_center=args.heatmap_diverging_center,
                 colorbar_orientation=args.heatmap_colorbar_orientation,
                 y_axis_right=args.heatmap_y_axis_right,
+                n_core=data["n_core"] if args.heatmap_n_core_patterns else None,
+                **n_core_heatmap_kwargs(),
             )
 
         plot_p = out_path(args.output_plot)
@@ -1013,12 +1152,25 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
         sys.exit(1)
 
     meta = score_pair_from_dalilite(pdb_a, pdb_b, args.chain_a, args.chain_b, dali)
+    z_emp_pair = bool(meta.pop("z_is_empirical", False))
+    equivs_pw = meta.pop("equivs", [])
+    if args.equivalences_dir and equivs_pw:
+        ed = out_path(args.equivalences_dir)
+        os.makedirs(ed, exist_ok=True)
+        _ds.write_equivalences_tsv(os.path.join(ed, f"{pair_tag}.tsv"), equivs_pw)
+        print(f"Wrote equivalences: {ed}/{pair_tag}.tsv", file=sys.stderr)
     print(f"alignment: {meta.get('alignment_source', 'dalilite')}")
     print(f"raw_score: {meta['raw_score']:.4f}")
-    print(f"z_score:   {meta['z_score']:.4f}")
-    if meta.get("alignment_source") == "biotite_fallback":
-        print("(z_score is empirical from dali_score, not Dali Z)")
+    if z_emp_pair:
+        print(f"empirical Z-score: {meta['z_score']:.4f}  (FoldKit dali-like; not the DaliLite summary Z)")
+    else:
+        print(f"Z-score: {meta['z_score']:.4f}  (DaliLite reported)")
     print(f"n_core:    {meta['n_core']}")
+    if meta.get("core_resnum_min_a") != "":
+        print(
+            f"core PDB residue span: A {meta.get('core_resnum_min_a')}-{meta.get('core_resnum_max_a')}, "
+            f"B {meta.get('core_resnum_min_b')}-{meta.get('core_resnum_max_b')}"
+        )
     if meta.get("dalilite_rmsd") is not None:
         print(f"dalilite_rmsd: {meta['dalilite_rmsd']:.2f} Å")
     if meta.get("core_rmsd") is not None:
@@ -1058,6 +1210,10 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
                     "raw_score",
                     "z_score",
                     "n_core",
+                    "core_resnum_min_a",
+                    "core_resnum_max_a",
+                    "core_resnum_min_b",
+                    "core_resnum_max_b",
                     "alignment_source",
                     "dalilite_rmsd",
                     "core_rmsd",
@@ -1076,6 +1232,10 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
                     f"{meta['raw_score']:.6f}",
                     f"{meta['z_score']:.6f}",
                     meta["n_core"],
+                    meta.get("core_resnum_min_a", ""),
+                    meta.get("core_resnum_max_a", ""),
+                    meta.get("core_resnum_min_b", ""),
+                    meta.get("core_resnum_max_b", ""),
                     meta.get("alignment_source", "dalilite"),
                     meta["dalilite_rmsd"] if meta["dalilite_rmsd"] is not None else "",
                     f"{cr:.4f}" if cr is not None else "",
@@ -1093,10 +1253,15 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
         lb = _ds._label_from_path(pdb_b)
         z = float(meta["z_score"])
         zm = {(la, lb): z, (lb, la): z}
+        n_core_pair: dict | None = None
+        if args.heatmap_n_core_patterns:
+            nc = int(meta["n_core"])
+            n_core_pair = {(la, lb): nc, (lb, la): nc}
+        labels_pair = sorted([la, lb], key=_natural_sort_key)
         hp = out_path(args.heatmap)
         assert hp
         _write_dalilite_z_heatmap(
-            [la, lb],
+            labels_pair,
             zm,
             hp,
             title=args.heatmap_title,
@@ -1107,6 +1272,8 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
             diverging_center=args.heatmap_diverging_center,
             colorbar_orientation=args.heatmap_colorbar_orientation,
             y_axis_right=args.heatmap_y_axis_right,
+            n_core=n_core_pair,
+            **n_core_heatmap_kwargs(),
         )
 
     if not args.keep_dalilite_work:

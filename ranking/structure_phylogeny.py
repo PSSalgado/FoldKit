@@ -98,6 +98,133 @@ def parse_ssm_rmsd_txt(path: str) -> dict[tuple[str, str], float]:
     return alignments
 
 
+def _ssm_aligned_residue_count_from_lines(lines: list[str]) -> int | None:
+    """Coot SSM: number of aligned residues in the same block as core RMSD (optional lines)."""
+    for line in lines:
+        m = re.search(
+            r"(?i)number of aligned(?:\s+residues)?\s*[:=]\s*(\d+)", line
+        )
+        if m:
+            return int(m.group(1))
+        m = re.search(
+            r"(?i)number\s+of\s+residues\s+in\s+alignment\s*[:=]\s*(\d+)", line
+        )
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def parse_ssm_rmsd_txt_with_pair_counts(
+    path: str,
+) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], int]]:
+    """
+    Like ``parse_ssm_rmsd_txt`` but also return per-pair **aligned residue counts** when present
+    in the log (SSM / superpose block; hatch legend: \"Aligned residues (Coot SSM)\" in rmsd_to_csv).
+    """
+    alignments: dict = {}
+    counts: dict = {}
+    current_pair: tuple[str, str] | None = None
+    buffer: list[str] = []
+    with open(path, "r") as f:
+        for line in f:
+            s = line.strip()
+            if "Superposing" in s and " onto " in s:
+                m = re.match(
+                    r"Superposing\s+(.+?)\s+\([^)]*\)\s+onto\s+(.+?)(?:\s+\(|$)", s
+                )
+                if m:
+                    current_pair = (m.group(1).strip(), m.group(2).strip())
+                else:
+                    m = re.match(r"Superposing\s+(.+?)\s+onto\s+(.+)", s)
+                    current_pair = (
+                        m.group(1).strip(),
+                        m.group(2).strip(),
+                    ) if m else None
+                buffer = [s] if current_pair else []
+            elif "Aligning" in s and " to " in s:
+                m = re.match(r"Aligning\s+(.+?)\s+to\s+(.+?)$", s)
+                current_pair = (
+                    m.group(1).strip(),
+                    m.group(2).strip(),
+                ) if m else None
+                buffer = [s] if current_pair else []
+            elif current_pair:
+                buffer.append(s)
+                if "INFO: core rmsd" in s or "core rmsd" in s:
+                    rmsd = _parse_rmsd_number(s)
+                    if rmsd is not None and current_pair is not None:
+                        a, b = current_pair
+                        alignments[(a, b)] = alignments[(b, a)] = rmsd
+                        n = _ssm_aligned_residue_count_from_lines(buffer)
+                        if n is not None:
+                            counts[(a, b)] = counts[(b, a)] = n
+                    current_pair = None
+                    buffer = []
+    return alignments, counts
+
+
+def _lsq_matched_atom_count_from_lines(lines: list[str]) -> int | None:
+    """Coot LSQ: matched atom count in the same block as the RMSD line (optional)."""
+    for line in lines:
+        m = re.search(r"(?i)LSQ\s+matched\s+(\d+)\s+atoms", line)
+        if m:
+            return int(m.group(1))
+        m = re.search(
+            r"(?i)INFO::\s*LSQ\s+matched\s+(\d+)\s+atoms", line
+        )
+        if m:
+            return int(m.group(1))
+        m = re.search(
+            r"(?i)matched\s+(\d+)\s+atoms",
+            line,
+        )
+        if m and "dssp" not in line.lower():
+            return int(m.group(1))
+    return None
+
+
+def parse_lsq_rmsd_txt_with_pair_counts(
+    path: str,
+) -> tuple[dict[tuple[str, str], float], dict[tuple[str, str], int]]:
+    """
+    Like ``parse_lsq_rmsd_txt`` but also return per-pair **matched atom counts** when present
+    (hatch legend: \"Matched atoms (Coot LSQ)\" in rmsd_to_csv).
+    """
+    alignments: dict = {}
+    counts: dict = {}
+    current_pair: tuple[str, str] | None = None
+    buffer: list[str] = []
+    with open(path, "r") as f:
+        for line in f:
+            line_st = line.strip()
+            text = line_st
+            if line_st.startswith("Alignment:"):
+                text = line_st.replace("Alignment:", "", 1).strip()
+            m = re.match(r"Aligning\s+(.+?)\s+to\s+(.+?)$", text)
+            if m:
+                current_pair = (m.group(1).strip(), m.group(2).strip())
+                buffer = [line_st]
+                continue
+            if current_pair is not None:
+                buffer.append(line_st)
+                low = line_st.lower()
+                if (
+                    "core rmsd" in low
+                    or "rms devi" in low
+                    or (("rmsd" in low or "rms" in low) and "devi" in low)
+                ):
+                    rmsd = _parse_rmsd_number(line_st)
+                    if rmsd is not None:
+                        a, b = current_pair
+                        alignments[(a, b)] = alignments[(b, a)] = rmsd
+                        nat = _lsq_matched_atom_count_from_lines(buffer)
+                        if nat is not None:
+                            counts[(a, b)] = counts[(b, a)] = nat
+                    current_pair = None
+                    buffer = []
+    return alignments, counts
+
+
 def parse_rmsd_csv(path: str) -> dict[tuple[str, str], float]:
     import csv as csv_module
 
@@ -154,6 +281,23 @@ def alignments_to_matrix(
                     (sum(vals) / len(vals)) if vals else float("nan")
                 )
     return ids, matrix
+
+
+def alignments_pair_counts_to_matrix(
+    ids: list[str], pair_counts: dict[tuple[str, str], int]
+) -> list[list[float | None]]:
+    """Square matrix of integer pair attributes (e.g. aligned residue count); diagonal None."""
+    n = len(ids)
+    mat: list[list[float | None]] = [[None] * n for _ in range(n)]
+    for i, a in enumerate(ids):
+        for j, b in enumerate(ids):
+            if i == j:
+                continue
+            v = pair_counts.get((a, b))
+            if v is None:
+                v = pair_counts.get((b, a))
+            mat[i][j] = float(v) if v is not None else None
+    return mat
 
 
 def _rmsd_to_similarity(rmsd: float, mode: str, tau: float) -> float:

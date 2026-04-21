@@ -354,11 +354,17 @@ Options: `--tags` (required unless `TAGS` is set in the script), `--conditions`,
 
 ### `dalilite_superpose_scores.py`
 
-Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target on query frame), pairwise or merged CSV, optional Z-matrix CSV, Newick tree, optional dendrogram image, and an optional **Z-score heatmap** (matplotlib; same layout and colour-bar conventions as `rmsd_to_csv.py`). Requires DaliLite and **mkdssp** (same constraints as `dali_score.py`; see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)). In **all-vs-all** mode, structure files are taken from the **root of each given directory only** unless **`--recursive`** is set (then subfolders are included, matching the **default** directory scan in `dali_score.py`; that script can match root-only behaviour with **`--root-only-dirs`**).
+Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target on query frame), pairwise or merged CSV, optional Z-matrix CSV, Newick tree, optional dendrogram image, and an optional **Z-score heatmap** (matplotlib; layout and colour bar match **`rmsd_to_csv.py`** via shared **`ranking/foldkit_heatmap.py`**). Requires DaliLite and **mkdssp** (same constraints as `dali_score.py`; see [Appendix — DaliLite](#dalilite-dali_scorepy-dalilite_superpose_scorespy)). In **all-vs-all** mode, structure files are taken from the **root of each given directory only** unless **`--recursive`** is set (then subfolders are included, matching the **default** directory scan in `dali_score.py`; that script can match root-only behaviour with **`--root-only-dirs`**).
 
 **Optional run summary log:** most scripts accept `--log [FILE]` to write a short summary of tasks and errors (no stdout/stderr tee). Logging is optional and summary-only.
 
-**Heatmap (`--heatmap PATH`):** writes a square figure from pairwise Dali Z (colour bar label **Dali Z**). The file extension selects **PNG**, **PDF**, or **SVG**. Options aligned with `rmsd_to_csv.py` include `--heatmap-title`, `--cmap`, `--vmin`, `--vmax`, `--short-heatmap-labels`, `--heatmap-diverging-center` (`none` or `median`), `--heatmap-colorbar-orientation` (`vertical` or `horizontal`), and `--heatmap-y-axis-right`. Autoscale and median use **all finite off-diagonal** Z values (not RMSD-style “positive only”). All-vs-all produces the full matrix; pairwise mode produces a 2×2 plot.
+**Heatmap (`--heatmap PATH`):** writes a square figure from pairwise Dali Z (colour bar label **Dali Z**). The file extension selects **PNG**, **PDF**, or **SVG**. Options aligned with `rmsd_to_csv.py` / `foldkit_heatmap.py` include `--heatmap-title`, `--cmap`, `--vmin`, `--vmax`, `--short-heatmap-labels`, `--heatmap-diverging-center` (`none` or `median`), `--heatmap-colorbar-orientation` (`vertical` or `horizontal`), and `--heatmap-y-axis-right`. Autoscale and median use **all finite off-diagonal** Z values (not RMSD-style “positive only”). All-vs-all produces the full matrix; pairwise mode produces a 2×2 plot. **Axis order** for the heatmap and **`--output-matrix`** matches **`rmsd_to_csv.py`**: structure labels are **natural-sorted** (alphanumeric, numeric-aware).
+
+**Optional second channel (hatch):** **`--heatmap-n-core-patterns`** encodes **`n_core`** (aligned Cα count per pair) as **binned hatch patterns** on off-diagonal cells; **colour still encodes Dali Z**. Use **`--heatmap-n-core-bins N`** for equal-width bins over observed `n_core` (default **4**), or **`--heatmap-n-core-edges E0,E1,…`** for explicit boundaries (comma-separated; extended to the observed min/max if needed). Legend title uses the script’s label for that quantity (aligned Cα / Dali `n_core`). Hatch line density is controlled in **`foldkit_heatmap.py`** (`_HATCH_REPEAT_*` constants) if defaults look too sparse or too solid for your matrix size.
+
+**Table outputs and Z-score column:** The **`z_score` field in CSV** is the **DaliLite summary Z** when DaliLite returns a value on the hit line. If that is missing, FoldKit fills **`z_score`** with the **empirical (Holm-style) Z** from `dali_score.compute_z_score`. The script states which applies: progress lines use **`Z=… (DaliLite)`** versus **`empirical Z-score=… (FoldKit dali-like)`**; in pairwise mode, **`empirical Z-score:`** or **`Z-score: … (DaliLite reported)`** is printed accordingly. The **pairs** CSV and **`--output-matrix`** are **natural-ordered** by label; the **ranking** CSV (`--output-ranking`, default `dali_ranking.csv`) is ordered **only by Z** (average then maximum), not by label.
+
+**Residue core (optional):** The pairs CSV includes **`core_resnum_min_a` / `core_resnum_max_a` / `core_resnum_min_b` / `core_resnum_max_b`** (PDB residue number span of the aligned core on each side; non-contiguous alignments still show overall min–max). Pass **`--equivalences-dir /path/to/project/equivalences`** to write one TSV per pair (aligned Cα pairs used for **`n_core`** and the **raw** Dali sum in FoldKit, with a short comment header). **`n_core`** is the count of those pairs after mapping DaliLite’s block to your coordinates.
 
 ```bash
 python ranking/dalilite_superpose_scores.py /path/to/project/models/model_01.pdb /path/to/project/models/model_02.pdb \
@@ -366,7 +372,11 @@ python ranking/dalilite_superpose_scores.py /path/to/project/models/model_01.pdb
 
 python ranking/dalilite_superpose_scores.py --all-vs-all /path/to/project/models/ /path/to/project/models/ \
   -d /path/to/project/dali_run1/ --filter '*.pdb' --dalilite-path /path/to/DaliLite \
-  --heatmap /path/to/project/dali_run1/z_scores.svg --heatmap-diverging-center median --cmap RdYlBu_r
+  -o /path/to/project/dali_run1/pairs.csv --output-matrix /path/to/project/dali_run1/z_matrix.csv \
+  --output-ranking /path/to/project/dali_run1/dali_ranking.csv \
+  --equivalences-dir /path/to/project/dali_run1/equivalences \
+  --heatmap /path/to/project/dali_run1/z_scores.svg --heatmap-diverging-center median --cmap RdYlBu_r \
+  --heatmap-n-core-patterns
 ```
 
 ### `open_models_in_coot.py`
@@ -455,7 +465,7 @@ Output: `rmsd_heatmap_[subdomain].pdf`, `combined_rmsd_heatmap.pdf`, `combined_r
 
 ### `rmsd_to_csv.py`
 
-Converts pairwise RMSD inputs (all-vs-all SSM or LSQ text, or an existing square RMSD CSV) to a square CSV table. Optional **matplotlib** heatmaps require no R.
+Converts pairwise RMSD inputs (all-vs-all SSM or LSQ text, or an existing square RMSD CSV) to a square CSV table. Optional **matplotlib** heatmaps require no R. Figures are drawn by **`ranking/foldkit_heatmap.py`** (same module as **`dalilite_superpose_scores.py`** heatmaps; `dalilite` does not import this script).
 
 #### Single-file mode (default)
 
@@ -471,7 +481,7 @@ For a neighbour-joining tree from one file, run `structure_phylogeny.py` on the 
 
 #### Heatmap colours
 
-Heatmaps share the following controls for `--plot`, for figures under `--heatmap-dir`, and for `--combined-heatmap`.
+Heatmaps share the following controls for `--plot`, for figures under `--heatmap-dir`, and for `--combined-heatmap`. The **hatch** rows apply only to **square** RMSD heatmaps (single-file `--plot` and per-file plots under **`--heatmap-dir`**), not to the wide **combined** figure (see row below the table).
 
 | Option | Meaning |
 | ------ | ------- |
@@ -481,7 +491,12 @@ Heatmaps share the following controls for `--plot`, for figures under `--heatmap
 | `--heatmap-diverging-center` | `none` (default): linear normalisation. `median`: `TwoSlopeNorm` with the centre at the median RMSD (suited to diverging maps). In batch mode, the median is taken from the merged CSV when that file is written; with `--no-combined`, each subdomain matrix uses its own median. |
 | `--heatmap-colorbar-orientation` | `vertical` (default) or `horizontal` (colour bar below the matrix). |
 | `--heatmap-y-axis-right` | Row labels on the right. With a vertical colour bar, the bar is drawn on the left to avoid overlap. |
+| `--plot-hatch` | **Single-file** (`--plot`) or **batch** with **`--heatmap-dir`** only: add a second channel—**hatch patterns** on off-diagonal cells binned from **pair counts parsed from the log** (not from CSV). **LSQ** logs: **matched atoms** (Coot); **SSM** logs: **aligned residues**. **CSV** input has no per-pair counts in-file → hatch is skipped (warning if this flag is set). Legend labels state the quantity. |
+| `--heatmap-hatch-bins N` | With `--plot-hatch`: number of equal-width bins over observed counts (default **4**). |
+| `--heatmap-hatch-edges E0,E1,…` | With `--plot-hatch`: optional comma-separated bin edges; extended to data min/max when needed (at least two values). |
 | Missing / diagonal | No value, same-structure diagonal, or combined-table gaps map to white (below the scale). The colour bar is a plain rectangle (no triangular extension). Tick values in Å are chosen for both linear and median-centred scales. |
+
+**Combined heatmap** (`combined_rmsd_heatmap.*`): RMSD only; the second hatch channel is **not** applied there.
 
 **Figure format (single file):** set the extension on `--plot` (`.png`, `.pdf`, or `.svg`). PNG is often the most robust on headless systems.
 
@@ -524,9 +539,9 @@ python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --no-combined
 python ranking/rmsd_to_csv.py --scan-dir /path/to/project/run1/ --order-dir /path/to/project/models --order-glob 'model_*.pdb'
 ```
 
-**Single-file options:** `-o` / `--output`; `--plot`; `--title`; `--cmap`, `--vmin`, `--vmax`; `--short-heatmap-labels`; `--heatmap-diverging-center`; `--heatmap-colorbar-orientation`; `--heatmap-y-axis-right`; `--order` / `--order-dir` / `--order-glob` (see [Heatmap colours](#heatmap-colours)).
+**Single-file options:** `-o` / `--output`; `--plot`; `--title`; `--cmap`, `--vmin`, `--vmax`; `--short-heatmap-labels`; `--heatmap-diverging-center`; `--heatmap-colorbar-orientation`; `--heatmap-y-axis-right`; **`--plot-hatch`**, **`--heatmap-hatch-bins`**, **`--heatmap-hatch-edges`**; `--order` / `--order-dir` / `--order-glob` (see [Heatmap colours](#heatmap-colours)).
 
-**Batch (`--scan-dir`) options:** `--scan-glob`; `--combined-csv`; `--no-combined`; `--combined-subdomain-order`; `--heatmap-dir`; `--heatmap-format`; `--combined-heatmap`; `--no-combined-heatmap`; `--no-shared-heatmap-scale`; `--cmap`, `--vmin`, `--vmax`, `--title`; `--short-heatmap-labels`; `--heatmap-diverging-center`; `--heatmap-colorbar-orientation`; `--heatmap-y-axis-right`; `--order` / `--order-dir` / `--order-glob`. For a tree from one RMSD input, run `structure_phylogeny.py` on that log or CSV after conversion.
+**Batch (`--scan-dir`) options:** `--scan-glob`; `--combined-csv`; `--no-combined`; `--combined-subdomain-order`; `--heatmap-dir`; `--heatmap-format`; `--combined-heatmap`; `--no-combined-heatmap`; `--no-shared-heatmap-scale`; `--cmap`, `--vmin`, `--vmax`, `--title`; `--short-heatmap-labels`; `--heatmap-diverging-center`; `--heatmap-colorbar-orientation`; `--heatmap-y-axis-right`; **`--plot-hatch`** (with **`--heatmap-dir`** only; parses counts from each **LSQ/SSM** log), **`--heatmap-hatch-bins`**, **`--heatmap-hatch-edges`**; `--order` / `--order-dir` / `--order-glob`. For a tree from one RMSD input, run `structure_phylogeny.py` on that log or CSV after conversion.
 
 ### `structure_phylogeny.py`
 
@@ -633,7 +648,7 @@ python ranking/dali_score.py --all-vs-all /path/to/project/models/ -o /path/to/p
   --output-ranking /path/to/project/ranking.csv
 ```
 
-**All-vs-all directory scan:** by default, each directory argument is searched **recursively** for `*.pdb`, `*.cif`, and `*.ent`. Pass **`--root-only-dirs`** to use only the **top level** of each directory (aligned with `dalilite_superpose_scores.py` default).
+**All-vs-all directory scan:** by default, each directory argument is searched **recursively** for `*.pdb`, `*.cif`, and `*.ent`. Pass **`--root-only-dirs`** to use only the **top level** of each directory (aligned with `dalilite_superpose_scores.py` default). Structures are **natural-sorted** before pairwise comparison; the **pairwise table**, **Z-matrix**, and **tree** inputs use that order. The **ranking** CSV is ordered **by Z-score** (average then maximum), not alphabetically. Where DaliLite does not report a summary Z, **`z_score`** uses the **empirical** FoldKit normalisation (same as in `dali_score.compute_z_score`).
 
 Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob on basename for directory inputs), `--root-only-dirs` (all-vs-all: no subdirectory scan); tree: `--output-tree`, `--output-plot`, `--output-matrix`, `--transform`, `--root`. **Optional summary log:** `--log [FILE]`.
 
@@ -1075,7 +1090,9 @@ working_directory/
 - **`mkdssp`** must exist at the path in **`bin/mpidali.pm`** (`$DSSP_EXE`). If imports produce empty **`DAT/*.dat`**, install or symlink **`mkdssp`** or edit **`$DSSP_EXE`**. Perl files under **`bin/`** must be readable (fix permissions if you see `Can't locate FSSP.pm: Permission denied`).
 - **Path length:** DaliLite Fortran limits full path length (~80 characters); these scripts stage under the system temporary directory automatically.
 - **All-vs-all file discovery:** **`dalilite_superpose_scores.py`** collects structures from the **root** of each given directory unless **`--recursive`** is set. **`dali_score.py`** defaults to a **recursive** directory scan; use **`--root-only-dirs`** for root-level only.
-- **Z heatmap:** **`dalilite_superpose_scores.py`** can write a matplotlib Z-score heatmap with **`--heatmap PATH`** and the same style options as **`rmsd_to_csv.py`** (`--cmap`, `--vmin`, `--vmax`, `--heatmap-diverging-center`, and related flags); see the **`dalilite_superpose_scores.py`** subsection under [Superimposition](#superimposition).
+- **Z in tables:** When DaliLite writes a hit line, the **`z_score`** column is **DaliLite’s reported Z**; otherwise it is **FoldKit’s empirical Z** (the script labels **empirical Z-score** in the log when the latter is used). **`raw_score`** in FoldKit is always the **recomputed** Dali sum over the mapped core; **`lali` / `nres` / `%id`** in CSV come from DaliLite’s summary when present.
+- **Table order (dalilite_superpose_scores):** pairs CSV and Z-matrix use **natural-sorted** labels; the ranking file is **sorted by Z** only. **`--equivalences-dir`** writes per-pair TSVs of aligned residues (see the **`dalilite_superpose_scores.py`** subsection).
+- **Z heatmap:** **`dalilite_superpose_scores.py`** can write a matplotlib Z-score heatmap with **`--heatmap PATH`** using **`ranking/foldkit_heatmap.py`** (same style options as **`rmsd_to_csv.py`**: `--cmap`, `--vmin`, `--vmax`, `--heatmap-diverging-center`, etc.). Optional second channel: **`--heatmap-n-core-patterns`** (with **`--heatmap-n-core-bins`** / **`--heatmap-n-core-edges`**) encodes **`n_core`** as hatch while colour remains **Dali Z**; see [Superimposition — `dalilite_superpose_scores.py`](#dalilite_superpose_scorespy).
 
 ### Notes
 

@@ -1224,7 +1224,7 @@ max_z_i = max_{j != i}( z_ij )
 - **Pairwise:** `python dali_score.py pdb_a pdb_b [-a alignment_file] [--chain-a ID] [--chain-b ID] [--dalilite-path DIR] [-o output.csv]`
 - **All-vs-all:** `python dali_score.py --all-vs-all dir_or_file [dir_or_file ...] [--filter PATTERN] [--root-only-dirs] [--output-tree FILE] [--output-plot FILE] [--output-matrix FILE] [--output-ranking FILE]`
 - **Directory scan (`_collect_pdb_files`):** default is **recursive** (`*.pdb`, `*.cif`, `*.ent` under each directory). With **`--root-only-dirs`**, only the top level of each directory is used (no subfolders).
-- Alignment sources (in order): (1) **DaliLite** (if `--dalilite-path` or `DALILITE_HOME` is set by user), (2) `--alignment` file, (3) biotite structural alignment (if installed), (4) sequence-order matching (same residue numbering). When DaliLite is used, its canonical Z-score and RMSD are reported.
+- Alignment sources (in order): (1) **DaliLite** (if `--dalilite-path` or `DALILITE_HOME` is set by user), (2) `--alignment` file, (3) biotite structural alignment (if installed), (4) sequence-order matching (same residue numbering). When DaliLite returns a Z on the summary hit line, that **Dali Z** is stored in the **`z_score`** column; if it is absent, **FoldKit** fills **`z_score`** with the **empirical** normalisation in §6.2 (`compute_z_score`). Console output from **`dalilite_superpose_scores.py`** says **empirical Z-score** when the latter is used. **All-vs-all** input files are **natural-sorted** before running pairs; the **pairwise** export and **Z-matrix** follow that order; the **ranking** table is ordered **by Z** (average, then maximum), not by name.
 
 **Libraries / functions used (dali_score)**
 
@@ -1302,44 +1302,44 @@ sigma(L) = 0.5 * m(L)
 
 ### 6.3 DaliLite integration
 
-When **DaliLite** is available (user specifies its installation directory), it is used as the primary alignment source. In this repository, `**dali_score.py` does not rely on bare `dali.pl --pdbfile1/--pdbfile2`** (which often yields empty internal data). It uses the same pattern as DaliLite v5 batch workflows:
+When **DaliLite** is available (user specifies its installation directory), it is used as the primary alignment source. In this repository, `dali_score.py` does not rely on bare `dali.pl --pdbfile1/--pdbfile2` (which often yields empty internal data). It uses the same pattern as DaliLite v5 batch workflows:
 
 1. **Short working directory:** comparisons run under a short temporary directory (typically a randomly named subdirectory of the system temp folder; DaliLite Fortran binaries enforce a maximum path length of about 80 characters).
 2. **Staging:** PDB/mmCIF inputs may be copied or rewritten; PDB files without a `HEADER` record can get a dummy `HEADER` so `mkdssp` treats them as PDB, not mmCIF (`_stage_pdb_for_dalilite_import`).
-3. `**import.pl`** builds `DAT/*.dat` per structure: `import.pl --pdbfile … --pdbid xxxx --dat DAT/`.
-4. `**dali.pl**` pairwise comparison: `dali.pl --cd1 xxxxX --cd2 yyyyY --dat1 DAT` (with `--outfmt` for summary, equivalences, transrot as needed).
+3. **`import.pl`** builds `DAT/*.dat` per structure: `import.pl --pdbfile … --pdbid xxxx --dat DAT/`.
+4. **`dali.pl` pairwise comparison:** `dali.pl --cd1 xxxxX --cd2 yyyyY --dat1 DAT` (with `--outfmt` for summary, equivalences, transrot as needed).
 
-The script parses `**dali.pl` text output** for:
+The script parses **`dali.pl` text output** for:
 
-- **Z-score** (canonical Dali Z-score, used in preference to the empirical fit)
+- **Z-score** (Dali’s summary **Z** on the hit line, stored in CSV when present; if missing, **§6.2 empirical Z** is used for `z_score`)
 - **RMSD** of structurally equivalent Cα atoms where reported
 - **Residue equivalences** from the structural equivalences block
 
-**Configuration:** set `--dalilite-path` or `**DALILITE_HOME`** to the DaliLite installation root (directory containing `bin/dali.pl`).
+**Configuration:** set `--dalilite-path` or `DALILITE_HOME` to the DaliLite installation root (directory containing `bin/dali.pl`).
 
-**mkdssp (required for `import.pl`):** DaliLite calls `**mkdssp`** using the path in `**bin/mpidali.pm**` (`$DSSP_EXE`; upstream defaults often use `/usr/local/bin/mkdssp`). That file must exist and be executable—otherwise `DAT/*.dat` can be empty and comparisons fail silently. Fix by installing a compatible `**mkdssp**`, symlinking it to the path in `mpidali.pm`, or editing `$DSSP_EXE`. Perl modules under `bin/` (e.g. `FSSP.pm`) must be readable by the user. Optionally set `**MKDSSP**` to the full path of `mkdssp` so this script’s diagnostics match your install.
+**mkdssp (required for `import.pl`):** DaliLite calls **mkdssp** using the path in **`bin/mpidali.pm`** (`$DSSP_EXE`; upstream defaults often use `/usr/local/bin/mkdssp`). That file must exist and be executable—otherwise `DAT/*.dat` can be empty and comparisons fail silently. Fix by installing a compatible **mkdssp**, symlinking it to the path in `mpidali.pm`, or editing `$DSSP_EXE`. Perl modules under `bin/` (e.g. `FSSP.pm`) must be readable by the user. Optionally set environment variable **`MKDSSP`** to the full path of `mkdssp` so this script’s diagnostics match your install.
 
 **Manual all-vs-all** (outside `dali_score.py`): batch-`import.pl` for each model into a shared `DAT/`, build `query.list` of five-character ids (`xxxxX` per `DAT/*.dat`), then `dali.pl --matrix --query query.list --dat1 DAT` from a short working directory path.
 
 ### 6.3.1 dalilite_superpose_scores.py
 
-`**dalilite_superpose_scores.py`** runs the DaliLite pairwise path via `dali_score._dalilite_pair_via_dat`, then applies **translation–rotation** from `--outfmt transrot` to write a superposed target PDB (BioPython). It supports **all-vs-all**, pairwise CSV, Z-matrix CSV, Newick tree, optional dendrogram plot, and an optional **matplotlib Z-score heatmap** (`--heatmap` and related options; colour bar label “Dali Z”; implementation delegates to `rmsd_to_csv.plot_heatmap` with `autoscale_positive_offdiag_only=False`).
+`dalilite_superpose_scores.py` runs the DaliLite pairwise path via `dali_score._dalilite_pair_via_dat`, then applies **translation–rotation** from `--outfmt transrot` to write a superposed target PDB (BioPython). It supports **all-vs-all**, pairwise CSV, Z-matrix CSV, Newick tree, optional dendrogram plot, and an optional **matplotlib Z-score heatmap** (`--heatmap` and related options; colour bar label “Dali Z”; rendering uses **`ranking/foldkit_heatmap.plot_heatmap`** with `autoscale_positive_offdiag_only=False`—this module is shared with `rmsd_to_csv.py`; **`dalilite_superpose_scores.py` does not import `rmsd_to_csv`**). Optional **`--heatmap-n-core-patterns`** adds a **hatch** channel binned from **`n_core`** (aligned Cα count) while **colour remains Z**. **Heatmap rows/columns and the Z-matrix CSV** use the same **natural-sorted** label order as `rmsd_to_csv.py` / `structure_phylogeny.py`. The **ranking** CSV is ordered **by Z** (mean then max per structure), not by name.
 
-Requirements and environment variables match `**dali_score.py`** (DaliLite path, mkdssp as above). Use `**--fallback-biotite**` when DaliLite reports no significant hit (often below Dali’s usual reporting threshold, Z ~ 2) but a structural alignment is still desired.
+**`z_score` column:** DaliLite’s **summary Z** when present; otherwise the **empirical** Z from `compute_z_score` (see §6.2). The script’s stdout/stderr distinguishes these (e.g. **empirical Z-score** vs **DaliLite reported**). **`raw_score`** is always the FoldKit **recomputed** Dali sum over the mapped **core**; **`n_core`** is the number of equivalent Cα pairs used for that sum. Dali summary fields **lali**, **nres**, **pct_id** come from the hit line when present. Optional CSV columns **core_resnum_min_a**, **core_resnum_max_a**, **core_resnum_min_b**, **core_resnum_max_b** give the PDB residue span of the core (min–max; alignments with gaps are still a single span). **`--equivalences-dir DIR`** writes one TSV per pair: aligned `(chain, resnum, icode)` pairs (with header comments). Requirements and environment variables match `dali_score.py` (DaliLite path, **mkdssp** as above). Use **`--fallback-biotite`** when DaliLite reports no significant hit (often below Dali’s usual reporting threshold, Z ~ 2) but a structural alignment is still desired; in that case Z is **empirical**, not Dali’s.
 
 **All-vs-all structure list:** by default, `_collect_pdb_files(..., recursive=False)` is used: only `*.pdb` / `*.cif` / `*.ent` in the **root** of each directory argument. Pass **`--recursive`** to include subdirectories (same recursive behaviour as `dali_score.py` all-vs-all by default).
 
 ### 6.3.2 run_all_superpositions.py (Coot LSQ batch)
 
-`**run_all_superpositions.py**` is a small driver that loops over **condition** subdirectories (e.g. `condition_1`) and **tags** (same idea as `--filter=set_a` in the Coot LSQ/SSM scripts), calling `**superimpose_coot_LSQ.py`** with `**--pattern**`, `**--divider=LSQ_**`, per-tag reference globs, and `**CONDITION_PREFIX**`-derived filename tokens. Defaults such as `**REFERENCE_SUBDIR**` and `**REFERENCE_STEM**` are documented in the script and in the main `**README.md**` (superposition section).
+`run_all_superpositions.py` is a small driver that loops over **condition** subdirectories (e.g. `condition_1`) and **tags** (same idea as `--filter=set_a` in the Coot LSQ/SSM scripts), calling `superimpose_coot_LSQ.py` with `--pattern`, `--divider=LSQ_`, per-tag reference globs, and `CONDITION_PREFIX`-derived filename tokens. Defaults such as `REFERENCE_SUBDIR` and `REFERENCE_STEM` are documented in the script and in the main `README.md` (superposition section).
 
 ### 6.4 All-vs-all and tree output (`dali_score.py`)
 
-When `dali_score.py` is run with `--all-vs-all` and one or more directories or PDB/CIF files, it compares every pair of structures (after `_collect_pdb_files`, recursive unless `--root-only-dirs`), collects Z-scores, and optionally generates:
+When `dali_score.py` is run with `--all-vs-all` and one or more directories or PDB/CIF files, it compares every pair of structures (after `_collect_pdb_files`, recursive unless `--root-only-dirs`), **natural-sorts** structure paths/labels, collects Z-scores, and optionally generates:
 
-- **Pairwise table** (`-o`): CSV with pdb_a, pdb_b, raw_score, z_score, n_core, alignment_source, dalilite_rmsd, lali, nres, pct_id, dalilite_hit_id, description (DaliLite summary fields empty when alignment is not from DaliLite)
-- **Ranking** (`--output-ranking`, default `dali_ranking.csv`): structures ranked by average and max Z-score
-- **Z-score matrix** (`--output-matrix`): symmetric matrix CSV for downstream use
+- **Pairwise table** (`-o`): CSV with pdb_a, pdb_b, raw_score, z_score, n_core, alignment_source, DaliLite summary fields as available (Dali Z in `z_score` when the summary line is parsed; else empirical Z). Rows are **naturally ordered** as undirected pairs of labels.
+- **Ranking** (`--output-ranking`, default `dali_ranking.csv`): structures ranked by **average then maximum** Z (score order only, not name order)
+- **Z-score matrix** (`--output-matrix`): symmetric matrix; row/column label order is **natural-sorted**
 - **Newick tree** (`--output-tree`, default `dali_tree.nwk`): phylogenetic tree from Z-score–derived distances (neighbour-joining or UPGMA)
 - **Dendrogram plot** (`--output-plot`): PNG/SVG tree visualisation (requires ete3 or biopython+matplotlib)
 
@@ -1360,6 +1360,8 @@ Lines starting with `#` are comments. Header row is auto-skipped.
 
 1. **biotite** (if installed): `superimpose_structural_homologs()` returns fixed/mobile indices of equivalent CA atoms; mapped to (chain, resseq, icode).
 2. **sequence-order:** For structures sharing residue numbering (e.g. same chain IDs and residue numbers), use 1:1 correspondence by (chain, resseq).
+
+**Exports from `dalilite_superpose_scores.py`:** For DaliLite-backed runs, **`--equivalences-dir`** writes one TSV per pair of **aligned** `(chain, resnum, icode)` pairs (query vs target) used after normalisation to the structures’ Cα sets—the same set counted by **`n_core`**. Dali’s own **Z / lali / nres** come from the **text summary**; the **raw** Dali **S** in CSV is recalculated in FoldKit from intramolecular distances on that core (§6.1).
 
 **Derivation / references**
 

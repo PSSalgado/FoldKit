@@ -52,6 +52,18 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from cli_log import add_log_args, setup_log_from_args
+from structure_phylogeny import _natural_sort_key
+
+
+def _label_row_sort_key(label: str) -> tuple:
+    """Stable label order matching rmsd_to_csv / structure_phylogeny."""
+    return (_natural_sort_key(label), label)
+
+
+def _canonical_label_pair(la: str, lb: str) -> tuple[str, str]:
+    """Undirected edge key: natural order, then str for ties."""
+    ka, kb = _label_row_sort_key(la), _label_row_sort_key(lb)
+    return (la, lb) if ka <= kb else (lb, la)
 
 try:
     import numpy as np
@@ -190,6 +202,52 @@ def parse_alignment_file(path: str):
             except (ValueError, IndexError):
                 continue
     return equivs
+
+
+def core_residue_spans_from_equivs(equivs) -> dict:
+    """
+    Min/max PDB residue numbers on each side of a structural core (after normalisation).
+    Non-contiguous alignments: span is the full extent, not a single segment.
+    """
+    if not equivs:
+        return {
+            "core_resnum_min_a": "",
+            "core_resnum_max_a": "",
+            "core_resnum_min_b": "",
+            "core_resnum_max_b": "",
+        }
+    ra = [e[0][1] for e in equivs]
+    rb = [e[1][1] for e in equivs]
+    return {
+        "core_resnum_min_a": min(ra),
+        "core_resnum_max_a": max(ra),
+        "core_resnum_min_b": min(rb),
+        "core_resnum_max_b": max(rb),
+    }
+
+
+def write_equivalences_tsv(path: str, equivs) -> None:
+    """
+    One row per structurally equivalent pair (query / target) after normalisation.
+    Columns: chain_A, resnum_A, icode_A, chain_B, resnum_B, icode_B (BioPython keys).
+    """
+    out_dir = os.path.dirname(path) or "."
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+    with open(path, "w", newline="") as f:
+        f.write(
+            "# Structural core: aligned Cα pairs used for raw Dali score and n_core.\n"
+            "# Z_score / lali / nres / pct_id come from the DaliLite summary line when present.\n"
+        )
+        f.write("chain_A\tresnum_A\ticode_A\tchain_B\tresnum_B\ticode_B\n")
+        for ka, kb in equivs:
+            ca, ra, ia = ka
+            cb, rb, ib = kb
+            ia = ia if isinstance(ia, str) else (ia or " ")
+            ib = ib if isinstance(ib, str) else (ib or " ")
+            f.write(
+                f"{ca!s}\t{int(ra)}\t{ia!s}\t{cb!s}\t{int(rb)}\t{ib!s}\n"
+            )
 
 
 def normalize_equivalences(equivs, coords_A, coords_B):
@@ -1051,8 +1109,12 @@ def run_all_vs_all(files: list, chain_a: str = None, chain_b: str = None,
       zscores: (label_a, label_b) -> z_score
       raw_scores: (label_a, label_b) -> raw_score
       n_core: (label_a, label_b) -> n_core
-      pair_dalilite: (label_a, label_b) with a < b -> dict of DaliLite summary fields (or empty)
+      pair_dalilite: (label_a, label_b) in natural-sorted pair order -> dict of DaliLite summary fields (or empty)
     """
+    files = sorted(
+        list(files),
+        key=lambda p: (_natural_sort_key(_label_from_path(str(p))), _natural_sort_key(str(p))),
+    )
     labels = [_label_from_path(f) for f in files]
     zscores = {}
     raw_scores = {}
@@ -1078,7 +1140,7 @@ def run_all_vs_all(files: list, chain_a: str = None, chain_b: str = None,
             zscores[(la, lb)] = zscores[(lb, la)] = z
             raw_scores[(la, lb)] = raw_scores[(lb, la)] = result['raw_score']
             n_core[(la, lb)] = n_core[(lb, la)] = result['n_core']
-            a, b = (la, lb) if la < lb else (lb, la)
+            a, b = _canonical_label_pair(la, lb)
             pair_dalilite[(a, b)] = {
                 'alignment_source': result.get('alignment_source'),
                 'dalilite_rmsd': result.get('dalilite_rmsd'),
@@ -1102,11 +1164,20 @@ def _zscores_to_distance_matrix(zscores: dict, transform: str, exp_scale: float)
     """Build (labels, matrix) from Z-scores. Z higher = more similar -> distance lower."""
     import math
 
-    labels = sorted(set(a for ab in zscores for a in ab))
+    labels = sorted(set(a for ab in zscores for a in ab), key=_label_row_sort_key)
     n = len(labels)
     if n == 0:
         return [], []
-    observed = [v for (a, b), v in zscores.items() if a < b]
+    seen_obs: set[tuple[str, str]] = set()
+    observed: list[float] = []
+    for (a, b), v in zscores.items():
+        if a == b:
+            continue
+        ca, cb = _canonical_label_pair(a, b)
+        if (ca, cb) in seen_obs:
+            continue
+        seen_obs.add((ca, cb))
+        observed.append(float(v))
     zmax = max(observed) if observed else 0.0
     zmin = min(observed) if observed else 0.0
 
@@ -1240,13 +1311,29 @@ def _build_tree_from_zscores(zscores: dict, transform: str, exp_scale: float,
     return _build_tree_newick(labels, matrix, root, midpoint_root)
 
 
+def _zscore_for_undirected_pair(zscores: dict, a: str, b: str) -> float | None:
+    """Z for edge *a*–*b*; ``None`` if missing. Avoids ``or`` so 0.0 is not treated as falsy."""
+    t = zscores.get((a, b))
+    if t is not None:
+        return float(t)
+    t = zscores.get((b, a))
+    if t is not None:
+        return float(t)
+    return None
+
+
 def _rank_structures(zscores: dict) -> list:
-    """Rank by average Z-score (descending)."""
+    """Rank by average Z-score (descending), then max Z, then label; output order is score-only."""
     labels = sorted(set(a for ab in zscores for a in ab))
     out = []
     for a in labels:
-        vals = [zscores.get((a, b)) or zscores.get((b, a)) for b in labels if b != a]
-        vals = [float(v) for v in vals if v is not None]
+        vals: list[float] = []
+        for b in labels:
+            if b == a:
+                continue
+            z = _zscore_for_undirected_pair(zscores, a, b)
+            if z is not None:
+                vals.append(z)
         out.append(
             {
                 "label": a,
@@ -1255,7 +1342,7 @@ def _rank_structures(zscores: dict) -> list:
                 "max_z": max(vals) if vals else 0.0,
             }
         )
-    out.sort(key=lambda r: (r["avg_z"], r["max_z"]), reverse=True)
+    out.sort(key=lambda r: (-r["avg_z"], -r["max_z"], r["label"]))
     return out
 
 
@@ -1418,27 +1505,37 @@ def _main_after_parse(ap, args, summary_log=None):
             with open(args.output, 'w', newline='') as f:
                 w = csv.writer(f)
                 w.writerow(hdr)
-                for (la, lb), z in sorted(zscores.items(), key=lambda x: (x[0][0], x[0][1])):
-                    if la < lb:
-                        r = data['raw_scores'].get((la, lb), '')
-                        nc = data['n_core'].get((la, lb), '')
-                        ex = pd_extra.get((la, lb), {})
-                        w.writerow(
-                            [
-                                la,
-                                lb,
-                                r,
-                                z,
-                                nc,
-                                ex.get('alignment_source') or '',
-                                ex.get('dalilite_rmsd') if ex.get('dalilite_rmsd') is not None else '',
-                                ex.get('dalilite_lali') if ex.get('dalilite_lali') is not None else '',
-                                ex.get('dalilite_nres') if ex.get('dalilite_nres') is not None else '',
-                                ex.get('dalilite_pct_id') if ex.get('dalilite_pct_id') is not None else '',
-                                ex.get('dalilite_hit_id') or '',
-                                ex.get('dalilite_description') or '',
-                            ]
-                        )
+                uniq_pairs: set[tuple[str, str]] = set()
+                for a, b in zscores:
+                    if a == b:
+                        continue
+                    uniq_pairs.add(_canonical_label_pair(a, b))
+                for la, lb in sorted(
+                    uniq_pairs,
+                    key=lambda ab: (_label_row_sort_key(ab[0]), _label_row_sort_key(ab[1])),
+                ):
+                    z = zscores.get((la, lb))
+                    if z is None:
+                        continue
+                    r = data['raw_scores'].get((la, lb), '')
+                    nc = data['n_core'].get((la, lb), '')
+                    ex = pd_extra.get((la, lb), {})
+                    w.writerow(
+                        [
+                            la,
+                            lb,
+                            r,
+                            z,
+                            nc,
+                            ex.get('alignment_source') or '',
+                            ex.get('dalilite_rmsd') if ex.get('dalilite_rmsd') is not None else '',
+                            ex.get('dalilite_lali') if ex.get('dalilite_lali') is not None else '',
+                            ex.get('dalilite_nres') if ex.get('dalilite_nres') is not None else '',
+                            ex.get('dalilite_pct_id') if ex.get('dalilite_pct_id') is not None else '',
+                            ex.get('dalilite_hit_id') or '',
+                            ex.get('dalilite_description') or '',
+                        ]
+                    )
             print(f"Wrote pairwise table: {args.output}")
 
         # Ranking CSV
