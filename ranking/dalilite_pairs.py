@@ -16,7 +16,7 @@ Z only. Optional ``--equivalences-dir`` writes one TSV of aligned residue pairs 
 the pairs CSV can include min/max core residue numbers on each chain.
 
 Requires: BioPython, NumPy, DaliLite (DALILITE_HOME or --dalilite-path). ``import.pl`` needs
-``mkdssp`` at the path in DaliLite’s ``bin/mpidali.pm`` (``$DSSP_EXE``); see ``dali_score.py`` notes.
+``mkdssp`` at the path in DaliLite’s ``bin/mpidali.pm`` (``$DSSP_EXE``); see ``foldkit_dali_like_scores.py`` notes.
 """
 
 from __future__ import annotations
@@ -37,7 +37,8 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-import dali_score as _ds
+import foldkit_dali_utils as du
+import foldkit_dali_like_scores as _ds
 from structure_phylogeny import _natural_sort_key
 
 from cli_log import add_log_args, setup_log_from_args
@@ -58,7 +59,7 @@ def _sanitize_label(s: str) -> str:
 
 
 def _find_dalilite_bin(dalilite_path: str | None) -> str:
-    p = _ds._find_dalilite_path(dalilite_path)
+    p = du._find_dalilite_path(dalilite_path)
     return p or ""
 
 
@@ -152,7 +153,7 @@ def _pair_result_from_biotite_fallback(
         "biotite superimpose_structural_homologs found a correspondence (like Coot SSM, "
         "this can disagree with Dali’s statistical cutoff).\n"
         f"# core_rmsd_after_kabsch_angstrom: {rmsd:.4f}\n"
-        "# z_score in CSV is empirical (Holm-style fit from dali_score), not Dali Z.\n"
+        "# z_score in CSV is empirical (Holm-style fit from foldkit_dali_like_scores), not Dali Z.\n"
     )
     if prior_dali_content:
         note += "# --- DaliLite output (no equivalences) ---\n" + prior_dali_content
@@ -193,7 +194,7 @@ def _resolve_chain_ids(
     chain_a: str | None,
     chain_b: str | None,
 ) -> tuple[str, str]:
-    """Match dali_score.run(): default to first chain with CA in each structure."""
+    """Match foldkit_dali_like_scores.run(): default to first chain with CA in each structure."""
     parser = _ds.PDBParser(QUIET=True)
     sa = parser.get_structure("A", pdb_a)
     sb = parser.get_structure("B", pdb_b)
@@ -244,7 +245,7 @@ def run_dalilite_pair(
             return None, fe or "biotite-only fallback failed"
         return None, "DaliLite not found: set DALILITE_HOME or pass --dalilite-path"
 
-    content, ierr, ra, rb = _ds._dalilite_pair_via_dat(
+    content, ierr, ra, rb = du._dalilite_pair_via_dat(
         pdb_a,
         pdb_b,
         ca,
@@ -252,7 +253,7 @@ def run_dalilite_pair(
         dalilite_path,
         work_cwd,
         "summary,equivalences,alignments,transrot",
-        "dalilite_superpose_scores",
+        "dalilite_pairs",
         dali_timeout=600,
     )
     if content is None:
@@ -281,7 +282,7 @@ def run_dalilite_pair(
     except OSError:
         out_file = ""
 
-    hit = _ds.parse_dalilite_summary_hit(content)
+    hit = du.parse_dalilite_summary_hit(content)
     z_score = rmsd = lali = None
     nres = pct_id = None
     hit_id = ""
@@ -295,20 +296,20 @@ def run_dalilite_pair(
         hit_id = hit["hit_id"]
         description = hit["description"]
 
-    equivs = _ds._parse_dalilite_equivalences(content, ra, rb)
+    equivs = du._parse_dalilite_equivalences(content, ra, rb)
     if not equivs:
         if debug_dalilite:
             print(
                 f"[debug] equivs parse failed; output head:\n{content[:2000]}",
                 file=sys.stderr,
             )
-        if not _ds._dalilite_text_has_summary_hit(content):
+        if not du._dalilite_text_has_summary_hit(content):
             hint = (
                 "DaliLite found no significant structural match: the summary table has no "
                 "hit row, so equivalences and transrot are empty. This is typical when Z "
                 "would be below DaliLite’s reporting threshold (~2)—e.g. unrelated folds, "
                 "different domains, or very divergent models. Try pairs you expect to be "
-                "structurally homologous, or use dali_score.py with --no-dalilite for "
+                "structurally homologous, or use foldkit_dali_like_scores.py with --no-dalilite for "
                 "biotite/sequence-order alignment (different method, not Dali Z). "
             )
         else:
@@ -460,9 +461,9 @@ def run_all_pairs(
     # Match rmsd_to_csv / structure_phylogeny: axis order is natural-sorted structure labels.
     files = sorted(
         files,
-        key=lambda p: (_natural_sort_key(_ds._label_from_path(p)), _natural_sort_key(p)),
+        key=lambda p: (_natural_sort_key(du._label_from_path(p)), _natural_sort_key(p)),
     )
-    labels = [_ds._label_from_path(f) for f in files]
+    labels = [du._label_from_path(f) for f in files]
     zscores: dict = {}
     raw_scores: dict = {}
     n_core: dict = {}
@@ -508,7 +509,7 @@ def run_all_pairs(
             meta.pop("z_is_empirical", None)
             if equivalences_dir and equivs:
                 os.makedirs(equivalences_dir, exist_ok=True)
-                _ds.write_equivalences_tsv(
+                du.write_equivalences_tsv(
                     os.path.join(equivalences_dir, f"{pair_tag}.tsv"), equivs
                 )
             z = meta["z_score"]
@@ -728,7 +729,11 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
             "*.pdb / *.cif / *.ent (default: only the root of each directory, not subfolders)."
         ),
     )
-    ap.add_argument("--filter", metavar="PATTERN", help="Filename filter (see dali_score.py).")
+    ap.add_argument(
+        "--filter",
+        metavar="PATTERN",
+        help="Filename filter (see foldkit_dali_like_scores.py).",
+    )
     ap.add_argument("--chain-a", metavar="ID", help="Chain ID for structure A (first/query).")
     ap.add_argument("--chain-b", metavar="ID", help="Chain ID for structure B (second/target).")
     ap.add_argument(
@@ -795,6 +800,22 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         help="Disable midpoint rooting when no --root.",
     )
     ap.add_argument(
+        "--output-tree-nomid",
+        metavar="FILE",
+        default=None,
+        help=(
+            "All-vs-all: optional second Newick (NJ on Z) built without midpoint-rooting, "
+            "i.e. --no-midpoint-root (ignored when the primary tree is already un-midpoint-rooted). "
+            "Use with --output-plot-nomid to also render a second dendrogram."
+        ),
+    )
+    ap.add_argument(
+        "--output-plot-nomid",
+        metavar="FILE",
+        default=None,
+        help="All-vs-all: optional second dendrogram image for --output-tree-nomid (same renderer as --output-plot).",
+    )
+    ap.add_argument(
         "--heatmap",
         metavar="PATH",
         default=None,
@@ -857,7 +878,7 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         help=(
             "On the Z heatmap, encode n_core in hatch patterns; colour still encodes Dali Z. "
             "Uses equal-width n_core ranges (--heatmap-n-core-bins) or explicit "
-            "boundaries (--heatmap-n-core-edges).",
+            "boundaries (--heatmap-n-core-edges)."
         ),
     )
     ap.add_argument(
@@ -873,7 +894,7 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         default=None,
         help=(
             "With --heatmap-n-core-patterns: optional comma-separated bin boundaries, low to high; "
-            "they are extended to the observed n_core min and max on the heatmap if needed.",
+            "they are extended to the observed n_core min and max on the heatmap if needed."
         ),
     )
     ap.add_argument(
@@ -893,7 +914,7 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
         args, script_path=__file__, inputs=[getattr(args, "input", "")], pattern=None
     )
     if summary_log is not None:
-        summary_log.task("DaliLite superpose + scores (dalilite_superpose_scores.py)")
+        summary_log.task("DaliLite superpose + scores (dalilite_pairs.py)")
 
     if not _ds.BIOPYTHON_AVAILABLE or _ds.PDBParser is None:
         print("Error: BioPython is required.", file=sys.stderr)
@@ -961,7 +982,7 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
     if args.all_vs_all:
         if len(args.paths) < 2:
             ap.error("--all-vs-all requires at least two paths (dirs or structure files)")
-        files = _ds._collect_pdb_files(args.paths, args.filter, recursive=args.recursive)
+        files = du._collect_pdb_files(args.paths, args.filter, recursive=args.recursive)
         if len(files) < 2:
             ap.error(f"need at least 2 structure files; found {len(files)}")
         if verbose:
@@ -1056,7 +1077,7 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
 
         # Ranking CSV: rows strictly by Z (avg then max), not label or pair-table order.
         ranking = sorted(
-            _ds._rank_structures(zscores),
+            du._rank_structures(zscores),
             key=lambda r: (-float(r["avg_z"]), -float(r["max_z"]), str(r["label"])),
         )
         rank_p = out_path(args.output_ranking)
@@ -1082,7 +1103,7 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
                     w.writerow(row)
             print(f"Wrote {mat_p}")
 
-        newick = _ds._build_tree_from_zscores(
+        newick = du._build_tree_from_zscores(
             zscores,
             args.transform,
             args.exp_scale,
@@ -1094,6 +1115,36 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
         with open(tree_p, "w") as f:
             f.write(newick)
         print(f"Wrote {tree_p}")
+
+        nomid_tree_p = out_path(args.output_tree_nomid) if args.output_tree_nomid else None
+        nomid_plot_p = out_path(args.output_plot_nomid) if args.output_plot_nomid else None
+        if nomid_tree_p and not args.no_midpoint_root:
+            newick_nomid = du._build_tree_from_zscores(
+                zscores,
+                args.transform,
+                args.exp_scale,
+                args.root or "",
+                False,
+            )
+            with open(nomid_tree_p, "w") as f:
+                f.write(newick_nomid)
+            print(f"Wrote {nomid_tree_p}")
+
+            if nomid_plot_p:
+                if du._plot_tree(
+                    newick_nomid, nomid_plot_p, "DaliLite structural similarity tree (no midpoint root)"
+                ):
+                    print(f"Wrote {nomid_plot_p}")
+                else:
+                    print(
+                        "Plot skipped (--output-plot-nomid): install ete3 or biopython+matplotlib",
+                        file=sys.stderr,
+                    )
+        elif nomid_tree_p and args.no_midpoint_root:
+            print(
+                "Warning: --output-tree-nomid ignored (primary tree already uses --no-midpoint-root).",
+                file=sys.stderr,
+            )
 
         if args.heatmap:
             hp = out_path(args.heatmap)
@@ -1116,7 +1167,7 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
 
         plot_p = out_path(args.output_plot)
         if plot_p:
-            if _ds._plot_tree(
+            if du._plot_tree(
                 newick, plot_p, "DaliLite structural similarity tree"
             ):
                 print(f"Wrote {plot_p}")
@@ -1132,8 +1183,8 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
         ap.error("pairwise mode: provide exactly two PDB/CIF paths")
     pdb_a, pdb_b = args.paths[0], args.paths[1]
     pair_tag = (
-        f"{_sanitize_label(_ds._label_from_path(pdb_a))}__"
-        f"{_sanitize_label(_ds._label_from_path(pdb_b))}"
+        f"{_sanitize_label(du._label_from_path(pdb_a))}__"
+        f"{_sanitize_label(du._label_from_path(pdb_b))}"
     )
     work = os.path.join(out_dir, "_dalilite_work", pair_tag)
     cid_a, cid_b = _resolve_chain_ids(pdb_a, pdb_b, args.chain_a, args.chain_b)
@@ -1157,7 +1208,7 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
     if args.equivalences_dir and equivs_pw:
         ed = out_path(args.equivalences_dir)
         os.makedirs(ed, exist_ok=True)
-        _ds.write_equivalences_tsv(os.path.join(ed, f"{pair_tag}.tsv"), equivs_pw)
+        du.write_equivalences_tsv(os.path.join(ed, f"{pair_tag}.tsv"), equivs_pw)
         print(f"Wrote equivalences: {ed}/{pair_tag}.tsv", file=sys.stderr)
     print(f"alignment: {meta.get('alignment_source', 'dalilite')}")
     print(f"raw_score: {meta['raw_score']:.4f}")
@@ -1249,8 +1300,8 @@ def _dalilite_run_body(ap, args, out_dir: str, summary_log=None) -> None:
         print(f"Wrote {pair_csv}")
 
     if args.heatmap:
-        la = _ds._label_from_path(pdb_a)
-        lb = _ds._label_from_path(pdb_b)
+        la = du._label_from_path(pdb_a)
+        lb = du._label_from_path(pdb_b)
         z = float(meta["z_score"])
         zm = {(la, lb): z, (lb, la): z}
         n_core_pair: dict | None = None

@@ -1382,14 +1382,14 @@ def main():
         description='Compute Dali-like structural similarity score; pairwise or all-vs-all with optional tree output.',
         epilog='''
 Pairwise:
-  python ranking/dali_score.py /path/to/project/models/model_01.pdb /path/to/project/models/model_02.pdb [OPTIONS]
+  python ranking/foldkit_dali_like_scores.py /path/to/project/models/model_01.pdb /path/to/project/models/model_02.pdb [OPTIONS]
 
 All-vs-all:
-  python ranking/dali_score.py --all-vs-all /path/to/project/models/ [OPTIONS]
-  python ranking/dali_score.py --all-vs-all /path/to/project/set_a/ /path/to/project/set_b/ [OPTIONS]
+  python ranking/foldkit_dali_like_scores.py --all-vs-all /path/to/project/models/ [OPTIONS]
+  python ranking/foldkit_dali_like_scores.py --all-vs-all /path/to/project/set_a/ /path/to/project/set_b/ [OPTIONS]
 
 Directory collection: by default, each directory is scanned recursively for *.pdb / *.cif / *.ent.
-  Use --root-only-dirs to restrict to the top-level directory only (same default as dalilite_superpose_scores.py).
+  Use --root-only-dirs to restrict to the top-level directory only (same default as dalilite_pairs.py).
 
 Alignment sources: DaliLite -> alignment file -> biotite -> sequence-order.
   DaliLite: --dalilite-path DIR or DALILITE_HOME (import.pl needs mkdssp; see bin/mpidali.pm $DSSP_EXE)
@@ -1449,7 +1449,7 @@ Tree/dendrogram (all-vs-all only): --output-tree, --output-plot, --output-matrix
         pattern=None,
     )
     if summary_log is not None:
-        summary_log.task("DALI-like score computation (dali_score.py)")
+        summary_log.task("DALI-like score computation (foldkit_dali_like_scores.py)")
     _main_after_parse(ap, args, summary_log=summary_log)
 
 

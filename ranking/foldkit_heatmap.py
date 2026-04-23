@@ -2,18 +2,21 @@
 """
 Matplotlib square-matrix heatmaps for FoldKit (RMSD, Dali Z, …).
 
-Used by ``rmsd_to_csv`` and ``dalilite_superpose_scores`` without those entry points
+Used by ``rmsd_to_csv`` and ``dalilite_pairs`` without those entry points
 importing each other. Documented in the main ``README.md`` (``rmsd_to_csv.py`` and
-``dalilite_superpose_scores.py`` sections) and in ``metrics/metrics_details.md`` §6.3.1.
+``dalilite_pairs.py`` sections) and in ``metrics/metrics_details.md`` §6.3.1.
 CLI details: ``python ranking/rmsd_to_csv.py --help`` and
-``python ranking/dalilite_superpose_scores.py --help``.
+``python ranking/dalilite_pairs.py --help``.
 """
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import sys
 import tempfile
+
+from structure_phylogeny import _natural_sort_key
 
 
 def short_heatmap_label(name: str) -> str:
@@ -223,20 +226,29 @@ def _heatmap_vector_format(fmt: str) -> bool:
 # Second-channel hatch: cycle none → vertical → horizontal → diagonal (thin black lines).
 # Matplotlib tightens hatch spacing by repeating | - / ; too few repeats look empty, too many
 # merge into solid black (especially on small cells). Tune these if your matrix size changes a lot.
-_HATCH_LINEWIDTH_PT = 0.3
-_HATCH_LINE_COLOR = "black"
-_HATCH_REPEAT_CELLS = 9
+_HATCH_LINEWIDTH_PT = 0.15
+_HATCH_LINE_COLOR = "grey"
+_HATCH_REPEAT_CELLS = 4
 _HATCH_REPEAT_LEGEND = 5
+
+# Cell border: draw a thin black grid around each cell.
+_CELL_BORDER_LINEWIDTH_PT = 0.3
+_CELL_BORDER_COLOR = "black"
 
 
 def _hatch_pattern_for_bin_index(
-    bin_index: int, *, legend: bool = False
+    bin_index: int,
+    *,
+    legend: bool = False,
+    repeat_cells: int = _HATCH_REPEAT_CELLS,
+    repeat_legend: int = _HATCH_REPEAT_LEGEND,
 ) -> str | None:
     """Bin 0: no hatch; then dense |, -, /; repeat for higher bin indices."""
     k = int(bin_index) % 4
     if k == 0:
         return None
-    n = _HATCH_REPEAT_LEGEND if legend else _HATCH_REPEAT_CELLS
+    n = int(repeat_legend) if legend else int(repeat_cells)
+    n = max(1, n)
     if k == 1:
         return "|" * n
     if k == 2:
@@ -279,15 +291,54 @@ def _hatch_bin_legend_label(
     return f"{value_name} {a:.0f}–{c:.0f}"
 
 
+def _relative_luminance_srgb(rgba: tuple[float, float, float, float]) -> float:
+    """
+    Approximate perceived brightness from an sRGB RGBA tuple in [0,1].
+    Used to choose a contrasting hatch colour on dark cells.
+    """
+    r, g, b, _a = [float(x) for x in rgba]
+    # Simple Rec.709 luminance in display space (good enough for hatch contrast).
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _format_cell_value(v: float, fmt: str) -> str:
+    try:
+        return fmt.format(v)
+    except Exception:
+        # Fallback: tolerate printf-style formats if given accidentally.
+        try:
+            return fmt % v
+        except Exception:
+            return str(v)
+
+
 def _draw_heatmap_vector_cells(
     ax,
     arr,
     cmap_obj,
     norm,
     *,
-    hatch_value_arr: "np.ndarray | None" = None,
+    hatch_value_arr: object | None = None,
     hatch_bin_edges: list[float] | None = None,
     hatch_channel_name: str = "Hatch values",
+    hatch_repeat_cells: int = _HATCH_REPEAT_CELLS,
+    hatch_repeat_legend: int = _HATCH_REPEAT_LEGEND,
+    hatch_linewidth_pt: float = _HATCH_LINEWIDTH_PT,
+    cell_border_linewidth_pt: float = _CELL_BORDER_LINEWIDTH_PT,
+    cell_border_color: str = _CELL_BORDER_COLOR,
+    hatch_color_light: str = "black",
+    hatch_color_dark: str = "white",
+    hatch_color_luma_threshold: float = 0.45,
+    annotate_value_arr: object | None = None,
+    annotate_fmt: str = "{:.0f}",
+    annotate_fontsize: float = 6.0,
+    annotate_color_light: str = "black",
+    annotate_color_dark: str = "white",
+    annotate_color_luma_threshold: float = 0.45,
+    annotate_hatch_value_arr: object | None = None,
+    annotate_hatch_fmt: str = "{:.0f}",
+    annotate_hatch_fontsize: float | None = None,
+    triangle: str | None = None,
 ) -> None:
     """
     Draw one matplotlib Rectangle per matrix cell, matching imshow(origin='lower') layout.
@@ -309,9 +360,19 @@ def _draw_heatmap_vector_cells(
         and hatch_bin_edges is not None
         and len(hatch_bin_edges) >= 2
     )
+    use_annot = annotate_value_arr is not None
+    dual_annot = annotate_hatch_value_arr is not None
     n_bins = (len(hatch_bin_edges) - 1) if use_hatch else 0
+    afs2 = float(annotate_hatch_fontsize) if annotate_hatch_fontsize is not None else max(
+        3.25, float(annotate_fontsize) * 0.88
+    )
     for i in range(nrow):
         for j in range(ncol):
+            # Note: we plot with imshow(origin='lower') semantics (row 0 at bottom).
+            # The diagonal runs bottom-left → top-right. The region "under" that diagonal
+            # (bottom-right half, including diagonal) corresponds to i <= j.
+            if triangle == "lower" and i > j:
+                continue
             v = arr[i, j]
             if np.isnan(v):
                 fc = (1.0, 1.0, 1.0, 1.0)
@@ -322,16 +383,18 @@ def _draw_heatmap_vector_cells(
             y0 = i - 0.5
             x0 = j - 0.5
             hatch: str | None = None
-            edgecolor = "none"
-            linewidth = 0.0
+            edgecolor = cell_border_color
+            linewidth = float(cell_border_linewidth_pt)
             if use_hatch and i != j:
                 hv = hatch_value_arr[i, j]
                 if np.isfinite(hv):
                     bi = _hatch_value_bin_index(float(hv), hatch_bin_edges)
-                    hatch = _hatch_pattern_for_bin_index(bi, legend=False)
-                    if hatch is not None:
-                        edgecolor = _HATCH_LINE_COLOR
-                        linewidth = _HATCH_LINEWIDTH_PT
+                    hatch = _hatch_pattern_for_bin_index(
+                        bi,
+                        legend=False,
+                        repeat_cells=hatch_repeat_cells,
+                        repeat_legend=hatch_repeat_legend,
+                    )
             rect = Rectangle(
                 (x0, y0),
                 1.0,
@@ -339,10 +402,70 @@ def _draw_heatmap_vector_cells(
                 linewidth=linewidth,
                 edgecolor=edgecolor,
                 facecolor=fc,
-                hatch=hatch,
+                hatch=None,
             )
             rect.set_gid(f"rmsd_cell_r{i}_c{j}")
             ax.add_patch(rect)
+            if hatch is not None:
+                # Matplotlib uses the patch edge colour for hatch stroke colour.
+                # To keep a stable black grid border while adapting hatch contrast,
+                # draw the hatch as a separate transparent overlay patch.
+                luma = _relative_luminance_srgb(fc)
+                hatch_ec = hatch_color_dark if luma <= float(hatch_color_luma_threshold) else hatch_color_light
+                hrect = Rectangle(
+                    (x0, y0),
+                    1.0,
+                    1.0,
+                    linewidth=0.0,
+                    edgecolor=hatch_ec,
+                    facecolor="none",
+                    hatch=hatch,
+                )
+                hrect.set_gid(f"rmsd_hatch_r{i}_c{j}")
+                ax.add_patch(hrect)
+            if use_annot and (triangle != "lower" or i <= j) and i != j:
+                av = annotate_value_arr[i, j]
+                luma = _relative_luminance_srgb(fc)
+                tc = (
+                    annotate_color_dark
+                    if luma <= float(annotate_color_luma_threshold)
+                    else annotate_color_light
+                )
+                if dual_annot:
+                    aha = annotate_hatch_value_arr[i, j] if annotate_hatch_value_arr is not None else np.nan
+                    if not (np.isfinite(av) or np.isfinite(aha)):
+                        continue
+                    if np.isfinite(av) and np.isfinite(aha):
+                        text = (
+                            f"{_format_cell_value(float(av), annotate_fmt)}\n"
+                            f"{_format_cell_value(float(aha), annotate_hatch_fmt)}"
+                        )
+                    elif np.isfinite(av):
+                        text = _format_cell_value(float(av), annotate_fmt)
+                    else:
+                        text = _format_cell_value(float(aha), annotate_hatch_fmt)
+                    ax.text(
+                        j,
+                        i,
+                        text,
+                        ha="center",
+                        va="center",
+                        fontsize=afs2,
+                        linespacing=0.92,
+                        color=tc,
+                        clip_on=True,
+                    )
+                elif np.isfinite(av):
+                    ax.text(
+                        j,
+                        i,
+                        _format_cell_value(float(av), annotate_fmt),
+                        ha="center",
+                        va="center",
+                        fontsize=float(annotate_fontsize),
+                        color=tc,
+                        clip_on=True,
+                    )
     ax.set_xlim(-0.5, ncol - 0.5)
     ax.set_ylim(-0.5, nrow - 0.5)
     # Keep cells square (same scale on x and y); avoids stretch when a horizontal colour bar reshapes the axes box.
@@ -353,12 +476,17 @@ def _draw_heatmap_vector_cells(
         name = (hatch_channel_name or "Hatch values").strip() or "Hatch values"
         handles: list[Patch] = []
         for b in range(n_bins):
-            hp = _hatch_pattern_for_bin_index(b, legend=True)
+            hp = _hatch_pattern_for_bin_index(
+                b,
+                legend=True,
+                repeat_cells=hatch_repeat_cells,
+                repeat_legend=hatch_repeat_legend,
+            )
             handles.append(
                 Patch(
                     facecolor="0.85",
-                    edgecolor=_HATCH_LINE_COLOR if hp is not None else "none",
-                    linewidth=_HATCH_LINEWIDTH_PT if hp is not None else 0.0,
+                    edgecolor=cell_border_color if hp is not None else "none",
+                    linewidth=float(cell_border_linewidth_pt) if hp is not None else 0.0,
                     hatch=hp,
                     label=_hatch_bin_legend_label(b, hatch_bin_edges, name),
                 )
@@ -429,6 +557,7 @@ def _add_raster_colorbar(
     orientation: str = "vertical",
     mappable=None,
     vertical_colorbar_on_left: bool = False,
+    ticks: "list[float] | None" = None,
 ):
     """
     Colour bar as a raster, sized to match the heatmap grid extent (vertical: same height as the
@@ -496,7 +625,11 @@ def _add_raster_colorbar(
         cax = fig.add_axes([xmin, bottom, bw, ch])
 
     cbar = fig.colorbar(mappable, cax=cax, orientation=orient, extend="neither", label=label)
-    _set_heatmap_colorbar_ticks(cbar, norm)
+    if ticks is not None and len(ticks) > 0:
+        _ticks = [float(x) for x in ticks]
+        cbar.set_ticks(_ticks)
+    else:
+        _set_heatmap_colorbar_ticks(cbar, norm)
     if hasattr(cbar, "solids") and cbar.solids is not None:
         cbar.solids.set_rasterized(True)
     for p in cbar.ax.patches:
@@ -539,11 +672,31 @@ def plot_heatmap(
     y_axis_right: bool = False,
     *,
     cbar_label: str = "RMSD (Å)",
+    cbar_ticks: list[float] | None = None,
+    cbar_tick_step: float | None = None,
     autoscale_positive_offdiag_only: bool = True,
     hatch_value_matrix: list[list[float | int | None]] | None = None,
     hatch_n_equal_bins: int = 4,
     hatch_bin_edges: list[float] | None = None,
     hatch_channel_name: str = "Hatch values",
+    hatch_repeat_cells: int = _HATCH_REPEAT_CELLS,
+    hatch_repeat_legend: int = _HATCH_REPEAT_LEGEND,
+    hatch_linewidth_pt: float = _HATCH_LINEWIDTH_PT,
+    hatch_color_light: str = "black",
+    hatch_color_dark: str = "white",
+    hatch_color_luma_threshold: float = 0.45,
+    hatch_draw_patterns: bool = True,
+    annotate: str | None = None,
+    annotate_fmt: str = "{:.0f}",
+    annotate_fontsize: float = 6.0,
+    annotate_color_light: str = "black",
+    annotate_color_dark: str = "white",
+    annotate_color_luma_threshold: float = 0.45,
+    annotate_hatch_fmt: str = "{:.0f}",
+    annotate_hatch_fontsize: float | None = None,
+    cell_border_linewidth_pt: float = _CELL_BORDER_LINEWIDTH_PT,
+    cell_border_color: str = _CELL_BORDER_COLOR,
+    triangle: str | None = None,
 ) -> None:
     """
     Draw heatmap with matplotlib and save to out_path as an image (PNG/SVG/PDF).
@@ -553,13 +706,15 @@ def plot_heatmap(
     autoscale_positive_offdiag_only=False so autoscale and median use all finite off-diagonals.
 
     Optional **second channel** (hatch patterns): if ``hatch_value_matrix`` is set (same shape
-    as ``matrix``; diagonal ignored), each off-diagonal cell uses a hatch pattern for binned
-    values from that matrix (e.g. number of aligned residues, Dali ``n_core``, or any numeric
-    pair attribute). Colour still encodes the main ``matrix``. Bins are either equal-width
-    from off-diagonal ``hatch_value_matrix`` values (``hatch_n_equal_bins``) or explicit
-    ``hatch_bin_edges`` as ``[e0, e1, …, eK]`` (extended to the data min/max when needed).
-    ``hatch_channel_name`` labels the hatch legend (e.g. \"n_core\", \"N aligned\").
-    Omit ``hatch_value_matrix`` for a plain colour heatmap.
+    as ``matrix``; diagonal ignored) and ``hatch_draw_patterns`` is True, each off-diagonal cell
+    uses a hatch pattern for binned values from that matrix (e.g. Dali ``n_core``). Colour still
+    encodes the main ``matrix``. Set ``hatch_draw_patterns=False`` to omit patterns while still
+    passing ``hatch_value_matrix`` for ``annotate='main+hatch'`` (numeric n_core in cells only).
+
+    ``annotate`` may be ``\"main+hatch\"`` (aliases: ``main_hatch``, ``both``): two-line cell labels
+    from the main matrix and ``hatch_value_matrix`` (e.g. Dali Z + n_core), using
+    ``annotate_hatch_fmt`` / ``annotate_hatch_fontsize`` for the second line. Requires
+    ``hatch_value_matrix``.
     """
     try:
         import matplotlib
@@ -641,6 +796,23 @@ def plot_heatmap(
             print("Heatmap: median centre = %.4g" % vc_for_norm, file=sys.stderr)
     norm = make_heatmap_norm(disp_vmin, disp_vmax, dc, vc_for_norm if dc == "median" else None)
 
+    user_ticks: list[float] | None = None
+    if cbar_ticks is not None and len(cbar_ticks) > 0:
+        user_ticks = [float(x) for x in cbar_ticks]
+    elif cbar_tick_step is not None:
+        step = float(cbar_tick_step)
+        if step > 0:
+            import numpy as np
+
+            lo = float(norm.vmin)
+            hi = float(norm.vmax)
+            start = np.floor(lo / step) * step
+            vals = np.arange(start, hi + 0.5 * step, step, dtype=float)
+            vals = vals[(vals >= lo - 1e-9) & (vals <= hi + 1e-9)]
+            user_ticks = [float(x) for x in vals]
+        else:
+            print(f"Warning: cbar_tick_step must be > 0 (got {cbar_tick_step!r}); ignoring.", file=sys.stderr)
+
     # Diagonal: below scale so it maps to the colour map "under" colour (white)
     np.fill_diagonal(arr, disp_vmin - 1.0)
 
@@ -656,6 +828,7 @@ def plot_heatmap(
 
     hatch_arr: np.ndarray | None = None
     hatch_full_edges: list[float] | None = None
+    hatch_draw_patterns = bool(hatch_draw_patterns)
     if hatch_value_matrix is not None:
         if len(hatch_value_matrix) != n or any(len(row) != n for row in hatch_value_matrix):
             print("Error: hatch_value_matrix must match matrix shape (%d x %d)." % (n, n), file=sys.stderr)
@@ -668,6 +841,44 @@ def plot_heatmap(
                     hatch_arr[i, j] = np.nan
                 else:
                     hatch_arr[i, j] = float(v)
+
+    ann = (annotate or "").strip().lower()
+    if ann in ("", "none", "off", "false", "no"):
+        ann = ""
+    elif ann in ("main", "matrix", "values"):
+        ann = "main"
+    elif ann in ("main+hatch", "main_hatch", "both", "z_ncore", "main_and_hatch"):
+        ann = "main+hatch"
+    elif ann in ("hatch", "second", "second_channel", "second-channel"):
+        ann = "hatch"
+    else:
+        print(f"Warning: unknown annotate mode {annotate!r}; using none.", file=sys.stderr)
+        ann = ""
+
+    annotate_arr = None
+    annotate_hatch_stored = None
+    if ann == "main":
+        annotate_arr = arr.copy()
+    elif ann == "main+hatch":
+        if hatch_arr is None:
+            print(
+                "Error: annotate 'main+hatch' requires hatch_value_matrix (e.g. n_core alongside Dali Z).",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        annotate_arr = arr.copy()
+        annotate_hatch_stored = hatch_arr.copy()
+    elif ann == "hatch":
+        annotate_arr = hatch_arr.copy() if hatch_arr is not None else None
+        if annotate_arr is None:
+            print("Warning: annotate='hatch' requested but no hatch_value_matrix provided; skipping annotations.", file=sys.stderr)
+            ann = ""
+
+    # Hatch patterns: optional (hatch_draw_patterns); never together with annotate='hatch' (values only).
+    want_hatch_patterns = (
+        hatch_draw_patterns and hatch_arr is not None and ann != "hatch"
+    )
+    if want_hatch_patterns:
         if hatch_bin_edges is not None:
             fe = sorted({float(x) for x in hatch_bin_edges})
             if len(fe) < 2:
@@ -686,11 +897,38 @@ def plot_heatmap(
             hatch_full_edges = _hatch_bin_edges_from_values(
                 hatch_arr, max(1, int(hatch_n_equal_bins))
             )
-            if hatch_full_edges is None:
-                hatch_value_matrix = None
-                hatch_arr = None
+        if hatch_full_edges is None:
+            print("Warning: could not bin hatch values; hatch patterns omitted.", file=sys.stderr)
+            want_hatch_patterns = False
 
-    use_patches = _heatmap_vector_format(fmt) or (hatch_arr is not None)
+    hatch_patterns_arr = hatch_arr if want_hatch_patterns else None
+    hatch_patterns_edges = hatch_full_edges if want_hatch_patterns else None
+    if ann == "hatch" and hatch_arr is not None:
+        print("Heatmap: annotate hatch values (patterns disabled).", file=sys.stderr)
+
+    tri = (triangle or "").strip().lower()
+    if tri in ("lower", "lower_triangle", "lower-triangle", "lowertri", "lowertriangular"):
+        tri = "lower"
+    elif tri in ("", "none", "full"):
+        tri = ""
+    else:
+        print(f"Warning: unknown triangle mode {triangle!r}; using full matrix.", file=sys.stderr)
+        tri = ""
+
+    if tri == "lower":
+        # Keep diagonal and the region under it (bottom-right, i <= j); hide i > j.
+        il = np.tril_indices(n, k=-1)
+        arr[il] = np.nan
+        if hatch_arr is not None:
+            hatch_arr[il] = np.nan
+        if hatch_patterns_arr is not None:
+            hatch_patterns_arr[il] = np.nan
+        if annotate_arr is not None:
+            annotate_arr[il] = np.nan
+        if annotate_hatch_stored is not None:
+            annotate_hatch_stored[il] = np.nan
+
+    use_patches = _heatmap_vector_format(fmt) or (hatch_patterns_arr is not None)
 
     cb_orient = colorbar_orientation.lower() if colorbar_orientation else "vertical"
     if cb_orient not in ("vertical", "horizontal"):
@@ -698,35 +936,147 @@ def plot_heatmap(
     fig_h = max(5, n * 0.35)
     if cb_orient == "horizontal":
         fig_h += 1.25
-    if hatch_arr is not None:
+    if hatch_patterns_arr is not None:
         fig_h = max(fig_h, n * 0.35 + 0.5)
     fig_w = max(6, n * 0.4)
-    if hatch_arr is not None:
+    if hatch_patterns_arr is not None:
         fig_w += 1.8
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     im = None
-    if use_patches:
-        if hatch_arr is not None and hatch_full_edges is not None:
-            _draw_heatmap_vector_cells(
-                ax,
-                arr,
-                cmap_obj,
-                norm,
-                hatch_value_arr=hatch_arr,
-                hatch_bin_edges=hatch_full_edges,
-                hatch_channel_name=hatch_channel_name,
-            )
+    import matplotlib as mpl
+    rc_hatch = {"hatch.linewidth": float(hatch_linewidth_pt)}
+    with mpl.rc_context(rc_hatch):
+        if use_patches:
+            if hatch_patterns_arr is not None and hatch_patterns_edges is not None:
+                _draw_heatmap_vector_cells(
+                    ax,
+                    arr,
+                    cmap_obj,
+                    norm,
+                    hatch_value_arr=hatch_patterns_arr,
+                    hatch_bin_edges=hatch_patterns_edges,
+                    hatch_channel_name=hatch_channel_name,
+                    hatch_repeat_cells=hatch_repeat_cells,
+                    hatch_repeat_legend=hatch_repeat_legend,
+                    hatch_linewidth_pt=hatch_linewidth_pt,
+                    hatch_color_light=hatch_color_light,
+                    hatch_color_dark=hatch_color_dark,
+                    hatch_color_luma_threshold=hatch_color_luma_threshold,
+                    annotate_value_arr=annotate_arr,
+                    annotate_fmt=annotate_fmt,
+                    annotate_fontsize=annotate_fontsize,
+                    annotate_color_light=annotate_color_light,
+                    annotate_color_dark=annotate_color_dark,
+                    annotate_color_luma_threshold=annotate_color_luma_threshold,
+                    annotate_hatch_value_arr=annotate_hatch_stored,
+                    annotate_hatch_fmt=annotate_hatch_fmt,
+                    annotate_hatch_fontsize=annotate_hatch_fontsize,
+                    cell_border_linewidth_pt=cell_border_linewidth_pt,
+                    cell_border_color=cell_border_color,
+                    triangle=tri or None,
+                )
+            else:
+                _draw_heatmap_vector_cells(
+                    ax,
+                    arr,
+                    cmap_obj,
+                    norm,
+                    annotate_value_arr=annotate_arr,
+                    annotate_fmt=annotate_fmt,
+                    annotate_fontsize=annotate_fontsize,
+                    annotate_color_light=annotate_color_light,
+                    annotate_color_dark=annotate_color_dark,
+                    annotate_color_luma_threshold=annotate_color_luma_threshold,
+                    annotate_hatch_value_arr=annotate_hatch_stored,
+                    annotate_hatch_fmt=annotate_hatch_fmt,
+                    annotate_hatch_fontsize=annotate_hatch_fontsize,
+                    cell_border_linewidth_pt=cell_border_linewidth_pt,
+                    cell_border_color=cell_border_color,
+                    triangle=tri or None,
+                )
         else:
-            _draw_heatmap_vector_cells(ax, arr, cmap_obj, norm)
-    else:
-        im = ax.imshow(
-            arr,
-            aspect="equal",
-            origin="lower",
-            cmap=cmap_obj,
-            interpolation="nearest",
-            norm=norm,
-        )
+            im = ax.imshow(
+                arr,
+                aspect="equal",
+                origin="lower",
+                cmap=cmap_obj,
+                interpolation="nearest",
+                norm=norm,
+            )
+            # Add per-cell borders for raster heatmaps.
+            ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
+            ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
+            ax.grid(
+                which="minor",
+                color=cell_border_color,
+                linestyle="-",
+                linewidth=float(cell_border_linewidth_pt),
+            )
+            ax.tick_params(which="minor", bottom=False, left=False)
+            if annotate_arr is not None:
+                rafs2 = (
+                    float(annotate_hatch_fontsize)
+                    if annotate_hatch_fontsize is not None
+                    else max(3.25, float(annotate_fontsize) * 0.88)
+                )
+                # For raster heatmaps, add text labels after imshow.
+                for i in range(n):
+                    for j in range(n):
+                        if tri == "lower" and i > j:
+                            continue
+                        if i == j:
+                            continue
+                        av = annotate_arr[i, j]
+                        if annotate_hatch_stored is not None:
+                            aha = annotate_hatch_stored[i, j]
+                            if not (np.isfinite(av) or np.isfinite(aha)):
+                                continue
+                        elif not np.isfinite(av):
+                            continue
+                        # Determine face colour for contrast.
+                        v = arr[i, j]
+                        if np.isnan(v):
+                            continue
+                        if v < float(norm.vmin):
+                            fc = cmap_obj.get_under()
+                            rgba = (1.0, 1.0, 1.0, 1.0) if fc is None else plt.matplotlib.colors.to_rgba(fc)
+                        else:
+                            rgba = cmap_obj(norm(v))
+                        luma = _relative_luminance_srgb(rgba)
+                        tc = annotate_color_dark if luma <= float(annotate_color_luma_threshold) else annotate_color_light
+                        if annotate_hatch_stored is not None:
+                            aha = annotate_hatch_stored[i, j]
+                            if np.isfinite(av) and np.isfinite(aha):
+                                ttxt = (
+                                    f"{_format_cell_value(float(av), annotate_fmt)}\n"
+                                    f"{_format_cell_value(float(aha), annotate_hatch_fmt)}"
+                                )
+                            elif np.isfinite(av):
+                                ttxt = _format_cell_value(float(av), annotate_fmt)
+                            else:
+                                ttxt = _format_cell_value(float(aha), annotate_hatch_fmt)
+                            ax.text(
+                                j,
+                                i,
+                                ttxt,
+                                ha="center",
+                                va="center",
+                                fontsize=rafs2,
+                                linespacing=0.92,
+                                color=tc,
+                                clip_on=True,
+                            )
+                        else:
+                            ax.text(
+                                j,
+                                i,
+                                _format_cell_value(float(av), annotate_fmt),
+                                ha="center",
+                                va="center",
+                                fontsize=float(annotate_fontsize),
+                                color=tc,
+                                clip_on=True,
+                            )
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
     tick_labels = [short_heatmap_label(x) if short_labels else x for x in ids]
@@ -738,13 +1088,13 @@ def plot_heatmap(
     cbar_left = y_axis_right and cb_orient == "vertical"
     if cb_orient == "horizontal":
         r_edge = 0.86 if y_axis_right else 0.94
-        if hatch_arr is not None:
+        if hatch_patterns_arr is not None:
             r_edge = max(0.70, r_edge - 0.08)
         plt.tight_layout(rect=(0.06, 0.22, r_edge, 0.94))
     elif cbar_left:
         plt.tight_layout(rect=(0.16, 0.06, 0.90, 0.92))
     else:
-        r_layout = 0.78 if hatch_arr is not None else 0.88
+        r_layout = 0.78 if hatch_patterns_arr is not None else 0.88
         plt.tight_layout(rect=(0.08, 0.06, r_layout, 0.92))
     if _heatmap_vector_format(fmt):
         _add_raster_colorbar(
@@ -757,6 +1107,7 @@ def plot_heatmap(
             orientation=cb_orient,
             mappable=None,
             vertical_colorbar_on_left=cbar_left,
+            ticks=user_ticks,
         )
     else:
         _add_raster_colorbar(
@@ -769,6 +1120,7 @@ def plot_heatmap(
             orientation=cb_orient,
             mappable=im,
             vertical_colorbar_on_left=cbar_left,
+            ticks=user_ticks,
         )
 
     # Save to a temp file in the same directory, then move to target (avoids partial/CSV overwrite)
@@ -819,3 +1171,443 @@ def plot_heatmap(
                 pass
         raise
 
+
+def _load_square_matrix_csv(csv_path: str) -> tuple[list[str], list[list[float | None]]]:
+    """
+    Load a square matrix CSV with header: Model,<id1>,<id2>,... and one row per id.
+    Cells may be '-', '', 'NA', 'NaN' for missing.
+    Returns (ids, matrix) where matrix is list[list[float|None]].
+    """
+    import csv
+
+    path = os.path.abspath(csv_path)
+    with open(path, newline="") as f:
+        r = csv.reader(f)
+        header = next(r, None)
+        if not header or len(header) < 2:
+            raise ValueError(f"matrix CSV has no header or too few columns: {path}")
+        ids = [x.strip() for x in header[1:] if str(x).strip()]
+        if not ids:
+            raise ValueError(f"matrix CSV has empty label header: {path}")
+        rows: dict[str, list[str]] = {}
+        for row in r:
+            if not row:
+                continue
+            key = (row[0] or "").strip()
+            if not key:
+                continue
+            rows[key] = [str(x) for x in row[1:]]
+    missing = [x for x in ids if x not in rows]
+    if missing:
+        raise ValueError(f"matrix CSV missing rows for {len(missing)} label(s) (e.g. {missing[:3]}): {path}")
+    n = len(ids)
+    mat: list[list[float | None]] = []
+    for la in ids:
+        vals = rows[la]
+        if len(vals) < n:
+            vals = vals + ["-"] * (n - len(vals))
+        use: list[float | None] = []
+        for s in vals[:n]:
+            ss = (s or "").strip()
+            if ss in ("", "-", "NA", "NaN", "nan", "N/A"):
+                use.append(None)
+            else:
+                use.append(float(ss))
+        mat.append(use)
+    return ids, mat
+
+
+def _load_pair_table_hatch_matrix(
+    pairs_csv: str,
+    ids: list[str],
+    *,
+    a_col: str = "label_a",
+    b_col: str = "label_b",
+    value_col: str = "n_core",
+) -> list[list[float | int | None]]:
+    """Build an NxN hatch matrix from a pairwise CSV keyed by (label_a,label_b)."""
+    import csv
+
+    path = os.path.abspath(pairs_csv)
+    ncore: dict[tuple[str, str], float | int] = {}
+    with open(path, newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            a = (row.get(a_col) or "").strip()
+            b = (row.get(b_col) or "").strip()
+            v = row.get(value_col)
+            if not a or not b or v is None:
+                continue
+            try:
+                ncore[(a, b)] = float(v)
+            except ValueError:
+                continue
+    mat: list[list[float | int | None]] = []
+    for i, la in enumerate(ids):
+        row: list[float | int | None] = []
+        for j, lb in enumerate(ids):
+            if i == j:
+                row.append(None)
+            else:
+                val = ncore.get((la, lb), ncore.get((lb, la)))
+                row.append(val)
+        mat.append(row)
+    return mat
+
+
+def _load_pair_table_square_matrix(
+    pairs_csv: str,
+    *,
+    a_col: str = "label_a",
+    b_col: str = "label_b",
+    value_col: str = "pct_id",
+    ids: list[str] | None = None,
+) -> tuple[list[str], list[list[float | None]]]:
+    """
+    Build a square matrix from a pairwise CSV keyed by (label_a,label_b).
+    If ids is None, labels are derived from the union of a_col/b_col and natural-sorted.
+    Diagonal entries are set to None.
+    """
+    import csv
+
+    path = os.path.abspath(pairs_csv)
+    vals: dict[tuple[str, str], float] = {}
+    labels: set[str] = set()
+    with open(path, newline="") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            a = (row.get(a_col) or "").strip()
+            b = (row.get(b_col) or "").strip()
+            v = row.get(value_col)
+            if not a or not b:
+                continue
+            labels.add(a)
+            labels.add(b)
+            if v is None:
+                continue
+            try:
+                vals[(a, b)] = float(v)
+            except ValueError:
+                continue
+
+    use_ids = ids if ids is not None else sorted(labels, key=_natural_sort_key)
+    n = len(use_ids)
+    mat: list[list[float | None]] = []
+    for i, la in enumerate(use_ids):
+        row: list[float | None] = []
+        for j, lb in enumerate(use_ids):
+            if i == j:
+                row.append(None)
+            else:
+                row.append(vals.get((la, lb), vals.get((lb, la))))
+        mat.append(row)
+    return use_ids, mat
+
+
+def _parse_float_list_csv(s: str) -> list[float] | None:
+    if s is None:
+        return None
+    parts = [p.strip() for p in str(s).split(",") if p.strip()]
+    if len(parts) < 2:
+        return None
+    return [float(p) for p in parts]
+
+
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(
+        description="Plot a square matrix CSV as a heatmap (optional hatch second channel).",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    mg = ap.add_mutually_exclusive_group(required=True)
+    mg.add_argument(
+        "--matrix",
+        metavar="CSV",
+        help="Square matrix CSV with header 'Model,<id1>,<id2>,…' and one row per id.",
+    )
+    mg.add_argument(
+        "--matrix-pairs",
+        metavar="CSV",
+        help="Pairwise CSV table to turn into a square matrix (uses --matrix-pairs-*-col).",
+    )
+    ap.add_argument(
+        "--out",
+        required=True,
+        metavar="PATH",
+        help="Output image path (.png, .svg, or .pdf).",
+    )
+    ap.add_argument("--title", default="Heatmap", help="Figure title.")
+    ap.add_argument("--cmap", default="viridis_r", help="Matplotlib colormap name.")
+    ap.add_argument("--vmin", type=float, default=None, help="Colour scale floor (data units).")
+    ap.add_argument("--vmax", type=float, default=None, help="Colour scale ceiling (data units).")
+    ap.add_argument(
+        "--diverging-center",
+        choices=("none", "median"),
+        default="none",
+        help="Use TwoSlopeNorm centred at the median (good for diverging colormaps).",
+    )
+    ap.add_argument(
+        "--short-labels",
+        action="store_true",
+        help="Shorten axis labels (FoldKit convention) for the figure only.",
+    )
+    ap.add_argument(
+        "--colorbar-orientation",
+        choices=("vertical", "horizontal"),
+        default="vertical",
+        help="Colour bar layout.",
+    )
+    ap.add_argument(
+        "--y-axis-right",
+        action="store_true",
+        help="Draw row tick labels on the right (useful for long labels).",
+    )
+    ap.add_argument(
+        "--cbar-label",
+        default="Value",
+        help="Colour bar label.",
+    )
+    ap.add_argument(
+        "--cbar-ticks",
+        default=None,
+        metavar="T0,T1,…",
+        help="Optional comma-separated explicit colour bar ticks in data units.",
+    )
+    ap.add_argument(
+        "--cbar-tick-step",
+        type=float,
+        default=None,
+        metavar="STEP",
+        help="Optional colour bar tick spacing in data units (e.g. 5 for 50,55,...).",
+    )
+    ap.add_argument(
+        "--matrix-pairs-a-col",
+        default="label_a",
+        help="Column name for the first label in --matrix-pairs.",
+    )
+    ap.add_argument(
+        "--matrix-pairs-b-col",
+        default="label_b",
+        help="Column name for the second label in --matrix-pairs.",
+    )
+    ap.add_argument(
+        "--matrix-pairs-value-col",
+        default="pct_id",
+        help="Column name for the matrix value in --matrix-pairs (e.g. pct_id, z_score, n_core).",
+    )
+    ap.add_argument(
+        "--matrix-pairs-order-from",
+        default=None,
+        metavar="CSV",
+        help="Optional: square matrix CSV whose label order should be reused when building from --matrix-pairs.",
+    )
+    ap.add_argument(
+        "--triangle",
+        choices=("full", "lower"),
+        default="full",
+        help="Plot only part of the matrix: full, or lower (under diagonal, including diagonal).",
+    )
+    ap.add_argument(
+        "--cell-border-linewidth-pt",
+        type=float,
+        default=_CELL_BORDER_LINEWIDTH_PT,
+        help="Per-cell border line width (points).",
+    )
+    ap.add_argument(
+        "--cell-border-color",
+        default=_CELL_BORDER_COLOR,
+        help="Per-cell border colour.",
+    )
+    ap.add_argument(
+        "--autoscale-positive-offdiag-only",
+        action="store_true",
+        help="Autoscale from positive off-diagonal values only (RMSD-style). Default is to use all finite off-diagonal values.",
+    )
+    ap.add_argument(
+        "--annotate",
+        choices=("none", "main", "hatch", "main+hatch"),
+        default="none",
+        help="Cell labels: main (colour matrix), hatch (second channel), or main+hatch (two lines; requires --hatch-*).",
+    )
+    ap.add_argument(
+        "--annotate-fmt",
+        default="{:.0f}",
+        help="Python format string for annotations, e.g. '{:.0f}', '{:.1f}', '{:.2g}'.",
+    )
+    ap.add_argument(
+        "--annotate-fontsize",
+        type=float,
+        default=6.0,
+        help="Annotation font size (points).",
+    )
+    ap.add_argument(
+        "--annotate-color-light",
+        default="black",
+        help="Annotation colour on light cells.",
+    )
+    ap.add_argument(
+        "--annotate-color-dark",
+        default="white",
+        help="Annotation colour on dark cells (for contrast).",
+    )
+    ap.add_argument(
+        "--annotate-color-threshold",
+        type=float,
+        default=0.45,
+        metavar="LUMA",
+        help="Relative luminance threshold in [0,1]; cells darker than this use --annotate-color-dark.",
+    )
+    ap.add_argument(
+        "--annotate-hatch-fmt",
+        default="{:.0f}",
+        help="With --annotate main+hatch: format for the second line (hatch / n_core).",
+    )
+
+    hatch = ap.add_argument_group("Hatch (second channel)")
+    hatch.add_argument(
+        "--hatch-matrix",
+        default=None,
+        metavar="CSV",
+        help="Optional: square matrix CSV (same labels) for hatch values.",
+    )
+    hatch.add_argument(
+        "--hatch-pairs",
+        default=None,
+        metavar="CSV",
+        help="Optional: pairwise table CSV (e.g. dali_pairs_*.csv) with label_a/label_b and a value column.",
+    )
+    hatch.add_argument(
+        "--hatch-pairs-a-col",
+        default="label_a",
+        help="Column name for the first label in --hatch-pairs.",
+    )
+    hatch.add_argument(
+        "--hatch-pairs-b-col",
+        default="label_b",
+        help="Column name for the second label in --hatch-pairs.",
+    )
+    hatch.add_argument(
+        "--hatch-pairs-value-col",
+        default="n_core",
+        help="Column name for the hatch value in --hatch-pairs (e.g. n_core).",
+    )
+    hatch.add_argument("--hatch-name", default="Hatch values", help="Legend title for hatch values.")
+    hatch.add_argument("--hatch-bins", type=int, default=4, help="Number of equal-width bins for hatch values.")
+    hatch.add_argument(
+        "--hatch-edges",
+        default=None,
+        metavar="E0,E1,…",
+        help="Optional comma-separated bin boundaries for hatch values; extended to data min/max if needed.",
+    )
+    hatch.add_argument(
+        "--hatch-repeat-cells",
+        type=int,
+        default=_HATCH_REPEAT_CELLS,
+        help="Hatch density in cells (smaller = more spaced lines).",
+    )
+    hatch.add_argument(
+        "--hatch-repeat-legend",
+        type=int,
+        default=_HATCH_REPEAT_LEGEND,
+        help="Hatch density in legend patches.",
+    )
+    hatch.add_argument(
+        "--hatch-linewidth-pt",
+        type=float,
+        default=_HATCH_LINEWIDTH_PT,
+        help="Hatch line thickness (points).",
+    )
+    hatch.add_argument(
+        "--hatch-color-light",
+        default="black",
+        help="Hatch colour on light cells.",
+    )
+    hatch.add_argument(
+        "--hatch-color-dark",
+        default="white",
+        help="Hatch colour on dark cells (for contrast).",
+    )
+    hatch.add_argument(
+        "--hatch-color-threshold",
+        type=float,
+        default=0.45,
+        metavar="LUMA",
+        help="Relative luminance threshold in [0,1]; cells darker than this use --hatch-color-dark.",
+    )
+
+    args = ap.parse_args(argv)
+
+    if args.matrix:
+        ids, matrix = _load_square_matrix_csv(args.matrix)
+    else:
+        ids_order: list[str] | None = None
+        if args.matrix_pairs_order_from:
+            ids_order, _m = _load_square_matrix_csv(args.matrix_pairs_order_from)
+        ids, matrix = _load_pair_table_square_matrix(
+            args.matrix_pairs,
+            a_col=args.matrix_pairs_a_col,
+            b_col=args.matrix_pairs_b_col,
+            value_col=args.matrix_pairs_value_col,
+            ids=ids_order,
+        )
+
+    hatch_value_matrix = None
+    if args.hatch_matrix and args.hatch_pairs:
+        ap.error("Use only one of --hatch-matrix or --hatch-pairs.")
+    if args.hatch_matrix:
+        h_ids, hatch_value_matrix = _load_square_matrix_csv(args.hatch_matrix)
+        if h_ids != ids:
+            raise SystemExit("Error: --hatch-matrix labels do not match --matrix labels (same order required).")
+    elif args.hatch_pairs:
+        hatch_value_matrix = _load_pair_table_hatch_matrix(
+            args.hatch_pairs,
+            ids,
+            a_col=args.hatch_pairs_a_col,
+            b_col=args.hatch_pairs_b_col,
+            value_col=args.hatch_pairs_value_col,
+        )
+
+    hatch_edges = _parse_float_list_csv(args.hatch_edges) if args.hatch_edges else None
+
+    cbar_ticks = _parse_float_list_csv(args.cbar_ticks) if args.cbar_ticks else None
+    plot_heatmap(
+        ids,
+        matrix,
+        args.out,
+        title=args.title,
+        cmap=args.cmap,
+        vmin=args.vmin,
+        vmax=args.vmax,
+        short_labels=bool(args.short_labels),
+        diverging_center=args.diverging_center if args.diverging_center != "none" else "none",
+        vcenter=None,
+        colorbar_orientation=args.colorbar_orientation,
+        y_axis_right=bool(args.y_axis_right),
+        cbar_label=args.cbar_label,
+        cbar_ticks=cbar_ticks,
+        cbar_tick_step=args.cbar_tick_step,
+        triangle=args.triangle,
+        cell_border_linewidth_pt=float(args.cell_border_linewidth_pt),
+        cell_border_color=str(args.cell_border_color),
+        autoscale_positive_offdiag_only=bool(args.autoscale_positive_offdiag_only),
+        annotate=args.annotate,
+        annotate_fmt=str(args.annotate_fmt),
+        annotate_fontsize=float(args.annotate_fontsize),
+        annotate_color_light=str(args.annotate_color_light),
+        annotate_color_dark=str(args.annotate_color_dark),
+        annotate_color_luma_threshold=float(args.annotate_color_threshold),
+        annotate_hatch_fmt=str(args.annotate_hatch_fmt),
+        hatch_value_matrix=hatch_value_matrix,
+        hatch_n_equal_bins=max(1, int(args.hatch_bins)),
+        hatch_bin_edges=hatch_edges,
+        hatch_channel_name=args.hatch_name,
+        hatch_repeat_cells=max(1, int(args.hatch_repeat_cells)),
+        hatch_repeat_legend=max(1, int(args.hatch_repeat_legend)),
+        hatch_linewidth_pt=float(args.hatch_linewidth_pt),
+        hatch_color_light=str(args.hatch_color_light),
+        hatch_color_dark=str(args.hatch_color_dark),
+        hatch_color_luma_threshold=float(args.hatch_color_threshold),
+    )
+
+
+if __name__ == "__main__":
+    main()

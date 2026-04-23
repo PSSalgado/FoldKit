@@ -2,7 +2,7 @@
 """
 Convert pairwise RMSD logs (or an existing RMSD CSV) to square CSV table(s), optional heatmaps.
 
-Heatmap rendering lives in ``foldkit_heatmap`` (also used by ``dalilite_superpose_scores``).
+Heatmap rendering lives in ``foldkit_heatmap`` (also used by ``dalilite_pairs``).
 
 Single-file mode (pass one INPUT path; omit --scan-dir):
   Reads one LSQ text, SSM text, or square rmsd_table_*.csv (same format detection as

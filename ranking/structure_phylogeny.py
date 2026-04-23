@@ -249,9 +249,26 @@ def parse_rmsd_csv(path: str) -> dict[tuple[str, str], float]:
 
 
 def _natural_sort_key(s: str):
-    """Sort key so 'model_02' comes before 'model_10' (natural/numeric order)."""
+    """
+    Sort key so ``model_02`` sorts before ``model_10`` (numeric runs compared as integers).
+
+    Uses (0, int) vs (1, str) segments so keys never compare ``int`` to ``str`` (which would
+    raise in Python 3 during ``sorted()``).
+    """
     import re
-    return [int(x) if x.isdigit() else x.lower() for x in re.split(r"(\d+)", s)]
+
+    out: list[tuple[int, object]] = []
+    for x in re.split(r"(\d+)", str(s)):
+        if x == "":
+            continue
+        if x.isdigit():
+            try:
+                out.append((0, int(x)))
+            except ValueError:
+                out.append((1, x.lower()))
+        else:
+            out.append((1, x.lower()))
+    return tuple(out) if out else ((1, ""),)
 
 
 def alignments_to_matrix(
