@@ -209,6 +209,10 @@ def analyse_lattice_packing(
     coords_arr = np.vstack(coords) if coords else np.zeros((0, 3), dtype=float)
 
     # Choose volume.
+    #
+    # NOTE: `vol_meta` is used to carry warnings (and defaults) through the
+    # volume selection logic. Be careful with dict merge order: defaults must
+    # never overwrite computed values like bbox/cryst1 volume.
     vol_meta = {"source": None, "volume_a3": None}
     source = (volume_source or "auto").strip().lower()
     if source not in ("auto", "cryst1", "bbox"):
@@ -236,12 +240,14 @@ def analyse_lattice_packing(
 
     if source in ("auto", "cryst1") and cryst1:
         v = _unit_cell_volume_a3(cryst1)
-        vol_meta = {"source": "cryst1", "volume_a3": float(v), "cryst1": cryst1, **vol_meta}
+        # Merge defaults first so they can't overwrite computed volume fields.
+        vol_meta = {**vol_meta, "source": "cryst1", "volume_a3": float(v), "cryst1": cryst1}
     elif source == "cryst1" and not cryst1:
         return {"error": "volume_source=cryst1 but CRYST1 record not found"}
     else:
         bbox = _bbox_volume_a3(coords_arr, pad_a=bbox_pad_a)
-        vol_meta = {"source": "bbox", **bbox, **vol_meta}
+        # Merge defaults first so they can't overwrite computed bbox volume.
+        vol_meta = {**vol_meta, "source": "bbox", **bbox}
 
     volume_a3 = float(vol_meta.get("volume_a3") or 0.0)
     if not math.isfinite(volume_a3) or volume_a3 <= 0.0:

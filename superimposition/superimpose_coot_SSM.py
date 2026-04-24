@@ -38,8 +38,8 @@ def sanitize_pattern_for_filename(pattern):
 
 def expand_output_dir_pattern(template, ref_name=None, filter_pattern=None):
     """
-    Expand --output-dir pattern: [reference_name] -> ref stem, [pattern] or [filter] -> sanitized filter.
-    Also replaces literal *filter* with the sanitized filter (convenience placeholder).
+    Expand --output-dir pattern: [reference_name] -> ref stem, [pattern] or [filter] -> sanitised filter.
+    Also replaces literal *filter* with the sanitised filter (convenience placeholder).
     """
     if not template:
         return template

@@ -12,7 +12,7 @@ come from Dali’s own output files—there is no separate FoldKit/Dali re-scori
   DaliLite’s Fortran tools enforce path lengths (often **≤ 80** characters) for
   ``import.pl``; the run therefore uses a **short directory under the system temp** folder
   (e.g. ``/tmp``), and copies results to ``-d``. With ``--keep-dalilite-work``, a full copy
-  of that work tree is saved under ``<output>/dali_matrix_work/`` before the temp dir is removed.
+  of that work tree is saved under ``<output>/dali_matrix_work/`` before the temporary directory is removed.
 
 **Optional re-exports (all derived only from Dali’s files, for convenience):**
   pairwise details table, square ordered-matrix CSV, ranking from the matrix, and/or a
@@ -761,6 +761,20 @@ def main() -> None:
         help="Format for %%ID values drawn in cells on the %%ID heatmap (colour still encodes %%ID).",
     )
     ap.add_argument(
+        "--heatmap-pct-id-vmin",
+        type=float,
+        default=None,
+        metavar="VAL",
+        help="Lower colour scale limit for the %%ID heatmap (e.g. 50).",
+    )
+    ap.add_argument(
+        "--heatmap-pct-id-vmax",
+        type=float,
+        default=None,
+        metavar="VAL",
+        help="Upper colour scale limit for the %%ID heatmap (e.g. 85).",
+    )
+    ap.add_argument(
         "--heatmap-pct-id-hatch-name",
         default=None,
         metavar="STR",
@@ -1374,8 +1388,8 @@ def main() -> None:
                     pp,
                     title=str(args.heatmap_pct_id_title),
                     cmap=str(args.cmap),
-                    vmin=None,
-                    vmax=None,
+                    vmin=getattr(args, "heatmap_pct_id_vmin", None),
+                    vmax=getattr(args, "heatmap_pct_id_vmax", None),
                     short_labels=bool(args.short_heatmap_labels),
                     diverging_center="none",
                     vcenter=None,

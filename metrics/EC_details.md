@@ -143,3 +143,7 @@ Lattice summary:
 - **EC density**: aggregated \(r_{\mathrm{lattice}}/A_{\mathrm{buried}}\)
 - **EC by partner chain**: \((r_k,\ n_{\mathrm{pairs},k})\) for each partner.
 
+### Related: Caver tunnel “EC” (different geometry)
+
+`metrics/caver_tunnel_analysis.py` reports a **tunnel**-specific analogue of electrostatic complementarity, built on a **Caver 3.0** centreline and a shell of **lining** residues, using the same class of **Coulomb-summed** potential described above for interfaces. The **geometric** construction is **not** the protein–protein, SASA-facing point pairing used in `interface_analyser_asu_ec.py`, `interface_analyser_lattice_ec.py`, and `electrostatic_complementarity.py`. **Do not** treat tunnel and interface \(r\) values as interchangeable without clear labelling. Full behaviour, options, and outputs are documented in **README.md** (Metrics) and **metrics/metrics_details.md** (Section 1.7).
+

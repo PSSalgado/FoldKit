@@ -2,7 +2,7 @@
 
 This document lists all metrics computed by the FoldKit analyser and metrics scripts, with:
 
-**Related (not covered below):** `trim_models.py` only harmonises residue ranges (standalone script; shared with `trim_superimposeLSQ.py` trimming); it does not compute packing or similarity metrics. See **README.md** (File management). **Post-processing CSV tools** `interface_molecule_report_csv.py` and `contact_molecule_report_csv.py` do not compute new metrics; they parse analyser text reports into tables (Section 2.10, Section 3.5). Example filenames in this repo use `model_01`, `results.txt` (interface / packing merged output), `contact_results.txt` (`contact_analyser.py -o`), `set_a` / `set_b` (`--sets`), and `./out`; see **README.md** (opening “Example naming” paragraph).
+**Related (not covered below):** `trim_models.py` only harmonises residue ranges (standalone script; shared with `trim_superimposeLSQ.py` trimming); it does not compute packing or similarity metrics. See **README.md** (File management). **Post-processing CSV tools** `interface_molecule_report_csv.py`, `contact_molecule_report_csv.py`, and `lattice_packing_report_csv.py` do not compute new metrics; they parse or flatten analyser outputs into tables (Section 2.10, Section 3.5, Section 1.6.6). Example filenames in this repo use `model_01`, `results.txt` (interface / packing merged output), `contact_results.txt` (`contact_analyser.py -o`), `set_a` / `set_b` (`--sets`), and `./out`; see **README.md** (opening “Example naming” paragraph).
 
 - **Mathematical definition** and **script calculation** for each metric.
 - **Reader-friendly formula**: a short, plain-language description of what is being computed and how.
@@ -19,7 +19,9 @@ This document lists all metrics computed by the FoldKit analyser and metrics scr
 | packing_metrics.py      | **BioPython** (Bio.PDB.PDBParser, PDBIO, PDBExceptions), **NumPy**, **SciPy** (optional)                                         | `PDBParser.get_structure()`, manual CRYST1 read; `structure` → model → chain → residue → atom; `atom.coord`, `atom.element`, `atom.name`; `np.radians`, `np.sqrt`, `np.cos`; `scipy.spatial.distance.pdist()` or fallback loop with `np.linalg.norm`                                                                                                                                                   |
 | interface_analyser_asu_charge.py / interface_analyser_lattice_charge.py | **BioPython** (PDBParser, NeighborSearch), **Bio.PDB.SASA** (ShrakeRupley, optional), **NumPy** | `parser.get_structure()`, `structure.get_chains()`, `chain.get_atoms()`; `NeighborSearch(atom_list).search_all(threshold, 'R')` → interface residues; contact residues = interface residues filtered by same criteria (distance + type) via `_residue_passes_contact_criteria()`; `ShrakeRupley().compute()` for BSA; `np.linalg.norm`, `np.mean`, etc. Includes shape complementarity and **charge-tag** complementarity metrics. Text report → CSV: Section 2.10. |
 | interface_analyser_asu_ec.py / interface_analyser_lattice_ec.py / electrostatic_complementarity.py | **BioPython** (PDBParser, NeighborSearch), **NumPy** | McCoy-style electrostatic complementarity (EC): sample facing surface points and compute electrostatic potentials; per-interface Pearson correlation \(r\) and lattice-weighted summaries (Fisher z). Definitions: `EC_details.md`; summary integration: Section 2.5.4 and Section 2.7.1. |
+| caver_tunnel_analysis.py | **BioPython** (PDBParser, NeighborSearch), **NumPy**, **Matplotlib**, **SciPy** (optional) | Tunnel centreline from Caver `analysis/tunnel_profiles.csv` (or a centreline PDB); per-point Coulomb-style potentials; Pearson \(r\) along path (and optional rolling local \(r\)); Kyte–Doolittle means; Section 1.7. |
 | contact_analyser.py     | **BioPython** (PDBParser, PDBExceptions), **NumPy**                                                                              | Same structure traversal; `chain.get_atoms()`, `atom.coord`; `np.linalg.norm`; manual contact loop and type classification; optional full ASU contact list in text / `*_asu_contacts.txt`. Text report → CSV: Section 3.5.                                                                                                                                                                                                                                                                             |
+| lattice_packing_report_csv.py | (stdlib) **json**, **csv** | Merges TXT / flattens JSON to CSV; no structure metrics. |
 | foldkit_dali_like_scores.py | **BioPython** (PDBParser), **NumPy**, **biotite** (optional)                                                                 | `PDBParser.get_structure()`, structure traversal for CA atoms; `np.linalg.norm`, `np.exp` for distance matrices and Dali formula; `biotite.structure.superimpose_structural_homologs()` for automatic residue equivalences when available                                                                                                                                                              |
 
 
@@ -185,56 +187,36 @@ estimated_solvent_content_percent = 100 * estimated_solvent_content_fraction
 - These are convenient summary ratios for comparing similarly-built supercells.
 - They are **not** equivalent to crystallographic solvent content unless the CRYST1 unit cell is meaningful for the model and the contents correspond to a true crystallographic asymmetric unit/packing.
 
+#### 1.6.5 Volume metadata (implementation)
+
+The analyser carries volume provenance in a `vol_meta` dictionary. Merges are performed so that **initial placeholder fields never overwrite** computed `volume_a3` or bounding-box parameters: reported densities and metadata stay consistent with the active volume source (bounding box or `CRYST1`).
+
+#### 1.6.6 Post-processing: `lattice_packing_report_csv.py`
+
+A companion to Section 1.6 that **concatenates** per-structure **TXT** reports, **flattens** one or more **JSON** files (or a **combined** JSON bundle) into a **single CSV table**, and supports **`--preset summary`** or an explicit comma-separated **`--columns`** list to control the written fields. It performs **no** structure parsing and **no** physics; see **README.md** (Metrics) for the command-line interface.
+
+### 1.7 Caver tunnel analysis: `caver_tunnel_analysis.py`
+
+**Purpose.** The script ingests one or more **Caver 3.0 (PyMOL plugin)** run directories, selects one **tunnel cluster** (integer `--tunnel`), and summarises each tunnel in **tabular** and optional **graphical** form (default outputs under each directory; optional shared paths gain a per-directory filename suffix when multiple runs are requested). The intended input layout is a run folder containing `analysis/tunnel_profiles.csv`, `analysis/residues.txt`, and optionally `analysis/bottlenecks.csv`. If `tunnel_profiles.csv` is missing, a **Caver** tunnel **centreline PDB** can be passed with `--centerline-pdb` so a profile is built from the polyline. A **protein** coordinate file, **`--protein-pdb`**, is **required** for the electrostatic mapping (must correspond to the structure used in Caver). See **README.md** (Metrics) for a minimal command example.
+
+**Electrostatic complementarity (EC), tunnel analogue.** The implementation follows the *spirit* of McCoy, Epa & Colman (1997) as implemented for interfaces: charges are taken from a fixed **sign/weight** scheme on **ionic** residues, including a tunable **histidine** contribution on the Caver `residues.txt` line (`--his-ec`); a Coulomb **sum** over these sources yields a field value at each centreline point. A **facing** construction pairs each point with a shell of nearby heavy atoms on the opposite side of the path (a tunnel-specific substitute for the interface “nearest point on the partner surface”). A **global** **Pearson** correlation \(r\) is computed over centreline points between the two sides’ potentials, with a sign arrangement analogous to the interface EC (compare **Section 2.5.4** and `EC_details.md` only for the **potential** definition, **not** for geometry). **Local EC** (optional) applies the same potential arrays in a **rolling, odd-width window** along arclength (`--ec-window`).
+
+**Differences from interface EC.** The tunnel metric is **not** the same quantity as the **`EC (r)`** field from `interface_analyser_asu_ec.py` or `interface_analyser_lattice_ec.py`, because the **sampling pattern** and **geometric** definition differ (1D path + shell vs. SASA-facing point pairs on two chains). Do **not** mix tunnel \(r\) with interface \(r\) in a single “EC” table without a clear label.
+
+**Hydrophobicity.** For each profile row, a **Kyte–Doolittle** mean is computed from the set of **three-letter** residue names Caver associated with that position (or “nan” if none map).
+
+**Optional outputs and plotting.** A **per-point CSV** (default or `--output-csv`) lists distance along the path, radii, EC values, optional local EC, and hydrophobicity; **`--diameter`** switches reported widths to **diameter = 2 × radius**. **`--residues-csv`** can list the union of mapped residues. **`--json-out`** writes a compact summary. **`--color-by ec`** (default) or **`hydrophobicity`** (orange–white–green palette in the default styling) sets the main profile colour scale; **`--no-plot`** skips figures. Plots are produced with **Matplotlib**; the output format follows **`--plot-out`**. **SVG** and **PDF** use vector geometry with a **raster** colour bar in the current implementation; **PNG** is fully raster, consistent with other FoldKit heatmap-style figures. Distance sampling can be refined with `--plot-upsample` (capped by `--plot-upsample-max`); **SciPy** enables smoother radius resampling when installed.
+
+**References (hydrophobicity).** A **Kyte–Doolittle** scale is a standard 20-residue index; cite the original scale paper when reporting these means. **Caver** should be cited from the Caver 3.0 / authors’ documentation.
 
 **What it means (how to interpret)**
 
-| Metric | Value pattern | Typical interpretation |
+| Quantity | Value pattern | Typical interpretation |
 | --- | --- | --- |
-| Matthews coefficient (Å³/Da) | Higher | More space per mass → typically higher solvent fraction / looser packing. |
-| Matthews coefficient (Å³/Da) | Lower | Less space per mass → typically tighter packing / lower solvent fraction (may be unrealistic if extremely low). |
-| Solvent content (%) | Higher | More solvent in the unit cell; often easier diffusion but potentially more disorder. |
-| Solvent content (%) | Lower | Less solvent; often tighter crystals (but very low values can be suspect). |
-
-**Mathematical definition**
-
-**Matthews coefficient** (Å³/Da):
-
-```
-Vm = Vcell / M
-```
-
-**Estimated protein volume** (Å³):
-
-```
-Vprotein = M / rho,   rho ≈ 0.81 Da/Å^3
-```
-
-**Solvent volume** (Å³):
-
-```
-Vsolvent = Vcell - Vprotein
-```
-
-**Solvent content** (%):
-
-```
-solvent_percent = (Vsolvent / Vcell) * 100
-```
-
-**Implementation (simplified):** Matthews = unit_cell_volume / molecular_weight (0 if molecular_weight ≤ 0). Protein_volume = molecular_weight / 0.81 (Å³). Solvent_volume = unit_cell_volume − protein_volume. Solvent_content = (solvent_volume / unit_cell_volume) × 100, clamped to [0, 100].
-
-- **Script:** In `_calculate_matthews_metrics()`.
-
-**Libraries / functions used**
-
-- **Script only:** Arithmetic using `unit_cell_volume` and `molecular_weight` from previous steps; no extra BioPython or NumPy calls in this function.
-
-**Derivation / references**
-
-- The **Matthews coefficient** is defined as the ratio of unit-cell volume to protein mass:
-  - B. W. Matthews, “Solvent content of protein crystals”, *J. Mol. Biol.* **33**, 491–497 (1968). DOI: [10.1016/0022-2836(68)90205-2](https://doi.org/10.1016/0022-2836(68)90205-2)
-- The typical protein partial specific volume (≈0.73–0.75 mL/g) and average crystal solvent content (40–60%) imply a bulk density on the order of **1.35 g/cm³** (≈ **0.81 Da/Å³**), which motivates the protein-volume estimate `V_protein` used in the script.
-- The solvent fraction follows from a volume balance: `V_cell = V_protein + V_solvent`, so `solvent_fraction = V_solvent / V_cell`.
+| Global tunnel EC \(r\) | Nearer **+1** | Stronger sign opposition between the two sides of the path (in the model used). |
+| Global tunnel EC \(r\) | Near **0** | Little linear relationship between the two sides’ modelled potentials. |
+| Local EC (rolling window) | Peaks/valleys along distance | **Local** co-variation; useful for **colouring** a profile, not a second global score. |
+| Kyte–Doolittle mean | More positive | More **hydrophobic** lining in the mean; more negative, more **hydrophilic** (at residue-type resolution). |
 
 ---
 
@@ -572,7 +554,7 @@ Residue charges (same set as polarity summary):
 #### 2.5.3 Charge-tag complementarity density (per interface area)
 
 **Reader-friendly formula**  
-*Charge-tag complementarity density* is the number of opposite-sign charged–charged contacts per unit interface area (Å⁻²). It combines the count of opposite-sign charged contacts with interface size, so larger interfaces are comparable to smaller ones.
+*Charge-tag complementarity density* is the number of opposite-sign charged–charged contacts per unit interface area (Å⁻²). The definition combines the count of opposite-sign charged contacts with interface size, so larger interfaces are comparable to smaller ones.
 
 **What it means (how to interpret)**
 
@@ -585,10 +567,10 @@ Residue charges (same set as polarity summary):
 Definition: (number of opposite-sign charged–charged contacts) / area
 with area = contact_area if contact_area ≥ 0.01 Å², else BSA.
 Unit: per Å² (e.g. 0.05 → 0.05 opposite-sign contacts per Å²).
-Also stored: charge_complementarity_density_denominator = 'contact_area' or 'buried_surface_area' so you know which area was used.
+Also stored: `charge_complementarity_density_denominator` = `'contact_area'` or `'buried_surface_area'`, recording which area was used.
 If both contact area and BSA are 0, charge_complementarity_density is None.
 
-It's a size-normalised measure: interfaces with the same fraction of opposite-sign contacts can be distinguished by how many such contacts there are per Å² (e.g. 2 vs 20 opposite contacts on a 100 Å² interface).
+The quantity is a size-normalised measure: interfaces with the same fraction of opposite-sign contacts can be distinguished by how many such contacts there are per Å² (e.g. 2 vs 20 opposite contacts on a 100 Å² interface).
 
 **Why contact area vs BSA:** The denominator is **contact area** when it is ≥ 0.01 Å² (same contact-based definition as the contact list and contact area). When contact area is zero or negligible, **buried surface area (BSA)** is used so the metric remains defined. Contact area is preferred because it is derived from the same atom–atom contacts that define the charged-contact counts; BSA is a different measure (solvent-accessible surface buried) but is a sensible fallback when there is no overlap-based contact area.
 
@@ -1235,7 +1217,7 @@ max_z_i = max_{j != i}( z_ij )
 ### 6.1 Raw Dali score
 
 **Reader-friendly formula**  
-The *raw Dali score* measures structural similarity by comparing intramolecular Cα–Cα distances between two structures. For each pair of equivalent residues (i, j) in the aligned core, compute the distance between residues i and j within structure A and within structure B. The score φ(i,j) rewards similar distances and penalizes deviations; an envelope downweights long-range pairs. The total score is the sum over all residue pairs in the core.
+The *raw Dali score* measures structural similarity by comparing intramolecular Cα–Cα distances between two structures. For each pair of equivalent residues (i, j) in the aligned core, compute the distance between residues i and j within structure A and within structure B. The score φ(i,j) rewards similar distances and penalises deviations; an envelope downweights long-range pairs. The total score is the sum over all residue pairs in the core.
 
 **Mathematical definition**
 
@@ -1328,6 +1310,10 @@ The script parses **`dali.pl` text output** for:
 **`z_score` column:** DaliLite’s **summary Z** when present; otherwise the **empirical** Z from `compute_z_score` (see §6.2). The script’s stdout/stderr distinguishes these (e.g. **empirical Z-score** vs **DaliLite reported**). **`raw_score`** is always the FoldKit **recomputed** Dali sum over the mapped **core**; **`n_core`** is the number of equivalent Cα pairs used for that sum. Dali summary fields **lali**, **nres**, **pct_id** come from the hit line when present. Optional CSV columns **core_resnum_min_a**, **core_resnum_max_a**, **core_resnum_min_b**, **core_resnum_max_b** give the PDB residue span of the core (min–max; alignments with gaps are still a single span). **`--equivalences-dir DIR`** writes one TSV per pair: aligned `(chain, resnum, icode)` pairs (with header comments). Requirements and environment variables match `foldkit_dali_like_scores.py` (DaliLite path, **mkdssp** as above). Use **`--fallback-biotite`** when DaliLite reports no significant hit (often below Dali’s usual reporting threshold, Z ~ 2) but a structural alignment is still desired; in that case Z is **empirical**, not Dali’s.
 
 **All-vs-all structure list:** by default, `_collect_pdb_files(..., recursive=False)` is used: only `*.pdb` / `*.cif` / `*.ent` in the **root** of each directory argument. Pass **`--recursive`** to include subdirectories (same recursive behaviour as `foldkit_dali_like_scores.py` all-vs-all by default).
+
+### 6.3.1a `dalilite_matrix.py` (Dali “matrix” mode)
+
+`ranking/dalilite_matrix.py` calls **`dali.pl --matrix`** (after the usual `import.pl` setup). It stages under a **short** path, copies Dali’s **ordered** matrix, per-query **`.txt`** results, and **Newick** outputs to **`-d`**, and can optionally re-export a **pair table**, **square** matrix CSV, **ranking**, and **matplotlib** heatmaps. Values come **only** from Dali’s files, not from `foldkit_dali_like_scores.compute_z_score`. A **% identity** heatmap is written when **`--heatmap-pct-id PATH`** is set; use **`--heatmap-pct-id-vmin`** and **`--heatmap-pct-id-vmax`** to fix the **colour** scale for that **second** heatmap (independently of **`--heatmap`** and its **`--vmin` / `--vmax`**). See **README.md** (Ranking) and the script’s **`--help`**.
 
 ### 6.3.2 run_all_superpositions.py (Coot LSQ batch)
 

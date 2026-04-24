@@ -229,7 +229,7 @@ class CrystalPackingAnalyser:
         """Save results for a single structure."""
         output_file = self.output_dir / f"{structure_id}_analysis.json"
         
-        # Convert numpy arrays to lists for JSON serialization
+        # Convert numpy arrays to lists for JSON serialisation
         serializable_results = self._make_serializable(results)
         
         import json
