@@ -10,11 +10,11 @@ Scripts and docs are grouped in top-level folders that mirror this README:
 - `metrics/`
 - `appendix/`
 
-From the repository root run `python <category>/script_name.py` (or `Rscript ranking/...` where noted).
+From the repository root, execute `python <category>/script_name.py` (or `Rscript ranking/...` where noted).
 
 **Example naming (this file, `metrics/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged interface text report (e.g. from `interface_analyser_asu_charge.py -o`); `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv` or `rmsd_heatmap_<suffix>.<ext>` (for example `.svg` from `rmsd_to_csv.py` batch mode) match the scripts that create them.
 
-**Paths in examples:** `/path/to/project/...` marks a generic working tree (substitute your own directories or files; absolute paths are safest). Third-party installs may use placeholders such as `/path/to/DaliLite`. Command lines assume you run `python <category>/<script>.py` from the **repository root** unless stated otherwise.
+**Paths in examples:** `/path/to/project/...` marks a generic working tree (replace with local directories or files; absolute paths are safest). Third-party installs may use placeholders such as `/path/to/DaliLite`. Command lines assume execution of `python <category>/<script>.py` from the **repository root** unless stated otherwise.
 
 ## Contents
 
@@ -32,7 +32,7 @@ From the repository root run `python <category>/script_name.py` (or `Rscript ran
 
 **Common:** Python 3; structure files in PDB or mmCIF where applicable.
 
-**Depending on what you run:**
+**Depending on the workflow executed:**
 
 - **Coot** (command-line): for `superimpose_coot_*.py`, `trim_superimposeLSQ.py` (superposition modes), `open_models_in_coot.py`, and log parsing in `extract_rmsd.py`. Not needed for `trim_models.py` (trim-only).
 - **R** (optional): `ranking/create_rmsd_heatmap.R` and other R utilities where documented; not required for the default `crystal_packing_analyser` CLI.
@@ -148,7 +148,7 @@ These scripts align models to a reference or run all-vs-all jobs. **Coot-based**
 
 #### Main flows vs pattern mode (`--pattern`)
 
-`superimpose_coot_SSM.py` and `superimpose_coot_LSQ.py` expose two **separate** command-line shapes. In a **single** run you use **one or the other**; they are **not** combinable.
+`superimpose_coot_SSM.py` and `superimpose_coot_LSQ.py` expose two **separate** command-line shapes. In a single execution, select one mode; the two modes are not combinable.
 
 
 | Goal                                                                                         | Invocation                                                                                                                                  |
@@ -339,7 +339,7 @@ Output: With trimming, creates `trimmed_set_a/`, `trimmed_set_b/` (or `trimmed_a
 
 ### `run_all_superpositions.py`
 
-Batch driver for **`superimpose_coot_LSQ.py --pattern`**: loops over **conditions** (subfolders under each base, e.g. `condition_1`) and **tags** (same role as `--filter=set_a` in SSM/LSQ). Expects `refs_base/<condition>/<REFERENCE_SUBDIR>/` for reference PDBs (default subdir `LSQaligned2_reference_m0` in the script) and `models_base/<condition>/*_fl_<set>*` for models. The script passes **`--pattern`**, **`--divider=LSQ_`**, and globs derived from **`CONDITION_PREFIX`** (e.g. `run1_sd_set_a` vs `run1_sd_reference`); edit **`CONDITION_PREFIX`**, **`REFERENCE_SUBDIR`**, **`REFERENCE_STEM`**, and **`TAGS`** in the script to match your layout.
+Batch driver for **`superimpose_coot_LSQ.py --pattern`**: loops over **conditions** (subfolders under each base, e.g. `condition_1`) and **tags** (same role as `--filter=set_a` in SSM/LSQ). Expects `refs_base/<condition>/<REFERENCE_SUBDIR>/` for reference PDBs (default subdir `LSQaligned2_reference_m0` in the script) and `models_base/<condition>/*_fl_<set>*` for models. The script passes `--pattern`, `--divider=LSQ_`, and globs derived from `CONDITION_PREFIX` (e.g. `run1_sd_set_a` vs `run1_sd_reference`); edit `CONDITION_PREFIX`, `REFERENCE_SUBDIR`, `REFERENCE_STEM`, and `TAGS` in the script to match the local layout.
 
 ```bash
 python superimposition/run_all_superpositions.py --tags set_a set_b \
@@ -364,11 +364,11 @@ Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target 
 
 **Tree / dendrogram (all-vs-all):** the optional **Newick** (`--output-tree`) is a **neighbour-joining** tree on the pairwise Z→distance table (not “Dali’s own tree” object). The written string is **rooted in practice**: by default **midpoint-rooted**; pass **`--root LABEL`** for an outgroup, or **`--no-midpoint-root`** to skip midpoint-rooting. To get **two comparable outputs in one run** (midpoint rooted vs. no-midpoint), use **`--output-tree-nomid`**, and optionally **`--output-plot-nomid`** (ignored if the primary run already set **`--no-midpoint-root`**). The **dendrogram** image (`--output-plot`, or `--output-plot-nomid`) is a Matplotlib/ete3 rendering of the corresponding Newick.
 
-If you want to **regenerate the heatmap without rerunning DaliLite**, or you need extra styling controls (hatch density/contrast, per-cell borders, triangle cropping), use the standalone CLI in **`ranking/foldkit_heatmap.py`** (see below) on the written **`--output-matrix`** CSV plus the pairs CSV (for `n_core`).
+To regenerate the heatmap without rerunning DaliLite, or to apply additional styling controls (hatch density/contrast, per-cell borders, triangle cropping), use the standalone CLI in **`ranking/foldkit_heatmap.py`** (see below) on the written **`--output-matrix`** CSV plus the pairs CSV (for `n_core`).
 
 **Table outputs and Z-score column:** The **`z_score` field in CSV** is the **DaliLite summary Z** when DaliLite returns a value on the hit line. If that is missing, FoldKit fills **`z_score`** with the **empirical (Holm-style) Z** from `foldkit_dali_like_scores.compute_z_score`. The script states which applies: progress lines use **`Z=… (DaliLite)`** versus **`empirical Z-score=… (FoldKit dali-like)`**; in pairwise mode, **`empirical Z-score:`** or **`Z-score: … (DaliLite reported)`** is printed accordingly. The **pairs** CSV and **`--output-matrix`** are **natural-ordered** by label; the **ranking** CSV (`--output-ranking`, default `dali_ranking.csv`) is ordered **only by Z** (average then maximum), not by label.
 
-**Residue core (optional):** The pairs CSV includes **`core_resnum_min_a` / `core_resnum_max_a` / `core_resnum_min_b` / `core_resnum_max_b`** (PDB residue number span of the aligned core on each side; non-contiguous alignments still show overall min–max). Pass **`--equivalences-dir /path/to/project/equivalences`** to write one TSV per pair (aligned Cα pairs used for **`n_core`** and the **raw** Dali sum in FoldKit, with a short comment header). **`n_core`** is the count of those pairs after mapping DaliLite’s block to your coordinates.
+**Residue core (optional):** The pairs CSV includes **`core_resnum_min_a` / `core_resnum_max_a` / `core_resnum_min_b` / `core_resnum_max_b`** (PDB residue number span of the aligned core on each side; non-contiguous alignments still show overall min–max). Pass **`--equivalences-dir /path/to/project/equivalences`** to write one TSV per pair (aligned Cα pairs used for **`n_core`** and the raw Dali sum in FoldKit, with a short comment header). `n_core` is the count of those pairs after mapping DaliLite’s alignment block to the input coordinates.
 
 ```bash
 python ranking/dalilite_pairs.py /path/to/project/models/model_01.pdb /path/to/project/models/model_02.pdb \
@@ -667,7 +667,7 @@ Related options:
 
 ### `dali_phylogeny.py`
 
-If you already have pairwise Dali Z-scores (for example from DaliLite or `foldkit_dali_like_scores.py`), `dali_phylogeny.py` can rank structures, convert Z to distances, and build a Newick tree.
+Where pairwise Dali Z-scores are already available (for example from DaliLite or `foldkit_dali_like_scores.py`), `dali_phylogeny.py` can rank structures, convert Z to distances, and build a Newick tree.
 
 Input format: a delimited text table (TSV/CSV/space-delimited) with 3 fields per row:  
 `model_01  model_02  zscore`
@@ -699,7 +699,7 @@ Options:
 
 Computes Dali-equivalent structural similarity scores from two or more structures. It can optionally run **DaliLite** locally (if the user specifies its path) or use biotite/alignment file for residue equivalences. Supports pairwise and all-vs-all modes with tree/dendrogram output.
 
-With DaliLite, the script runs `import.pl` then `dali.pl --cd1/--cd2` from a short temporary work directory (not bare `--pdbfile1/--pdbfile2`). `import.pl` requires `mkdssp` at the path set in DaliLite’s `bin/mpidali.pm` (`$DSSP_EXE`; symlink your site’s `mkdssp` there if the default path is wrong). Set `DALILITE_HOME` or `--dalilite-path` to the DaliLite root. Optional `MKDSSP` can point to your `mkdssp` binary for clearer error messages.
+With DaliLite, the script runs `import.pl` then `dali.pl --cd1/--cd2` from a short temporary work directory (not bare `--pdbfile1/--pdbfile2`). `import.pl` requires `mkdssp` at the path set in DaliLite’s `bin/mpidali.pm` (`$DSSP_EXE`; symlink the site `mkdssp` there if the default path is wrong). Set `DALILITE_HOME` or `--dalilite-path` to the DaliLite root. Optional `MKDSSP` can point to the `mkdssp` binary for clearer error messages.
 
 **Pairwise:**
 
@@ -730,7 +730,7 @@ Driver for DaliLite **`dali.pl --matrix`**: runs **`import.pl`** and the matrix 
 
 **Optional re-exports** (from those files) include a pairwise table, a square Z-matrix CSV, a ranking, and one or more **matplotlib** heatmaps. A **second** heatmap, **`--heatmap-pct-id PATH`**, can plot a **% identity** matrix alongside the Dali Z heatmap (`--heatmap`); use **`--heatmap-pct-id-vmin`** and **`--heatmap-pct-id-vmax`** to set the **colour bar** limits for that figure explicitly (independent of the Z heatmap scale). The script shares styling conventions with `ranking/foldkit_heatmap.py` for the figures it produces.
 
-**Path length note:** DaliLite’s tools often require short paths; the script may run under a temporary directory and mirror results to your output path (see the script’s docstring and **`--help`**).
+**Path length note:** DaliLite’s tools often require short paths; the script may run under a temporary directory and mirror results to the configured output path (see the script’s docstring and `--help`).
 
 #### References (ranking, scoring, phylogeny)
 
@@ -743,7 +743,7 @@ Driver for DaliLite **`dali.pl --matrix`**: runs **`import.pl`** and the matrix 
 
 ## Metrics (crystal packing and lattice)
 
-A Python toolkit for analysing differences in **X-ray crystal lattice packing**, including interfaces and crystal contacts, plus **optional** analysis of **Caver tunnel** exports for electrostatic- and hydrophobicity-based tunnel profiles. It complements FoldKit’s **structural similarity** tools by quantifying **how molecules pack in the unit cell** (or in an expanded supercell), not only how similar their isolated coordinates are.
+A Python toolkit for analysing differences in **X-ray crystal lattice packing**, including interfaces and crystal contacts, plus **optional** analysis of **Caver tunnel** exports for electrostatic- and hydropathy-based tunnel profiles. It complements FoldKit’s **structural similarity** tools by quantifying **how molecules pack in the unit cell** (or in an expanded supercell), not only how similar their isolated coordinates are.
 
 ### Overview
 
@@ -753,7 +753,7 @@ The pipeline implements established ways to quantify crystal packing differences
 
 - **Quantitative metrics:** packing density (Matthews coefficient, solvent content), interface and contact analysis.
 - **Multi-copy lattices:** `lattice_packing_analyser.py` for symmetry-expanded / supercell models; `lattice_packing_report_csv.py` to collate per-structure JSON or text into a single table.
-- **Tunnel metrics (optional Caver):** per-point **electrostatic complementarity**-style scores and **Kyte–Doolittle** hydrophobicity along a tunnel, with optional **rolling “local” EC** and **matplotlib** profile figures (see `metrics/metrics_details.md` §1.7 and `metrics/EC_details.md`).
+- **Tunnel metrics (optional Caver):** per-point **electrostatic complementarity**-style scores and **Kyte–Doolittle** hydropathy along a tunnel, with optional **rolling “local”** values for colouring and **matplotlib** profile figures (see `metrics/metrics_details.md` §1.7 and `metrics/EC_details.md`).
 - **Batch export:** `--compare` writes `batch_analysis_results.json` with all per-structure outputs in one file.
 
 ### Scientific background
@@ -785,7 +785,7 @@ crystal_analysis_env\Scripts\activate     # Windows
 
 #### Install dependencies
 
-Install packages needed for the crystal-packing stack (for example `biopython`, `numpy`, `scipy`, `pandas`; see script imports and error messages). If you maintain a project `requirements.txt`, use `pip install -r requirements.txt`.
+Install packages needed for the crystal-packing stack (for example `biopython`, `numpy`, `scipy`, `pandas`; see script imports and error messages). Where a project `requirements.txt` is provided, install with `pip install -r requirements.txt`.
 
 #### Core dependencies
 
@@ -867,7 +867,7 @@ python metrics/lattice_packing_report_csv.py /path/to/project/packing_out/ -o /p
 python metrics/lattice_packing_report_csv.py /path/to/project/lattice_packing_combined.json -o /path/to/project/lattice_packing.csv
 ```
 
-The script does **not** recompute metrics; it only reads files written by the analyser (or a JSON bundle you already produced).
+The script does not recompute metrics; it only reads files written by the analyser (or a pre-existing JSON bundle).
 
 #### `caver_tunnel_analysis.py`
 
@@ -876,14 +876,19 @@ Analyses a **Caver 3.0 (PyMOL plugin)** result directory. Expect, under the run 
 **For the tunnel cluster given by `--tunnel`:**
 
 - **Electrostatic complementarity (EC), tunnel analogue** — a McCoy-style *facing-point* construction adapted to a tunnel: Coulomb-summed potentials at centreline points from charged residues in a shell (`--shell-a`, default 3.0 Å). The geometry differs from interface EC in `interface_analyser_*_ec.py` (path vs protein–protein interface); see `metrics/EC_details.md` and `metrics/metrics_details.md` §1.7.
-- **Optional “local EC”** — a rolling **Pearson** correlation over an odd window along the path (`--ec-window`); set `0` to disable.
-- **Hydrophobicity (Kyte–Doolittle)** — mean of tabulated per-residue values for residues assigned to each profile point.
-- **Plots** can be coloured by **EC** or **hydrophobicity** (`--color-by`). **Opening diameter** (twice the Caver radius) can be shown with **`--diameter`**. **Figure** format is chosen from **`--plot-out`** (e.g. `.png`, `.pdf`, `.svg`).
+- **Optional “local” windowing** — a rolling, odd-width window along the path (`--local-window`) used to compute local series for colouring (EC correlation and hydropathy). Set `0` to disable.
+- **Hydropathy (Kyte–Doolittle)** — mean of tabulated per-residue values for residues assigned to each profile point.
+- **Plots** can be coloured by **EC** or **hydropathy** (`--color-by`). **Opening diameter** (twice the Caver radius) can be shown with **`--diameter`**. **Figure** format is chosen from **`--plot-out`** (e.g. `.png`, `.pdf`, `.svg`).
+- **Axis orientation:** the profile plot uses distance along the tunnel on the y-axis. By default the y-axis is inverted so the tunnel top is at the top of the figure (`--invert-y`); use `--no-invert-y` where Caver’s top/bottom convention is reversed for the case of interest.
+- **Colour scale limits:** by default, reference limits are used (EC: \([-1, +1]\); hydropathy: \([-4.5, +4.5]\)). Use `--color-scale data` (or `--colour-scale data`) to set limits from the plotted values.
+- **Optional plot-only smoothing:** use `--colour-smooth-window N` (odd integer) to apply an additional rolling mean to the per-point colour series for plotting only (no effect on CSV/JSON). This can reduce high-frequency variation in local EC colouring.
+- **Plot sampling, rasterisation, and smoothing:** `--plot-upsample` / `--plot-upsample-max` increase the sampling density used to construct the plotted tunnel boundary and colour transitions. `--rasterise-fill` (SVG/PDF only) changes the output encoding of the tunnel interior colour fill to a high-DPI bitmap to reduce file size; it does not alter the sampling. `--colour-smooth-window` applies a rolling mean to the colour series for plotting only and does not affect the tunnel geometry.
+- **Fixed x-axis range (comparability):** `--xlim XMIN XMAX` fixes the profile plot x-axis limits. This is useful for producing directly comparable figures across pores or runs (for example, `--diameter --xlim -21 21`).
 
 **Other options:** `--ec-epsilon-r`, `--ec-r-min` (defaults align with the main EC module where applicable), `--plot-upsample` / `--plot-upsample-max` for a denser distance sample and smoother fill, and **`--centerline-pdb`** to supply a **centreline** tunnel PDB when `analysis/tunnel_profiles.csv` is absent.
 
 ```bash
-python metrics/caver_tunnel_analysis.py /path/to/project/caver_output --tunnel 26 --protein-pdb /path/to/project/protein.pdb --shell-a 3.0 --ec-window 11 --color-by ec --output-csv /path/to/project/tunnel_26_points.csv --plot-out /path/to/project/tunnel_26_ec.png
+python metrics/caver_tunnel_analysis.py /path/to/project/caver_output --tunnel 26 --protein-pdb /path/to/project/protein.pdb --shell-a 3.0 --local-window 11 --color-by ec --output-csv /path/to/project/tunnel_26_points.csv --plot-out /path/to/project/tunnel_26_ec.png
 ```
 
 **Several run directories:** pass multiple `CAVER_DIR` paths; per-run CSV and figure paths default inside each directory (`tunnel_<N>_points.csv`, `tunnel_<N>_ec.png`). Supply **one** `--protein-pdb` for every run, or **one PDB per directory** in the same order. If `-o` / `--plot-out` / `--residues-csv` / `--json-out` point at a **shared** file name and there are multiple directories, each run writes `stem_<caver_dir_basename>.ext` before the extension. **`--centerline-pdb`** may be repeated once per directory or once for all.
@@ -956,7 +961,7 @@ Applicable when the coordinate file contains **several chains** representing **r
 2. Run **`interface_analyser_lattice_charge.py`** (charge-tag) or **`interface_analyser_lattice_ec.py`** (EC) on that file; use **`--chains`** to restrict to interfaces involving a focal molecule, and **`--reference-chain`** for the focal-copy occlusion summary in the report header.
 3. Optionally run **`crystal_packing_analyser.py`** with the same flags so **`interface_analysis.summary`** in each `*_analysis.json` includes the reference-chain fields.
 
-**Examples** (repository root; substitute paths and chain IDs)
+**Examples** (repository root; replace paths and chain IDs)
 
 ```bash
 # All pairwise interfaces in an expanded multi-chain model
@@ -997,7 +1002,7 @@ python metrics/interface_molecule_report_csv.py results.txt --chains A,B \
   --combine-glob 'run_a*' --combine-glob 'run_b*' --combine-glob 'run_*' --output-dir ./out
 ```
 
-Options: `--pdb`, `--pdbs`, `-m`, `--molecule`, `--chains`, `-o`, `--output-dir`, `--group-by-chain`, `--combine-regex` (Python regex; **first capturing group** = merge key / output stem), `--combine-glob` (fnmatch on stem). **Order matters** for globs: list more specific patterns before broader ones (e.g. `run_a`* before `run_*`), because a single broad glob can match stems you intended for a narrower rule.
+Options: `--pdb`, `--pdbs`, `-m`, `--molecule`, `--chains`, `-o`, `--output-dir`, `--group-by-chain`, `--combine-regex` (Python regex; **first capturing group** = merge key / output stem), `--combine-glob` (fnmatch on stem). **Order matters** for globs: list more specific patterns before broader ones (e.g. `run_a`* before `run_*`), because a single broad glob can match stems intended for a narrower rule.
 
 The regex above captures `model`, digits, then **any suffix without an underscore** up to the next `_` (e.g. a replicate or batch token after the first `_`). It maps stems like `model_01_rep1`, `model_01_rep2`, `model_02_rep1` to `model_01.csv`, `model_02.csv`. If stems are only `modelN_…` with no letters after the digits, `^(model\d+)_` is enough. To restrict allowed suffixes after the digits, narrow the regex (character class or alternation). To list variants explicitly, enumerate them in the alternation (e.g. `'^(variant_a|variant_b)_'`). Invalid: `model\d+`* — use `\d+` plus a separate suffix rule (`[^_]*`, etc.).
 
@@ -1147,7 +1152,7 @@ python metrics/crystal_packing_analyser.py --input model_01.pdb model_02.pdb mod
 
 1. **BioPython import errors:** `pip install biopython>=1.79`
 2. **Memory:** reduce contact distance cutoffs for large structures
-3. **R:** install from [r-project.org](https://www.r-project.org/) only if you run documented `ranking/*.R` scripts; on macOS ensure R is on `PATH` (e.g. `export PATH="/usr/local/bin:$PATH"`).
+3. **R:** install from [r-project.org](https://www.r-project.org/) only where documented `ranking/*.R` scripts are required; on macOS ensure R is on `PATH` (e.g. `export PATH="/usr/local/bin:$PATH"`).
 
 #### Features summary
 
@@ -1204,7 +1209,7 @@ working_directory/
 #### DaliLite (`foldkit_dali_like_scores.py`, `dalilite_pairs.py`, `dalilite_matrix.py`)
 
 - **`DALILITE_HOME`** or **`--dalilite-path`** must point at the DaliLite install root (`bin/dali.pl`).
-- **`mkdssp`** must exist at the path in **`bin/mpidali.pm`** (`$DSSP_EXE`). If imports produce empty **`DAT/*.dat`**, install or symlink **`mkdssp`** or edit **`$DSSP_EXE`**. Perl files under **`bin/`** must be readable (fix permissions if you see `Can't locate FSSP.pm: Permission denied`).
+- **`mkdssp`** must exist at the path in **`bin/mpidali.pm`** (`$DSSP_EXE`). If imports produce empty **`DAT/*.dat`**, install or symlink `mkdssp`, or edit `$DSSP_EXE`. Perl files under `bin/` must be readable (fix permissions if `Can't locate FSSP.pm: Permission denied` is reported).
 - **Path length:** DaliLite Fortran limits full path length (~80 characters); these scripts stage under the system temporary directory automatically.
 - **All-vs-all file discovery:** **`dalilite_pairs.py`** collects structures from the **root** of each given directory unless **`--recursive`** is set. **`foldkit_dali_like_scores.py`** defaults to a **recursive** directory scan; use **`--root-only-dirs`** for root-level only.
 - **Z in tables:** When DaliLite writes a hit line, the **`z_score`** column is **DaliLite’s reported Z**; otherwise it is **FoldKit’s empirical Z** (the script labels **empirical Z-score** in the log when the latter is used). **`raw_score`** in FoldKit is always the **recomputed** Dali sum over the mapped core; **`lali` / `nres` / `%id`** in CSV come from DaliLite’s summary when present.

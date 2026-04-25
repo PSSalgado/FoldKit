@@ -9,20 +9,20 @@ Inputs expected (relative to caver output dir):
 
 Computes:
 - Tunnel electrostatic complementarity (EC) using a tunnel analogue of the McCoy et al. facing-point idea.
-- Optional rolling-window "local EC" values for colouring the profile.
-- Hydrophobicity (Kyte–Doolittle mean) for residues lining each tunnel point.
+- Optional rolling-window "local" values along the tunnel for colouring (applies to EC and hydropathy).
+- Hydropathy (Kyte–Doolittle) for residues lining each tunnel point.
 
 Examples (from repository root):
   # Per-point CSV + PNG plot, coloured by EC.
   python metrics/caver_tunnel_analysis.py /path/to/caver_output_dir \
-    --tunnel 26 --protein-pdb /path/to/protein.pdb --shell-a 3.0 --ec-window 11 \
+    --tunnel 26 --protein-pdb /path/to/protein.pdb --shell-a 3.0 --local-window 11 \
     --color-by ec --output-csv tunnel_26_points.csv --plot-out tunnel_26_ec.png
 
-  # Per-point CSV + PNG plot, coloured by hydrophobicity
+  # Per-point CSV + PNG plot, coloured by hydropathy
   # (orange = hydrophobic, white = neutral, green = hydrophilic).
   python metrics/caver_tunnel_analysis.py /path/to/caver_output_dir \
     --tunnel 26 --protein-pdb /path/to/protein.pdb --shell-a 3.0 \
-    --color-by hydrophobicity --output-csv tunnel_26_points.csv --plot-out tunnel_26_hydro.png
+    --color-by hydropathy --output-csv tunnel_26_points.csv --plot-out tunnel_26_hydro.png
 
   # Several Caver run directories: default CSV/PNG under each directory (tunnel_<N>_points.csv, etc.).
   python metrics/caver_tunnel_analysis.py run_a/ run_b/ run_c/ \
@@ -94,7 +94,7 @@ _KYTE_DOOLITTLE = {
 }
 
 
-def residue_hydrophobicity(resname3: str) -> float | None:
+def kyte_doolittle_hydropathy(resname3: str) -> float | None:
     r = (resname3 or "").upper().strip()
     return _KYTE_DOOLITTLE.get(r)
 
@@ -212,6 +212,56 @@ def _ec_diverging_norm_from_values(color_values: list[float]) -> tuple[Any, floa
         lo, hi = -s, s
     norm = TwoSlopeNorm(vmin=lo, vcenter=0.0, vmax=hi)
     return norm, lo, hi
+
+
+def _diverging_norm_fixed(vmin: float, vmax: float) -> tuple[Any, float, float]:
+    """TwoSlopeNorm centred at 0 with explicit limits."""
+    from matplotlib.colors import TwoSlopeNorm  # type: ignore
+
+    lo, hi = float(vmin), float(vmax)
+    if not (lo < 0.0 < hi):
+        s = max(abs(lo), abs(hi), 1e-6)
+        lo, hi = -s, s
+    return TwoSlopeNorm(vmin=lo, vcenter=0.0, vmax=hi), lo, hi
+
+
+def _diverging_norm_from_series(color_values: list[float], *, fallback: tuple[float, float]) -> tuple[Any, float, float]:
+    """
+    Diverging scaling centred at 0.
+
+    Uses finite data limits when they straddle 0; otherwise expands to a symmetric range about 0
+    so the neutral point remains white. Falls back to the provided limits when there is no data.
+    """
+    import numpy as np
+
+    a = np.asarray(color_values, dtype=float)
+    a = a[np.isfinite(a)]
+    if a.size == 0:
+        return _diverging_norm_fixed(fallback[0], fallback[1])
+    return _ec_diverging_norm_from_values([float(x) for x in a.tolist()])
+
+
+def _rolling_mean_ignore_nan(values: list[float], *, window: int) -> list[float]:
+    """
+    Rolling mean with an odd window, ignoring non-finite values.
+
+    Intended for plot-only smoothing of per-point colour series.
+    """
+    win = int(window or 0)
+    if win < 3:
+        return list(values)
+    if win % 2 == 0:
+        win += 1
+    half = win // 2
+    out: list[float] = []
+    n = len(values)
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        seg = values[lo:hi]
+        seg_ok = [float(x) for x in seg if isinstance(x, (int, float)) and math.isfinite(float(x))]
+        out.append(float(sum(seg_ok) / len(seg_ok)) if seg_ok else float("nan"))
+    return out
 
 
 def _compress_unique_d(
@@ -576,7 +626,7 @@ def summarise_lining_residues(residues: list[LiningResidue], *, his_ec: float = 
     n = len(uniq_list)
     ec_values = [residue_ec(r.resname, his_ec=his_ec) for r in uniq_list]
     overall = float(sum(ec_values))
-    hydros = [residue_hydrophobicity(r.resname) for r in uniq_list]
+    hydros = [kyte_doolittle_hydropathy(r.resname) for r in uniq_list]
     n_def = sum(1 for h in hydros if h is not None)
     n_miss = n - n_def
     mean_h: float | None
@@ -588,9 +638,9 @@ def summarise_lining_residues(residues: list[LiningResidue], *, his_ec: float = 
         "n_lining_residues": n,
         "overall_ec": overall,
         "mean_ec_per_residue": (overall / n) if n else 0.0,
-        "mean_hydrophobicity_kyte_doolittle": mean_h,
-        "n_hydrophobicity_defined": n_def,
-        "n_hydrophobicity_missing": n_miss,
+        "mean_hydropathy_kyte_doolittle": mean_h,
+        "n_hydropathy_defined": n_def,
+        "n_hydropathy_missing": n_miss,
         "lining_residues": [{"chain": r.chain_id, "res": r.resseq, "aa": r.resname} for r in uniq_list],
     }
 
@@ -627,11 +677,11 @@ def map_profile_to_local_properties(
     shell_a: float = 3.0,
     ec_epsilon_r: float = 4.0,
     ec_r_min: float = 1.0,
-    ec_window: int = 0,
+    local_window: int = 0,
 ) -> dict[str, Any]:
     """
     For each centreline node, collect protein residues with any atom within (radius + shell_a)
-    and compute local EC wall potentials and mean hydrophobicity.
+    and compute local EC wall potentials and mean Kyte–Doolittle hydropathy.
     """
     structure, ns = _load_protein_neighbor_search(protein_pdb)
 
@@ -639,6 +689,7 @@ def map_profile_to_local_properties(
     local_phi_wall_neg: list[float] = []
     local_ec_r_window: list[float] = []
     local_hydro: list[float] = []
+    local_hydro_window: list[float] = []
     local_n_res: list[int] = []
     local_res_ids: list[list[tuple[str, int, str]]] = []
 
@@ -711,7 +762,7 @@ def map_profile_to_local_properties(
         hydros: list[float] = []
         for rid in ids:
             aa3 = residues[rid]
-            h = residue_hydrophobicity(aa3)
+            h = kyte_doolittle_hydropathy(aa3)
             if h is not None:
                 hydros.append(float(h))
             atom_pack = residue_ec_atoms.get(rid)
@@ -757,8 +808,9 @@ def map_profile_to_local_properties(
     tunnel_ec_r = pearson_r(local_phi_wall_pos, [-x for x in local_phi_wall_neg])
     n_pairs = int(len(local_phi_wall_pos))
 
-    # Optional rolling/local EC for colouring.
-    win = int(ec_window or 0)
+    # Optional rolling window along the tunnel (used for colouring).
+    # Historically this was called `ec_window` because it only applied to EC.
+    win = int(local_window or 0)
     if win and win >= 3:
         if win % 2 == 0:
             win += 1
@@ -770,6 +822,20 @@ def map_profile_to_local_properties(
             local_ec_r_window.append(float(rr0) if rr0 is not None else float("nan"))
     else:
         local_ec_r_window = [float("nan") for _ in range(n_pairs)]
+
+    # Rolling window for hydropathy (mean of the per-node lining-residue mean).
+    if win and win >= 3:
+        if win % 2 == 0:
+            win += 1
+        half = win // 2
+        for i in range(n_pairs):
+            lo = max(0, i - half)
+            hi = min(n_pairs, i + half + 1)
+            seg = local_hydro[lo:hi]
+            seg_ok = [float(x) for x in seg if x is not None and isinstance(x, (int, float)) and math.isfinite(float(x))]
+            local_hydro_window.append(float(sum(seg_ok) / len(seg_ok)) if seg_ok else float("nan"))
+    else:
+        local_hydro_window = list(local_hydro)
 
     union_list = [union[k] for k in sorted(union.keys())]
 
@@ -788,7 +854,8 @@ def map_profile_to_local_properties(
             "phi_wall_pos": local_phi_wall_pos,
             "phi_wall_neg": local_phi_wall_neg,
             "ec_r_window": local_ec_r_window,
-            "hydrophobicity_mean": local_hydro,
+            "hydropathy_mean": local_hydro,
+            "hydropathy_mean_window": local_hydro_window,
             "n_residues": local_n_res,
             "residue_ids": local_res_ids,
         },
@@ -866,8 +933,17 @@ def _add_raster_colorbar_tunnel_horizontal(
     return cbar
 
 
-def _savefig_tunnel_vector(fig, out_path: str, *, dpi: int) -> None:
-    """SVG/PDF: editable text; tunnel fill and lines stay vector; colour bar gradient is raster only."""
+def _savefig_tunnel_vector(
+    fig,
+    out_path: str,
+    *,
+    dpi: int,
+    rasterise_artists: list[object] | None = None,
+) -> None:
+    """
+    SVG/PDF: keep text/axes editable; optionally rasterise selected artists (e.g. the tunnel fill),
+    and always rasterise the colour bar gradient.
+    """
     import os
 
     import matplotlib as mpl
@@ -879,6 +955,13 @@ def _savefig_tunnel_vector(fig, out_path: str, *, dpi: int) -> None:
             if hasattr(artist, "set_rasterized"):
                 try:
                     artist.set_rasterized(False)
+                except (AttributeError, TypeError):
+                    pass
+    if rasterise_artists:
+        for a in rasterise_artists:
+            if hasattr(a, "set_rasterized"):
+                try:
+                    a.set_rasterized(True)
                 except (AttributeError, TypeError):
                     pass
     rc_extra: dict = {}
@@ -904,6 +987,10 @@ def plot_profile(
     upsample_factor: float = 6.0,
     upsample_max_points: int = 800,
     as_diameter: bool = False,
+    rasterise_fill: bool = False,
+    rasterise_fill_dpi: int = 300,
+    xlim: tuple[float, float] | None = None,
+    invert_y: bool = True,
 ) -> None:
     _maybe_import_matplotlib()
     import matplotlib.pyplot as plt
@@ -935,7 +1022,7 @@ def plot_profile(
 
     # Portrait figure: tunnel length (y) usually dominates; extra height gives the profile more
     # vertical room. Width matches a single-column size; fixed margins avoid tight_layout squashing.
-    fig, ax = plt.subplots(figsize=(5.0, 15), dpi=320)
+    fig, ax = plt.subplots(figsize=(7.0, 20.0), dpi=160)
     # Filled tunnel interior, coloured by per-segment value.
     # Build quads between consecutive points (x,y):
     #   (+r[i], d[i]) -> (+r[i+1], d[i+1]) -> (-r[i+1], d[i+1]) -> (-r[i], d[i])
@@ -968,8 +1055,13 @@ def plot_profile(
     ax.set_ylabel("Distance along tunnel (Å)")
     ax.set_title(title)
     r_span = float(wfac * max(np.max(r_caver), float(np.max(r))))
-    ax.set_xlim(-r_span * 1.12, r_span * 1.12)
+    if xlim is not None:
+        ax.set_xlim(float(xlim[0]), float(xlim[1]))
+    else:
+        ax.set_xlim(-r_span * 1.12, r_span * 1.12)
     ax.set_ylim(float(np.min(d_anno)), float(np.max(d_anno)))
+    if invert_y:
+        ax.invert_yaxis()
     ax.set_aspect("auto")
     # Fixed margins: tight_layout() shrinks the main axes; we set margins once, then add margin labels.
     fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
@@ -1026,7 +1118,12 @@ def plot_profile(
     ext = os.path.splitext(out_abs)[1].lower()
     dpi = 160
     if ext in (".svg", ".pdf"):
-        _savefig_tunnel_vector(fig, out_abs, dpi=dpi)
+        _savefig_tunnel_vector(
+            fig,
+            out_abs,
+            dpi=int(rasterise_fill_dpi) if rasterise_fill else dpi,
+            rasterise_artists=[pc] if rasterise_fill else None,
+        )
     else:
         fig.savefig(out_abs, bbox_inches="tight", dpi=dpi)
     plt.close(fig)
@@ -1096,7 +1193,8 @@ def _write_points_csv(
         "phi_wall_pos",
         "phi_wall_neg",
         "local_ec_r_window",
-        "local_hydrophobicity_mean",
+        "local_hydropathy_mean",
+        "local_hydropathy_mean_window",
         "n_residues",
         "residues",
         "tunnel_length_A",
@@ -1136,7 +1234,12 @@ def _write_points_csv(
                 "phi_wall_pos": phi_wall_pos[i] if i < len(phi_wall_pos) else "",
                 "phi_wall_neg": phi_wall_neg[i] if i < len(phi_wall_neg) else "",
                 "local_ec_r_window": ec_r_window[i] if i < len(ec_r_window) else "",
-                "local_hydrophobicity_mean": (loc.get("hydrophobicity_mean") or [])[i] if (mapped is not None and i < len(loc.get("hydrophobicity_mean") or [])) else "",
+                "local_hydropathy_mean": (loc.get("hydropathy_mean") or [])[i]
+                if (mapped is not None and i < len(loc.get("hydropathy_mean") or []))
+                else "",
+                "local_hydropathy_mean_window": (loc.get("hydropathy_mean_window") or [])[i]
+                if (mapped is not None and i < len(loc.get("hydropathy_mean_window") or []))
+                else "",
                 "n_residues": n_series[i] if i < len(n_series) else "",
                 "residues": ";".join(labels),
                 "tunnel_length_A": prof.length,
@@ -1278,9 +1381,9 @@ def _run_single_caver(
             "n_lining_residues": lining["n_lining_residues"],
             "overall_ec": lining["overall_ec"],
             "mean_ec_per_residue": lining["mean_ec_per_residue"],
-            "mean_hydrophobicity_kyte_doolittle": lining["mean_hydrophobicity_kyte_doolittle"],
-            "n_hydrophobicity_defined": lining["n_hydrophobicity_defined"],
-            "n_hydrophobicity_missing": lining["n_hydrophobicity_missing"],
+            "mean_hydropathy_kyte_doolittle": lining["mean_hydropathy_kyte_doolittle"],
+            "n_hydropathy_defined": lining["n_hydropathy_defined"],
+            "n_hydropathy_missing": lining["n_hydropathy_missing"],
         },
     }
 
@@ -1290,7 +1393,7 @@ def _run_single_caver(
         shell_a=float(args.shell_a),
         ec_epsilon_r=float(args.ec_epsilon_r),
         ec_r_min=float(args.ec_r_min),
-        ec_window=int(args.ec_window or 0),
+        local_window=int(getattr(args, "local_window", 0) or 0),
     )
     summary["mapped"] = {
         "protein_pdb": mapped["protein_pdb"],
@@ -1301,23 +1404,36 @@ def _run_single_caver(
 
     norm_for_plot: Any = None
     cbar_label = "EC r"
-    if str(args.color_by) == "hydrophobicity":
-        color_values = list(mapped["local"].get("hydrophobicity_mean") or [])
-        title = f"Tunnel {tunnel_cluster} hydrophobicity (Kyte–Doolittle mean)"
-        cbar_label = "Kyte–Doolittle hydropathy (local mean)"
+    smooth_win = int(getattr(args, "colour_smooth_window", 0) or 0)
+    if str(args.color_by) == "hydropathy":
+        win = int(getattr(args, "local_window", 0) or 0)
+        if win >= 3:
+            color_values = list(mapped["local"].get("hydropathy_mean_window") or [])
+            title = f"Tunnel {tunnel_cluster} hydropathy (local, window={win})"
+            cbar_label = "Kyte–Doolittle hydropathy (local, rolling window)"
+        else:
+            color_values = list(mapped["local"].get("hydropathy_mean") or [])
+            title = f"Tunnel {tunnel_cluster} hydropathy (Kyte–Doolittle mean)"
+            cbar_label = "Kyte–Doolittle hydropathy (local mean)"
+        if smooth_win >= 3:
+            color_values = _rolling_mean_ignore_nan([float(x) for x in color_values], window=smooth_win)
         # Orange (hydrophobic) -> white (0) -> green (hydrophilic)
         try:
             from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm  # type: ignore
 
             cmap = LinearSegmentedColormap.from_list("hydro_owg", ["#2ca25f", "#ffffff", "#f28e2b"])
-            vmin, vmax = -4.5, 4.5
-            norm_for_plot = TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+            if str(getattr(args, "color_scale", "fixed")) == "data":
+                norm_for_plot, vmin, vmax = _diverging_norm_from_series(
+                    [float(x) for x in color_values], fallback=(-4.5, 4.5)
+                )
+            else:
+                norm_for_plot, vmin, vmax = _diverging_norm_fixed(-4.5, 4.5)
         except Exception:
             cmap = "PiYG"
             vmin, vmax = -4.5, 4.5
             norm_for_plot = None
     else:
-        win = int(args.ec_window or 0)
+        win = int(getattr(args, "local_window", 0) or 0)
         if win >= 3:
             color_values = list(mapped["local"].get("ec_r_window") or [])
             title = f"Tunnel {tunnel_cluster} EC (local, window={win})"
@@ -1327,13 +1443,20 @@ def _run_single_caver(
             color_values = [float(r0) if r0 is not None else float("nan")] * len(prof.distance)
             title = f"Tunnel {tunnel_cluster} EC (global r={r0})"
             cbar_label = "EC r (global)"
+        if smooth_win >= 3:
+            color_values = _rolling_mean_ignore_nan([float(x) for x in color_values], window=smooth_win)
         # Red (negative) -> white (0) -> blue (positive); scale from segment means (same as draw order)
         _cv = [float(x) for x in color_values]
         if len(_cv) >= 2:
             v_plot = [(_cv[i] + _cv[i + 1]) / 2.0 for i in range(len(_cv) - 1)]
         else:
             v_plot = _cv
-        norm_for_plot, vmin, vmax = _ec_diverging_norm_from_values(v_plot) if v_plot else _ec_diverging_norm_from_values(_cv)
+        if str(getattr(args, "color_scale", "fixed")) == "fixed":
+            norm_for_plot, vmin, vmax = _diverging_norm_fixed(-1.0, 1.0)
+        else:
+            norm_for_plot, vmin, vmax = (
+                _ec_diverging_norm_from_values(v_plot) if v_plot else _ec_diverging_norm_from_values(_cv)
+            )
         cmap = _ec_plot_cmap_rwb()
 
     default_plot = os.path.join(base, f"tunnel_{tunnel_cluster}_ec.png")
@@ -1384,6 +1507,10 @@ def _run_single_caver(
             upsample_factor=float(getattr(args, "plot_upsample", 6.0)),
             upsample_max_points=int(getattr(args, "plot_upsample_max", 800)),
             as_diameter=bool(getattr(args, "diameter", False)),
+            rasterise_fill=bool(getattr(args, "rasterise_fill", False)),
+            rasterise_fill_dpi=int(getattr(args, "rasterise_fill_dpi", 300)),
+            xlim=tuple(getattr(args, "xlim")) if getattr(args, "xlim", None) is not None else None,
+            invert_y=bool(getattr(args, "invert_y", True)),
         )
         summary["plot"] = {
             "path": os.path.abspath(str(plot_out)),
@@ -1450,9 +1577,25 @@ def main() -> None:
     ap.add_argument("--tunnel", type=int, required=True, help="Tunnel cluster number (e.g. 26).")
     ap.add_argument(
         "--color-by",
-        choices=("ec", "hydrophobicity"),
+        choices=("ec", "hydropathy"),
         default="ec",
-        help="Colour the plot by EC or hydrophobicity.",
+        help="Colour the plot by EC or Kyte–Doolittle hydropathy.",
+    )
+    ap.add_argument(
+        "--color-scale",
+        choices=("fixed", "data"),
+        default="fixed",
+        help=(
+            "Colour scale limits. fixed: use reference limits (EC: [-1, +1]; hydropathy: [-4.5, +4.5]). "
+            "data: set limits from the plotted values (diverging scales remain centred at 0)."
+        ),
+    )
+    ap.add_argument(
+        "--colour-scale",
+        choices=("fixed", "data"),
+        default=None,
+        dest="color_scale",
+        help="Alias for --color-scale.",
     )
     ap.add_argument(
         "--his-ec",
@@ -1465,14 +1608,73 @@ def main() -> None:
         ),
     )
     ap.add_argument(
-        "--ec-window",
+        "--local-window",
         type=int,
         default=0,
         metavar="N",
         help=(
-            "Window size (odd integer) for a rolling 'local EC' correlation along the tunnel. "
-            "0 disables."
+            "Window size (odd integer) for rolling 'local' values along the tunnel when colouring. "
+            "Applies to EC correlation and hydropathy. 0 disables."
         ),
+    )
+    ap.add_argument(
+        "--colour-smooth-window",
+        type=int,
+        default=0,
+        metavar="N",
+        dest="colour_smooth_window",
+        help=(
+            "Optional additional rolling-window smoothing (odd integer) applied to the per-point colour series "
+            "for plotting only (does not change CSV/JSON). 0 disables."
+        ),
+    )
+    ap.add_argument(
+        "--color-smooth-window",
+        type=int,
+        default=None,
+        metavar="N",
+        dest="colour_smooth_window",
+        help="Alias for --colour-smooth-window.",
+    )
+    ap.add_argument(
+        "--rasterise-fill",
+        action="store_true",
+        help=(
+            "For SVG/PDF output, rasterise the tunnel interior colour fill (high-DPI bitmap) while keeping "
+            "axes, text, and outlines as vector. This can substantially reduce file size for highly upsampled plots. "
+            "This option does not change the sampling used to construct the plotted tunnel."
+        ),
+    )
+    ap.add_argument(
+        "--rasterise-fill-dpi",
+        type=int,
+        default=300,
+        metavar="DPI",
+        help="DPI used for the rasterised tunnel fill in SVG/PDF when --rasterise-fill is enabled.",
+    )
+    ap.add_argument(
+        "--xlim",
+        nargs=2,
+        type=float,
+        metavar=("XMIN", "XMAX"),
+        default=None,
+        help=(
+            "Optional fixed x-axis limits for the profile plot (e.g. --xlim -21 21). "
+            "When set, this overrides the automatic radius/diameter-based range."
+        ),
+    )
+    ap.add_argument(
+        "--invert-y",
+        action="store_true",
+        default=True,
+        dest="invert_y",
+        help="Invert the profile y-axis so the tunnel top is at the top of the figure (default).",
+    )
+    ap.add_argument(
+        "--no-invert-y",
+        action="store_false",
+        dest="invert_y",
+        help="Do not invert the profile y-axis.",
     )
     ap.add_argument(
         "--ec-epsilon-r",
@@ -1526,7 +1728,8 @@ def main() -> None:
         help=(
             "Resample the tunnel along distance for the plot: effective point count is multiplied by this "
             "(1 = use Caver points as-is; larger = smoother fill, capped by --plot-upsample-max). "
-            "Radius uses a monotonic spline when SciPy is available, else linear."
+            "Radius uses a monotonic spline when SciPy is available, else linear. "
+            "This option affects the plotted geometry; it is independent of --rasterise-fill."
         ),
     )
     ap.add_argument(

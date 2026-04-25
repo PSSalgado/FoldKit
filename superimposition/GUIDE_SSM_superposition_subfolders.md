@@ -15,9 +15,9 @@ Superimpose CIF/PDB models in nested subfolders to a reference using SSM in Coot
 
 ## Prerequisites
 
-- **Coot** installed and on your `PATH` (scripts call `coot --script ...`).
+- **Coot** installed and on `PATH` (scripts call `coot --script ...`).
 - **Reference structure**: one PDB or CIF file to which all models will be aligned.
-- **Root folder**: the directory that contains your structure subfolders and CIF/PDB files.
+- **Root folder**: the directory that contains structure subfolders and CIF/PDB files.
 
 ---
 
@@ -25,10 +25,10 @@ Superimpose CIF/PDB models in nested subfolders to a reference using SSM in Coot
 
 Command lines below assume the **FoldKit repository root** as the working directory (so `python superimposition/...` resolves). Alternatively, `cd superimposition` and run `python superimpose_coot_SSM.py` (no directory prefix in the command).
 
-Set your reference and root folder (adjust paths to your real locations):
+Set the reference and root folder (adjust paths to local locations):
 
 ```bash
-REFERENCE="/path/to/your/reference.pdb"   # or .cif
+REFERENCE="/path/to/project/reference.pdb"   # or .cif
 ROOT_FOLDER="/path/to/folder/containing/models"
 ```
 
@@ -44,7 +44,7 @@ The script **recursively** finds all `.pdb` and `.cif` under `ROOT_FOLDER` (incl
 python superimposition/superimpose_coot_SSM.py "$REFERENCE" "$ROOT_FOLDER"
 ```
 
-**Option B – Only files matching your naming (recommended):**
+**Option B – Only files matching the naming scheme (recommended):**
 
 To restrict to files whose names contain a substring (e.g. `pattern`):
 
@@ -133,13 +133,13 @@ For **SSM** logs (this workflow):
 python ranking/extract_rmsd.py --format ssm SSMaligned2_REFNAME/coot_log.txt
 ```
 
-Replace `REFNAME` with your reference base name (no extension).
+Replace `REFNAME` with the reference base name (no extension).
 
 ---
 
 ## Optional: Custom RMSD output path
 
-If you want the RMSD output in a different file or directory:
+To write RMSD output to a different file or directory:
 
 ```bash
 python ranking/extract_rmsd.py file SSMaligned2_<ref_name>/coot_log.txt -o /path/to/rmsd_output.txt
@@ -151,9 +151,9 @@ For SSM and LSQ logs use **`extract_rmsd.py`** (single-log mode, optional **`fil
 
 ## Notes
 
-- **Working directory:** Aligned outputs and the log are written under `SSMaligned2_<ref_name>/` in the directory from which you run the script.
-- **Reference path:** Use an absolute path for `REFERENCE` so Coot can find it no matter where you run the script.
-- **Many models:** Coot may take a while if you have many CIFs; the log is updated as it runs.
+- **Working directory:** Aligned outputs and the log are written under `SSMaligned2_<ref_name>/` in the directory from which the script is executed.
+- **Reference path:** Use an absolute path for `REFERENCE` so Coot can resolve it regardless of the current working directory.
+- **Many models:** Coot may take longer with large CIF sets; the log is updated during execution.
 - **Chain choice:** Pass **`--ref-chain`** and **`--model-chain`** to **`superimpose_coot_SSM.py`** for explicit chains; omit both to use the first chain in each structure (default mode).
-- **Coot window:** One-to-many and single-set all-vs-all **keep Coot open** by default; use **`--not-interactive`** to exit when finished. **AxB** (two sets with **`--ref-filter`** / **`--model-filter`**) is **non-interactive by default** (full matrix without pausing); use **`--interactive`** if you want Coot to stay open after reload.
+- **Coot window:** One-to-many and single-set all-vs-all keep Coot open by default; use `--not-interactive` to exit when finished. AxB (two sets with `--ref-filter` / `--model-filter`) is non-interactive by default (full matrix without pausing); use `--interactive` to keep Coot open after reload.
 - **Which mode:** For **SSM** runs use **`extract_rmsd.py --format ssm`** (or `--format auto`). For **LSQ** use **`--format lsq`** with optional `--aligned` / `--reference` filters.

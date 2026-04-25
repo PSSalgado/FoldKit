@@ -19,7 +19,7 @@ This document lists all metrics computed by the FoldKit analyser and metrics scr
 | packing_metrics.py      | **BioPython** (Bio.PDB.PDBParser, PDBIO, PDBExceptions), **NumPy**, **SciPy** (optional)                                         | `PDBParser.get_structure()`, manual CRYST1 read; `structure` → model → chain → residue → atom; `atom.coord`, `atom.element`, `atom.name`; `np.radians`, `np.sqrt`, `np.cos`; `scipy.spatial.distance.pdist()` or fallback loop with `np.linalg.norm`                                                                                                                                                   |
 | interface_analyser_asu_charge.py / interface_analyser_lattice_charge.py | **BioPython** (PDBParser, NeighborSearch), **Bio.PDB.SASA** (ShrakeRupley, optional), **NumPy** | `parser.get_structure()`, `structure.get_chains()`, `chain.get_atoms()`; `NeighborSearch(atom_list).search_all(threshold, 'R')` → interface residues; contact residues = interface residues filtered by same criteria (distance + type) via `_residue_passes_contact_criteria()`; `ShrakeRupley().compute()` for BSA; `np.linalg.norm`, `np.mean`, etc. Includes shape complementarity and **charge-tag** complementarity metrics. Text report → CSV: Section 2.10. |
 | interface_analyser_asu_ec.py / interface_analyser_lattice_ec.py / electrostatic_complementarity.py | **BioPython** (PDBParser, NeighborSearch), **NumPy** | McCoy-style electrostatic complementarity (EC): sample facing surface points and compute electrostatic potentials; per-interface Pearson correlation \(r\) and lattice-weighted summaries (Fisher z). Definitions: `EC_details.md`; summary integration: Section 2.5.4 and Section 2.7.1. |
-| caver_tunnel_analysis.py | **BioPython** (PDBParser, NeighborSearch), **NumPy**, **Matplotlib**, **SciPy** (optional) | Tunnel centreline from Caver `analysis/tunnel_profiles.csv` (or a centreline PDB); per-point Coulomb-style potentials; Pearson \(r\) along path (and optional rolling local \(r\)); Kyte–Doolittle means; Section 1.7. |
+| caver_tunnel_analysis.py | **BioPython** (PDBParser, NeighborSearch), **NumPy**, **Matplotlib**, **SciPy** (optional) | Tunnel centreline from Caver `analysis/tunnel_profiles.csv` (or a centreline PDB); per-point Coulomb-style potentials; Pearson \(r\) along path (and optional rolling local \(r\)); Kyte–Doolittle hydropathy; Section 1.7. |
 | contact_analyser.py     | **BioPython** (PDBParser, PDBExceptions), **NumPy**                                                                              | Same structure traversal; `chain.get_atoms()`, `atom.coord`; `np.linalg.norm`; manual contact loop and type classification; optional full ASU contact list in text / `*_asu_contacts.txt`. Text report → CSV: Section 3.5.                                                                                                                                                                                                                                                                             |
 | lattice_packing_report_csv.py | (stdlib) **json**, **csv** | Merges TXT / flattens JSON to CSV; no structure metrics. |
 | foldkit_dali_like_scores.py | **BioPython** (PDBParser), **NumPy**, **biotite** (optional)                                                                 | `PDBParser.get_structure()`, structure traversal for CA atoms; `np.linalg.norm`, `np.exp` for distance matrices and Dali formula; `biotite.structure.superimpose_structural_homologs()` for automatic residue equivalences when available                                                                                                                                                              |
@@ -32,7 +32,7 @@ This document lists all metrics computed by the FoldKit analyser and metrics scr
 **Function selection / usage**
 
 - These metrics are computed in `packing_metrics.py`, typically called by `crystal_packing_analyser.py` for each structure.
-- At the CLI level, you select whether to run packing metrics by:
+- At the CLI level, packing-metric mode selection is performed by:
   - Running `packing_metrics.py` directly on one or more PDB/CIF files, or
   - Enabling the “packing” stage in `crystal_packing_analyser.py` (it runs packing by default unless explicitly skipped in that orchestrator).
 - Within `packing_metrics.py`, the main driver function `calculate_metrics()` calls:
@@ -132,7 +132,7 @@ V = a*b*c*sqrt(1 + 2*cos(alpha)*cos(beta)*cos(gamma)
 
 The script supports two volume sources:
 
-- **CRYST1 volume** (`--volume-source cryst1`): parse the PDB `CRYST1` record and compute a unit-cell volume \(V\) using the standard parallelepiped formula (same as Section 1.1). This is appropriate when your supercell PDB includes a meaningful `CRYST1` record.
+- **CRYST1 volume** (`--volume-source cryst1`): parse the PDB `CRYST1` record and compute a unit-cell volume \(V\) using the standard parallelepiped formula (same as Section 1.1). This is appropriate when the supercell PDB includes a meaningful `CRYST1` record.
 - **Bounding-box volume** (`--volume-source bbox`): compute the axis-aligned coordinate bounding box over all atoms, optionally padded by `--bbox-pad` Å. Let \(\Delta x, \Delta y, \Delta z\) be the box side lengths; then:
 
 ```
@@ -199,15 +199,20 @@ A companion to Section 1.6 that **concatenates** per-structure **TXT** reports, 
 
 **Purpose.** The script ingests one or more **Caver 3.0 (PyMOL plugin)** run directories, selects one **tunnel cluster** (integer `--tunnel`), and summarises each tunnel in **tabular** and optional **graphical** form (default outputs under each directory; optional shared paths gain a per-directory filename suffix when multiple runs are requested). The intended input layout is a run folder containing `analysis/tunnel_profiles.csv`, `analysis/residues.txt`, and optionally `analysis/bottlenecks.csv`. If `tunnel_profiles.csv` is missing, a **Caver** tunnel **centreline PDB** can be passed with `--centerline-pdb` so a profile is built from the polyline. A **protein** coordinate file, **`--protein-pdb`**, is **required** for the electrostatic mapping (must correspond to the structure used in Caver). See **README.md** (Metrics) for a minimal command example.
 
-**Electrostatic complementarity (EC), tunnel analogue.** The implementation follows the *spirit* of McCoy, Epa & Colman (1997) as implemented for interfaces: charges are taken from a fixed **sign/weight** scheme on **ionic** residues, including a tunable **histidine** contribution on the Caver `residues.txt` line (`--his-ec`); a Coulomb **sum** over these sources yields a field value at each centreline point. A **facing** construction pairs each point with a shell of nearby heavy atoms on the opposite side of the path (a tunnel-specific substitute for the interface “nearest point on the partner surface”). A **global** **Pearson** correlation \(r\) is computed over centreline points between the two sides’ potentials, with a sign arrangement analogous to the interface EC (compare **Section 2.5.4** and `EC_details.md` only for the **potential** definition, **not** for geometry). **Local EC** (optional) applies the same potential arrays in a **rolling, odd-width window** along arclength (`--ec-window`).
+**Electrostatic complementarity (EC), tunnel analogue.** The implementation follows the *spirit* of McCoy, Epa & Colman (1997) as implemented for interfaces: charges are taken from a fixed **sign/weight** scheme on **ionic** residues, including a tunable **histidine** contribution on the Caver `residues.txt` line (`--his-ec`); a Coulomb **sum** over these sources yields a field value at each centreline point. A **facing** construction pairs each point with a shell of nearby heavy atoms on the opposite side of the path (a tunnel-specific substitute for the interface “nearest point on the partner surface”). A **global** **Pearson** correlation \(r\) is computed over centreline points between the two sides’ potentials, with a sign arrangement analogous to the interface EC (compare **Section 2.5.4** and `EC_details.md` only for the **potential** definition, **not** for geometry). Optional **local windowing** computes a rolling, odd-width window series along arclength (`--local-window`) for use in colouring.
 
 **Differences from interface EC.** The tunnel metric is **not** the same quantity as the **`EC (r)`** field from `interface_analyser_asu_ec.py` or `interface_analyser_lattice_ec.py`, because the **sampling pattern** and **geometric** definition differ (1D path + shell vs. SASA-facing point pairs on two chains). Do **not** mix tunnel \(r\) with interface \(r\) in a single “EC” table without a clear label.
 
-**Hydrophobicity.** For each profile row, a **Kyte–Doolittle** mean is computed from the set of **three-letter** residue names Caver associated with that position (or “nan” if none map).
+**Hydropathy (Kyte–Doolittle).** For each profile row, a Kyte–Doolittle mean is computed from the set of three-letter residue names Caver associated with that position (or “nan” if none map). When `--local-window` is enabled, a rolling-window series is also computed for colouring.
 
-**Optional outputs and plotting.** A **per-point CSV** (default or `--output-csv`) lists distance along the path, radii, EC values, optional local EC, and hydrophobicity; **`--diameter`** switches reported widths to **diameter = 2 × radius**. **`--residues-csv`** can list the union of mapped residues. **`--json-out`** writes a compact summary. **`--color-by ec`** (default) or **`hydrophobicity`** (orange–white–green palette in the default styling) sets the main profile colour scale; **`--no-plot`** skips figures. Plots are produced with **Matplotlib**; the output format follows **`--plot-out`**. **SVG** and **PDF** use vector geometry with a **raster** colour bar in the current implementation; **PNG** is fully raster, consistent with other FoldKit heatmap-style figures. Distance sampling can be refined with `--plot-upsample` (capped by `--plot-upsample-max`); **SciPy** enables smoother radius resampling when installed.
+**Optional outputs and plotting.** A per-point CSV (default or `--output-csv`) lists distance along the path, radii, EC values, local-window series (where enabled), and Kyte–Doolittle hydropathy; `--diameter` switches reported widths to **diameter = 2 × radius**. `--residues-csv` can list the union of mapped residues. `--json-out` writes a compact summary. `--color-by ec` (default) or `hydropathy` (orange–white–green palette in the default styling) selects the profile colour scale; `--no-plot` skips figures. Plots are produced with Matplotlib; the output format follows `--plot-out`. SVG and PDF use vector geometry with a raster colour bar in the current implementation; PNG is fully raster. Distance sampling can be refined with `--plot-upsample` (capped by `--plot-upsample-max`); SciPy enables smoother radius resampling when installed.
+**Axis orientation.** The profile plot uses distance along the tunnel on the y-axis. By default the y-axis is inverted so the tunnel top is at the top of the figure (`--invert-y`); use `--no-invert-y` where Caver’s top/bottom convention is reversed for the case of interest.
+**Colour scale limits.** By default, reference limits are used (EC: \([-1, +1]\); hydropathy: \([-4.5, +4.5]\)). Use `--color-scale data` (or `--colour-scale data`) to set limits from the plotted values.
+**Optional plot-only smoothing.** `--colour-smooth-window N` (odd integer) applies an additional rolling mean to the per-point colour series for plotting only (no effect on tabular outputs). This can be useful when local EC colouring shows high-frequency variation.
+**Plot sampling and rasterisation.** `--plot-upsample` / `--plot-upsample-max` increase the sampling density used to construct the plotted tunnel boundary and colour transitions. `--rasterise-fill` (SVG/PDF only) rasterises the tunnel interior colour fill to reduce file size; it does not change the sampling. `--colour-smooth-window` affects the plotted colour series only and does not alter the tunnel geometry.
+**Fixed x-axis range (comparability).** `--xlim XMIN XMAX` fixes the profile plot x-axis limits. This is useful for producing directly comparable figures across pores or runs (for example, `--diameter --xlim -21 21`).
 
-**References (hydrophobicity).** A **Kyte–Doolittle** scale is a standard 20-residue index; cite the original scale paper when reporting these means. **Caver** should be cited from the Caver 3.0 / authors’ documentation.
+**References (hydropathy).** The Kyte–Doolittle scale is a standard 20-residue index; cite the original scale paper when reporting these means. Caver should be cited from the Caver 3.0 / authors’ documentation.
 
 **What it means (how to interpret)**
 
@@ -215,8 +220,8 @@ A companion to Section 1.6 that **concatenates** per-structure **TXT** reports, 
 | --- | --- | --- |
 | Global tunnel EC \(r\) | Nearer **+1** | Stronger sign opposition between the two sides of the path (in the model used). |
 | Global tunnel EC \(r\) | Near **0** | Little linear relationship between the two sides’ modelled potentials. |
-| Local EC (rolling window) | Peaks/valleys along distance | **Local** co-variation; useful for **colouring** a profile, not a second global score. |
-| Kyte–Doolittle mean | More positive | More **hydrophobic** lining in the mean; more negative, more **hydrophilic** (at residue-type resolution). |
+| Local EC (rolling window) | Peaks/valleys along distance | Local co-variation; useful for colouring a profile, not a second global score. |
+| Kyte–Doolittle mean | More positive | More hydrophobic lining in the mean; more negative, more hydrophilic (at residue-type resolution). |
 
 ---
 
@@ -349,7 +354,7 @@ rho_atom = N_atoms / V_cell
   - `interface_analyser_asu_ec.py` / `interface_analyser_lattice_ec.py` (McCoy EC)
 
   All variants share the core implementation in `interface_analyser_base.py`.
-- At the CLI level, you select these metrics by:
+- At the CLI level, these metrics are selected by:
   - Running one of the ASU or lattice interface entrypoints directly on a PDB/CIF (specifying chains or letting the script enumerate interfaces), or
   - Allowing `crystal_packing_analyser.py` to run the interface stage on each structure.
 - Within the interface analysers, the main pipeline:
@@ -854,7 +859,7 @@ The interface analysers can write merged text reports (conventionally **`results
 
 | Behaviour | Practical takeaway |
 | --- | --- |
-| Parser only (no recomputation) | The CSV exactly reflects the analyser’s text output; regenerate `results.txt` if you change any analysis settings. |
+| Parser only (no recomputation) | The CSV exactly reflects the analyser’s text output; regenerate `results.txt` after any change to analysis settings. |
 | One row per interface block | Good for plotting/filtering per-interface summaries without re-running structure parsing. |
 
 **Derivation / references**
@@ -987,8 +992,8 @@ This script orchestrates `packing_metrics.py`, the **interface analysers** (`int
 
 **Function selection / usage**
 
-- When you run `crystal_packing_analyser.py` from the command line, you choose which input structures (files or directories) to analyse and optional `--compare` for a single combined JSON file.
-- **Interface mode selection:** use `--interface-metrics charge` (charge-tag metrics) or `--interface-metrics ec` (McCoy electrostatic complementarity). Use `--reference-chain` when you want lattice reference metrics (Section 2.7.1) included in each structure’s `interface_analysis.summary`.
+- When `crystal_packing_analyser.py` is executed from the command line, select the input structures (files or directories) to analyse, and optionally `--compare` to write a single combined JSON file.
+- **Interface mode selection:** select `--interface-metrics charge` (charge-tag metrics) or `--interface-metrics ec` (McCoy electrostatic complementarity). Use `--reference-chain` to include lattice reference metrics (Section 2.7.1) in each structure’s `interface_analysis.summary`.
 - Internally, it iterates over structures and calls the per-structure modules from Sections 1–3.
 
 **What it means (how to interpret)**
@@ -1002,7 +1007,7 @@ This script orchestrates `packing_metrics.py`, the **interface analysers** (`int
 
 ## 5. structure_phylogeny.py
 
-This script builds structure-based phylogenies from pairwise structural comparisons provided as an RMSD matrix (precomputed by your Coot LSQ/SSM pipeline, or optionally computed via `TM-align`).
+This script builds structure-based phylogenies from pairwise structural comparisons provided as an RMSD matrix (precomputed by a Coot LSQ/SSM pipeline, or optionally computed via `TM-align`).
 
 It supports two related “distance matrix” modes for tree inference:
 
@@ -1299,7 +1304,7 @@ The script parses **`dali.pl` text output** for:
 
 **Configuration:** set `--dalilite-path` or `DALILITE_HOME` to the DaliLite installation root (directory containing `bin/dali.pl`).
 
-**mkdssp (required for `import.pl`):** DaliLite calls **mkdssp** using the path in **`bin/mpidali.pm`** (`$DSSP_EXE`; upstream defaults often use `/usr/local/bin/mkdssp`). That file must exist and be executable—otherwise `DAT/*.dat` can be empty and comparisons fail silently. Fix by installing a compatible **mkdssp**, symlinking it to the path in `mpidali.pm`, or editing `$DSSP_EXE`. Perl modules under `bin/` (e.g. `FSSP.pm`) must be readable by the user. Optionally set environment variable **`MKDSSP`** to the full path of `mkdssp` so this script’s diagnostics match your install.
+**mkdssp (required for `import.pl`):** DaliLite calls **mkdssp** using the path in **`bin/mpidali.pm`** (`$DSSP_EXE`; upstream defaults often use `/usr/local/bin/mkdssp`). That file must exist and be executable—otherwise `DAT/*.dat` can be empty and comparisons fail silently. Fix by installing a compatible **mkdssp**, symlinking it to the path in `mpidali.pm`, or editing `$DSSP_EXE`. Perl modules under `bin/` (e.g. `FSSP.pm`) must be readable by the executing user. Optionally set environment variable `MKDSSP` to the full path of `mkdssp` so this script’s diagnostics match the installation.
 
 **Manual all-vs-all** (outside `foldkit_dali_like_scores.py`): batch-`import.pl` for each model into a shared `DAT/`, build `query.list` of five-character ids (`xxxxX` per `DAT/*.dat`), then `dali.pl --matrix --query query.list --dat1 DAT` from a short working directory path.
 

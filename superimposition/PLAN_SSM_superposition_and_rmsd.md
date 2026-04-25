@@ -22,7 +22,7 @@ Use **`superimpose_coot_SSM.py`**:
 python superimposition/superimpose_coot_SSM.py reference.pdb /path/to/models
 ```
 
-- **reference.pdb**: path to your reference structure (PDB or CIF).
+- **reference.pdb**: path to the reference structure (PDB or CIF).
 - **/path/to/models**: one or more directories; all `.pdb`/`.cif` under them (including subfolders) are aligned to the reference.
 
 Optional:
