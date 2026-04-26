@@ -340,7 +340,7 @@ Use --structure-basename when the input is only an *_asu_contacts.txt sidecar
         metavar="REGEX",
         help=(
             "Merge structures whose stem shares the same first capturing group "
-            "(same as interface_molecule_report_csv.py)."
+            "(same grouping rule as the interface report CSV extractors)."
         ),
     )
     ap.add_argument(

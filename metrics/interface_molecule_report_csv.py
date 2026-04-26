@@ -313,6 +313,7 @@ def filter_by_molecules(
 
 
 _CSV_FIELDNAMES = [
+    "report_path",
     "set_label",
     "structure_basename",
     "interface_number",
@@ -421,6 +422,7 @@ def combine_group_key_glob(stem: str, patterns: list[str]) -> str:
 def _sort_merged_rows(rows: list[dict[str, Any]]) -> None:
     rows.sort(
         key=lambda r: (
+            str(r.get("report_path", "")),
             str(r.get("structure_basename", "")),
             int(r.get("interface_number") or 0),
             str(r.get("focus_chain", "")),
@@ -575,7 +577,11 @@ Examples:
     )
     ap.add_argument(
         "report",
-        help="Text report path (typically results.txt from interface_analyser_asu_charge.py or interface_analyser_asu_ec.py, or lattice variants); use - for stdin.",
+        nargs="+",
+        help=(
+            "One or more text report path(s) (typically results.txt from FoldKit interface "
+            "analyser scripts, including lattice variants). Use - to read one report from stdin."
+        ),
     )
     ap.add_argument(
         "--pdb",
@@ -664,7 +670,12 @@ Examples:
     )
     add_log_args(ap)
     args = ap.parse_args()
-    setup_log_from_args(args, script_path=__file__, inputs=[getattr(args, "report", "")], pattern=None)
+    report_inputs = getattr(args, "report", "")
+    if isinstance(report_inputs, list):
+        inputs = report_inputs
+    else:
+        inputs = [report_inputs] if report_inputs else []
+    setup_log_from_args(args, script_path=__file__, inputs=inputs, pattern=None)
 
     pdb_patterns = _collect_pdb_patterns(args)
     ordered_chains, chains = _collect_chains_ordered(args)
@@ -674,13 +685,17 @@ Examples:
             "(-m / --molecule / --chains)."
         )
 
-    if args.report == "-":
-        text = sys.stdin.read()
-    else:
-        if not os.path.isfile(args.report):
-            ap.error(f"File not found: {args.report}")
-        with open(args.report, encoding="utf-8", errors="replace") as f:
-            text = f.read()
+    reports: list[tuple[str, str]] = []
+    for rp in args.report:
+        rp = str(rp)
+        if rp == "-":
+            text = sys.stdin.read()
+            reports.append(("<stdin>", text))
+            continue
+        if not os.path.isfile(rp):
+            ap.error(f"File not found: {rp}")
+        with open(rp, encoding="utf-8", errors="replace") as f:
+            reports.append((rp, f.read()))
 
     if args.output_dir and args.output:
         ap.error("Use either --output-dir or -o, not both.")
@@ -701,17 +716,26 @@ Examples:
                 r"'^(model\d+[^_]*)_', '^(model\d+(?:a|del)?)_', or '^(model\d+)_'."
             )
 
-    all_recs = parse_interface_analyser_text(text)
-    filtered = filter_by_structures(all_recs, pdb_patterns)
-    filtered = filter_by_molecules(filtered, chains)
-    filtered = apply_group_by_chain_layout(filtered, ordered_chains, args.group_by_chain)
-    by_st = group_by_structure(filtered)
+    all_recs_total = 0
+    filtered_all: list[dict[str, Any]] = []
+    for report_path, text in reports:
+        all_recs = parse_interface_analyser_text(text)
+        all_recs_total += len(all_recs)
+        filtered = filter_by_structures(all_recs, pdb_patterns)
+        filtered = filter_by_molecules(filtered, chains)
+        filtered = apply_group_by_chain_layout(filtered, ordered_chains, args.group_by_chain)
+        for r in filtered:
+            row = dict(r)
+            row["report_path"] = report_path
+            filtered_all.append(row)
+
+    by_st = group_by_structure(filtered_all)
     n_struct = len(by_st)
-    n_rows = len(filtered)
+    n_rows = len(filtered_all)
 
     if n_rows == 0:
         print(
-            f"No matching interfaces (parsed {len(all_recs)} interface block(s)).",
+            f"No matching interfaces (parsed {all_recs_total} interface block(s)).",
             file=sys.stderr,
         )
         return
@@ -744,7 +768,7 @@ Examples:
         )
         print(
             f"Wrote {len(written)} file(s){tag}: {parts} "
-            f"[{n_rows} row(s) from {len(all_recs)} interface block(s) parsed].",
+            f"[{n_rows} row(s) from {all_recs_total} interface block(s) parsed across {len(reports)} report(s)].",
             file=sys.stderr,
         )
         return
@@ -766,25 +790,24 @@ Examples:
         )
         print(
             f"Wrote {len(written)} file(s){tag}: {parts} "
-            f"[{n_rows} row(s) from {len(all_recs)} interface block(s) parsed].",
+            f"[{n_rows} row(s) from {all_recs_total} interface block(s) parsed across {len(reports)} report(s)].",
             file=sys.stderr,
         )
         return
 
     # --- Single destination (stdout or one path) ---
     out_path: str | None = None if not out_arg or out_arg == "-" else out_arg
-    if len(batches) > 1 and out_path and "{}" not in out_arg:
-        ap.error(
-            "Multiple output groups; use --output-dir DIR or -o 'path/{}.csv' "
-            "(with '{}'), or omit -o to merge all rows to stdout."
-        )
-
-    rows_out = batches[0][1] if batches else filtered
+    # For a single destination (stdout or a single file path), merge all batches.
+    # This is especially useful when combining multiple reports into one table.
+    rows_out: list[dict[str, Any]] = []
+    for _stem, _rows in batches:
+        rows_out.extend(_rows)
+    _sort_merged_rows(rows_out)
     write_csv(rows_out, out_path)
     dest = "stdout" if out_path is None else out_path
     print(
         f"Wrote {len(rows_out)} row(s) to {dest} "
-        f"({n_struct} structure(s); {len(all_recs)} interface block(s) parsed).",
+        f"({n_struct} structure(s); {all_recs_total} interface block(s) parsed across {len(reports)} report(s)).",
         file=sys.stderr,
     )
 

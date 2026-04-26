@@ -2,7 +2,7 @@
 
 This document lists all metrics computed by the FoldKit analyser and metrics scripts, with:
 
-**Related (not covered below):** `trim_models.py` only harmonises residue ranges (standalone script; shared with `trim_superimposeLSQ.py` trimming); it does not compute packing or similarity metrics. See **README.md** (File management). **Post-processing CSV tools** `interface_molecule_report_csv.py`, `contact_molecule_report_csv.py`, and `lattice_packing_report_csv.py` do not compute new metrics; they parse or flatten analyser outputs into tables (Section 2.10, Section 3.5, Section 1.6.6). Example filenames in this repo use `model_01`, `results.txt` (interface / packing merged output), `contact_results.txt` (`contact_analyser.py -o`), `set_a` / `set_b` (`--sets`), and `./out`; see **README.md** (opening “Example naming” paragraph).
+**Related (not covered below):** `trim_models.py` only harmonises residue ranges (standalone script; shared with `trim_superimposeLSQ.py` trimming); it does not compute packing or similarity metrics. See **README.md** (File management). **Post-processing CSV tools** `interface_mol_report_charge_csv.py`, `interface_mol_report_ec_csv.py`, `contact_molecule_report_csv.py`, and `lattice_packing_report_csv.py` do not compute new metrics; they parse or flatten analyser outputs into tables (Section 2.10, Section 3.5, Section 1.6.6). Example filenames in this repo use `model_01`, `results.txt` (interface merged output), `contact_results.txt` (`contact_analyser.py -o`), `set_a` / `set_b` (`--sets`), and `./out`; see **README.md** (opening “Example naming” paragraph).
 
 - **Mathematical definition** and **script calculation** for each metric.
 - **Reader-friendly formula**: a short, plain-language description of what is being computed and how.
@@ -851,9 +851,14 @@ If there are no valid matches or the superposition fails, `interface_rmsd_ca` an
 | Larger `total_interfaces` | More chain pairs are in contact (within the model and thresholds). |
 | Nonzero `average_interface_rmsd_ca` | RMSD was computable for at least one interface (most meaningful for homomers). |
 
-### 2.10 Post-processing: interface_molecule_report_csv.py
+### 2.10 Post-processing: interface report CSV extractors (charge vs EC)
 
-The interface analysers can write merged text reports (conventionally **`results.txt`** via `-o`). **`interface_molecule_report_csv.py`** parses those reports and emits CSV rows for each interface block, with the same numeric summaries as in Section 2 (contact counts, BSA, complementarity, polarity, accessibility, etc.). It does **not** re-read PDB files or recompute metrics. Optional filters: structure basename (as printed in the report, e.g. **`model_01.pdb`**), chain IDs (**`A`**, **`B`**), **`--group-by-chain`**, and merge options **`--combine-regex`** / **`--combine-glob`** (see **README.md**). For **atom-level** ASU contact rows (chain/residue/atom pairs), use **`contact_molecule_report_csv.py`** on **`contact_analyser.py`** output (Section 3.5).
+The interface analysers can write merged text reports (conventionally **`results.txt`** via `-o`). The recommended extractors are:
+
+- **`interface_mol_report_charge_csv.py`**: charge-tag interface reports (ASU or lattice). Writes per-interface rows, with optional parsed summary rows (per structure) derived from the report header.
+- **`interface_mol_report_ec_csv.py`**: EC interface reports (ASU or lattice). Supports `--mode summary` (one row per structure) and `--mode details` (summary columns followed by per-interface columns for the selected chain(s)).
+
+These scripts parse analyser output only; they do **not** re-read PDB/mmCIF files or recompute metrics. Filters: structure basename (as printed in the report, e.g. **`model_01.pdb`**), chain IDs (**`A`**, **`B`**). For atom-level ASU contact rows (chain/residue/atom pairs), use **`contact_molecule_report_csv.py`** on `contact_analyser.py` output (Section 3.5).
 
 **What it means (how to interpret)**
 
@@ -968,7 +973,7 @@ contact_density = (number_of_contacts) / (total_number_of_atoms_in_all_chains)
 
 ### 3.5 Post-processing: contact_molecule_report_csv.py
 
-The CLI of `contact_analyser.py` can write a merged text report (conventionally **`contact_results.txt`** via `-o`, distinct from interface reports (often **`results.txt`** from `interface_analyser_asu_charge.py` / `interface_analyser_asu_ec.py` and the lattice variants) or `packing_metrics.py`). **`contact_molecule_report_csv.py`** parses that report (and optionally a standalone **`contact_results_model_01_asu_contacts.txt`**-style sidecar) into CSV with one row per atom–atom contact: **`chain1`**, **`chain2`**, **`res1`**, **`atom1`**, **`res2`**, **`atom2`**, **`distance_A`**, **`contact_type`**, plus context columns **`set_label`** and **`structure_basename`**. It does **not** re-read PDB files or recompute distances. Filters and merge options mirror **`interface_molecule_report_csv.py`** (structure basename patterns, **`-m` / `--chains`**). Sidecar-only files lack progress lines; use **`--structure-basename model_01.pdb`** or the filename heuristic described in **README.md**. Multi-set output uses the same **`Set 'label' (patterns: …)`** headers as other analysers.
+The CLI of `contact_analyser.py` can write a merged text report (conventionally **`contact_results.txt`** via `-o`, distinct from interface reports (often **`results.txt`** from `interface_analyser_asu_charge.py` / `interface_analyser_asu_ec.py` and the lattice variants) or `packing_metrics.py`). **`contact_molecule_report_csv.py`** parses that report (and optionally a standalone **`contact_results_model_01_asu_contacts.txt`**-style sidecar) into CSV with one row per atom–atom contact: **`chain1`**, **`chain2`**, **`res1`**, **`atom1`**, **`res2`**, **`atom2`**, **`distance_A`**, **`contact_type`**, plus context columns **`set_label`** and **`structure_basename`**. It does **not** re-read PDB files or recompute distances. Filters: structure basename patterns and chain IDs (**`-m`** / **`--chains`**). Sidecar-only files lack progress lines; use **`--structure-basename model_01.pdb`** or the filename heuristic described in **README.md**. Multi-set output uses the same **`Set 'label' (patterns: …)`** headers as other analysers.
 
 **What it means (how to interpret)**
 

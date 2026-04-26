@@ -140,6 +140,8 @@ class InterfaceAnalyser:
             focus_set = None
             if focus_chains:
                 focus_set = {str(c).strip() for c in focus_chains if str(c).strip()}
+
+            ref_id = str(reference_chain_id).strip() if reference_chain_id else ""
             
             if len(chains) < 2:
                 return {'error': 'Need at least 2 chains for interface analysis'}
@@ -156,6 +158,11 @@ class InterfaceAnalyser:
                     if i >= j:  # Avoid duplicates and self-comparison
                         continue
                     if focus_set is not None and (chain1.id not in focus_set and chain2.id not in focus_set):
+                        continue
+                    # In lattice / reference-chain mode, only keep interfaces that include the
+                    # reference chain (the printed totals + isolated SASA sum should not include
+                    # unrelated chain–chain pairs in the file).
+                    if ref_id and chain1.id != ref_id and chain2.id != ref_id:
                         continue
                     # Use the model that contains both chains (required for multi-model e.g. NMR)
                     if chain1.parent is not chain2.parent:
@@ -223,7 +230,6 @@ class InterfaceAnalyser:
                 results['summary']['sasa_isolated_by_chain'] = {}
                 results['summary']['sasa_isolated_sum'] = None
 
-            ref_id = str(reference_chain_id).strip() if reference_chain_id else ''
             if ref_id:
                 lattice = self._compute_lattice_reference_metrics(structure, ref_id)
                 if lattice:
@@ -1557,43 +1563,46 @@ def main():
     parser = argparse.ArgumentParser(
         description="Analyse interfaces between molecules in crystal structures.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""Examples (from repository root):
-  # Charge-tag metrics (ASU; single structure)
-  python metrics/interface_analyser_asu_charge.py model_01.pdb
+        epilog="""Examples (repository root; replace paths, filenames, and chain IDs):
+  # ASU interface metrics (charge-tag; single structure)
+  python metrics/interface_analyser_asu_charge.py /path/to/project/model_01.pdb
 
-  # Charge-tag metrics (batch; write merged text report)
-  python metrics/interface_analyser_asu_charge.py *.pdb -o results.txt
+  # ASU interface metrics (charge-tag; batch; write merged text report)
+  python metrics/interface_analyser_asu_charge.py /path/to/project/models/*.pdb -o /path/to/project/results_charge.txt
 
-  # Charge-tag metrics with set filtering (batch)
-  python metrics/interface_analyser_asu_charge.py *.pdb --set set_a,set_b -o by_set.txt
+  # ASU interface metrics (charge-tag; batch; set filtering)
+  python metrics/interface_analyser_asu_charge.py /path/to/project/models/*.pdb --set set_a,set_b -o /path/to/project/results_charge_set_a_set_b.txt
 
-  # Per-set output (batch)
-  python metrics/interface_analyser_asu_charge.py *.pdb --sets set_a set_b set_c -o "output_{}.txt"
+  # ASU interface metrics (charge-tag; per-set output)
+  python metrics/interface_analyser_asu_charge.py /path/to/project/models/*.pdb --sets set_a set_b set_c -o "/path/to/project/results_charge_{}.txt"
 
-  # Per-structure outputs (batch)
-  python metrics/interface_analyser_asu_charge.py *.pdb --per-structure -o "{}_interface.txt"
+  # ASU interface metrics (charge-tag; per-structure output)
+  python metrics/interface_analyser_asu_charge.py /path/to/project/models/*.pdb --per-structure -o "/path/to/project/out/{}_interfaces_charge.txt"
 
-  # Dry run (no analysis; just show what would run)
-  python metrics/interface_analyser_asu_charge.py *.pdb --sets set_a set_b set_c set_d -o "output_{}.txt" --dry-run
+  # Dry run (no analysis; list resolved inputs)
+  python metrics/interface_analyser_asu_charge.py /path/to/project/models/*.pdb --sets set_a set_b -o "/path/to/project/results_charge_{}.txt" --dry-run
 
-  # Lattice metrics for a reference chain (multi-copy model)
-  python metrics/interface_analyser_lattice_charge.py supercell.pdb --reference-chain A -o lattice_charge.txt
-  python metrics/interface_analyser_lattice_ec.py supercell.pdb --reference-chain A -o lattice_ec.txt
+  # Lattice interface metrics (multi-copy model; reference-chain report)
+  # Note: when --reference-chain is set, the report header totals (Total interfaces, total buried surface area,
+  # isolated SASA list and sum) are scoped to the reference chain and its partner chains.
+  python metrics/interface_analyser_lattice_charge.py /path/to/project/expanded_assembly.pdb --reference-chain A -o /path/to/project/lattice_charge.txt
+  python metrics/interface_analyser_lattice_ec.py /path/to/project/expanded_assembly.pdb --reference-chain A -o /path/to/project/lattice_ec.txt
 
-  # Electrostatic complementarity (EC; McCoy) in the ASU
-  python metrics/interface_analyser_asu_ec.py model_01.pdb -o ec_results.txt
+  # ASU interface metrics (electrostatic complementarity, EC)
+  python metrics/interface_analyser_asu_ec.py /path/to/project/model_01.pdb -o /path/to/project/results_ec.txt
 
-Filter text output to CSV by PDB and/or chain: interface_molecule_report_csv.py
-  python metrics/interface_molecule_report_csv.py results.txt -m A -m B -o interfaces_AB.csv
-  python metrics/interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
-  python metrics/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B --output-dir ./out
-  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
-  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+[^_]*)_' --output-dir ./out
-  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+(?:a|del)?)_' --output-dir ./out
-  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\\d+)_' --output-dir ./out
-  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model1a|model1del|model1)_' --output-dir ./out
-  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1*' --combine-glob 'model2*' --output-dir ./out
-  python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'model1a*' --combine-glob 'model1del*' --combine-glob 'model1_*' --output-dir ./out
+Interface report CSV extractors (charge vs EC):
+  # Charge reports (ASU or lattice) → per-interface rows; optional parsed summary rows
+  python metrics/interface_mol_report_charge_csv.py /path/to/project/results_charge*.txt -m A -o /path/to/project/charge_interfaces_A.csv
+
+  # EC reports (ASU or lattice)
+  # - Summary only (one row per structure)
+  python metrics/interface_mol_report_ec_csv.py /path/to/project/results_ec*.txt -m A --mode summary -o /path/to/project/ec_summary.csv
+
+  # - Summary columns followed by per-interface columns (interfaces involving chain A)
+  python metrics/interface_mol_report_ec_csv.py /path/to/project/results_ec*.txt -m A -o /path/to/project/ec_summary_and_interfaces_A.csv
+
+Legacy (interfaces only): python metrics/interface_molecule_report_csv.py results.txt -m A -o interfaces_A.csv
 """,
     )
     parser.add_argument(

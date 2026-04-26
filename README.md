@@ -986,25 +986,25 @@ python metrics/crystal_packing_analyser.py --input '/path/to/project/models/*_as
   --reference-chain A --interface-metrics charge --compare --output ./batch_lattice_analysis
 ```
 
-**Outputs.** Text: one block per chain pair (BSA, contacts, complementarity, etc.) plus summary lines (isolated SASA for chains in reported interfaces; with **`--reference-chain`**, **`sasa_reference_isolated`**, **`sasa_reference_in_cluster`**, **`lattice_burial_fraction`**, **`lattice_contact_residue_fraction`**). JSON (pipeline): nested under `interface_analysis.summary` in `*_analysis.json`.
+**Outputs.** Text: one block per chain pair (BSA, contacts, complementarity, etc.) plus summary lines. When **`--reference-chain`** is set, the summary totals (**Total interfaces**, **Total buried surface area**, isolated SASA list and sum) are scoped to the **reference chain** and the **partner chains that form reported interfaces with the reference** (unrelated chain–chain pairs in the same file are excluded). The lattice reference block reports `sasa_reference_isolated`, `sasa_reference_in_cluster`, `lattice_burial_fraction`, and `lattice_contact_residue_fraction`. JSON (pipeline): nested under `interface_analysis.summary` in `*_analysis.json`.
 
-#### `interface_molecule_report_csv.py`
+#### Interface report CSV extractors (charge vs EC)
 
-Filter an interface text report into CSV (optional filters by PDB basename and chain). Input is typically the file from `interface_analyser_asu_charge.py … -o results.txt` (or the EC analogue). Writes one file per structure when using `--output-dir` or `-o` with `{}`.
+Interface analysers write text reports (conventionally **`results.txt`** via `-o`). Use the dedicated CSV extractors below to convert one or more report files into a single table. Command lines accept one or more report paths; globs are expanded by the shell. Inputs may come from **ASU** (`interface_analyser_asu_charge.py`, `interface_analyser_asu_ec.py`) or **lattice** entrypoints (`interface_analyser_lattice_charge.py`, `interface_analyser_lattice_ec.py`).
 
 ```bash
-python metrics/interface_molecule_report_csv.py results.txt -m A -m B --output-dir ./out
-python metrics/interface_molecule_report_csv.py results.txt --chains A,B --group-by-chain --output-dir ./out
-python metrics/interface_molecule_report_csv.py results.txt --pdbs model_01.pdb,model_02.pdb --chains A,B -o 'out/{}.csv'
-python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-regex '^(model\d+[^_]*)_' --output-dir ./out
-python metrics/interface_molecule_report_csv.py results.txt --chains A,B --combine-glob 'run_a*' --combine-glob 'run_b*' --output-dir ./out
-python metrics/interface_molecule_report_csv.py results.txt --chains A,B \
-  --combine-glob 'run_a*' --combine-glob 'run_b*' --combine-glob 'run_*' --output-dir ./out
+# Charge-tag interface reports (ASU or lattice) → interface rows; optional summary rows
+python metrics/interface_mol_report_charge_csv.py /path/to/project/results_charge_*.txt -m A -o charge_interfaces_A.csv
+
+# EC interface reports (ASU or lattice)
+# - Summary only (one row per structure)
+python metrics/interface_mol_report_ec_csv.py /path/to/project/results_ec_*.txt -m A --mode summary -o ec_summary.csv
+
+# - Summary columns followed by per-interface columns (rows filtered to interfaces involving chain A)
+python metrics/interface_mol_report_ec_csv.py /path/to/project/results_ec_*.txt -m A -o ec_summary_and_interfaces_A.csv
 ```
 
-Options: `--pdb`, `--pdbs`, `-m`, `--molecule`, `--chains`, `-o`, `--output-dir`, `--group-by-chain`, `--combine-regex` (Python regex; **first capturing group** = merge key / output stem), `--combine-glob` (fnmatch on stem). **Order matters** for globs: list more specific patterns before broader ones (e.g. `run_a`* before `run_*`), because a single broad glob can match stems intended for a narrower rule.
-
-The regex above captures `model`, digits, then **any suffix without an underscore** up to the next `_` (e.g. a replicate or batch token after the first `_`). It maps stems like `model_01_rep1`, `model_01_rep2`, `model_02_rep1` to `model_01.csv`, `model_02.csv`. If stems are only `modelN_…` with no letters after the digits, `^(model\d+)_` is enough. To restrict allowed suffixes after the digits, narrow the regex (character class or alternation). To list variants explicitly, enumerate them in the alternation (e.g. `'^(variant_a|variant_b)_'`). Invalid: `model\d+`* — use `\d+` plus a separate suffix rule (`[^_]*`, etc.).
+Options (both scripts): structure filter `--pdb` / `--pdbs` and chain filter `-m` / `--chains`. The EC extractor supports `--mode summary|details` and includes lattice partner detail in `lattice_ec_by_partner_chain` when present in the report. The charge extractor includes parsed lattice charge summaries when present in the report.
 
 #### `contact_analyser.py`
 
@@ -1023,7 +1023,7 @@ Options: same core options as the interface analysers (including `--chains`).
 
 #### `contact_molecule_report_csv.py`
 
-Filter a `contact_analyser.py` text report into CSV rows (one per atom–atom contact). Columns include `chain1`, `chain2`, `res1`, `atom1`, `res2`, `atom2`, `distance_A`, `contact_type`, plus `set_label` and `structure_basename`. Same filtering and merge options as `interface_molecule_report_csv.py` (`--pdb`, `--pdbs`, `-m`, `--chains`, `-o`, `--output-dir`, `--combine-regex`, `--combine-glob`). For `*_asu_contacts.txt` sidecars (no progress lines in file), use `--structure-basename model_01.pdb` or rely on the filename heuristic (`…_<stem>_asu_contacts.txt`).
+Filter a `contact_analyser.py` text report into CSV rows (one per atom–atom contact). Columns include `chain1`, `chain2`, `res1`, `atom1`, `res2`, `atom2`, `distance_A`, `contact_type`, plus `set_label` and `structure_basename`. Filters: `--pdb` / `--pdbs`, `-m` / `--chains`. For `*_asu_contacts.txt` sidecars (no progress lines in file), use `--structure-basename model_01.pdb` or rely on the filename heuristic (`…_<stem>_asu_contacts.txt`).
 
 ```bash
 python metrics/contact_molecule_report_csv.py contact_results.txt -m A -m B --output-dir ./out
