@@ -23,6 +23,7 @@ import glob
 import os
 import sys
 import numpy as np
+from typing import Any
 import warnings
 import math
 from pathlib import Path
@@ -73,6 +74,78 @@ def _contact_within_limit(contact_type: str, distance: float) -> bool:
     return False
 
 
+# Match `metrics/lattice_packing_analyser.py` for mass normalization (Da).
+_ATOMIC_WEIGHTS_DA: dict[str, float] = {
+    "C": 12.011,
+    "N": 14.007,
+    "O": 15.999,
+    "S": 32.06,
+    "P": 30.974,
+    "H": 1.008,
+    "CA": 40.078,
+    "MG": 24.305,
+    "ZN": 65.38,
+    "FE": 55.845,
+    "MN": 54.938,
+    "CU": 63.546,
+    "NA": 22.99,
+    "K": 39.098,
+    "CL": 35.45,
+    "BR": 79.904,
+}
+
+
+def _atom_element_upper(atom: Any) -> str:
+    el = (getattr(atom, "element", "") or "").strip().upper()
+    if el:
+        return el
+    name = (getattr(atom, "name", "") or "").strip()
+    return (name[:1] or "C").upper()
+
+
+def _atom_mass_da(atom: Any) -> float:
+    return float(_ATOMIC_WEIGHTS_DA.get(_atom_element_upper(atom), _ATOMIC_WEIGHTS_DA["C"]))
+
+
+def _polymer_chain_res_atom_mass(chain: Any) -> tuple[int, int, float]:
+    """
+    Polymer residues in a chain: hetero flag ' ' (standard PDB) and not water.
+    Returns (n_residues, n_atoms, mass_da).
+    """
+    skip_res = {"HOH", "WAT", "SOL"}
+    n_res = 0
+    n_atoms = 0
+    mass_da = 0.0
+    for res in chain:
+        try:
+            rn = (getattr(res, "resname", "") or "").strip().upper()
+        except Exception:
+            continue
+        if rn in skip_res:
+            continue
+        try:
+            het = res.id[0]
+        except Exception:
+            het = " "
+        if het != " ":
+            continue
+        n_res += 1
+        for atom in res:
+            n_atoms += 1
+            mass_da += _atom_mass_da(atom)
+    return n_res, n_atoms, mass_da
+
+
+def _model_polymer_res_atom_mass(model: Any) -> tuple[int, int, float]:
+    tr, ta, tm = 0, 0, 0.0
+    for ch in model:
+        r, a, m = _polymer_chain_res_atom_mass(ch)
+        tr += r
+        ta += a
+        tm += m
+    return tr, ta, tm
+
+
 class InterfaceAnalyser:
     """Analyser for protein-protein interfaces in crystal structures."""
 
@@ -117,7 +190,11 @@ class InterfaceAnalyser:
             compute lattice-style metrics: SASA of that chain alone vs sum of its
             per-residue SASA in the full model (all chains occluding), and
             fraction of reference residues with a cross-chain neighbour within
-            contact_distance.
+            contact_distance. Pairwise interface totals are computed twice:
+            ``summary_all_chains`` / ``all_*`` fields aggregate **every**
+            chain pair in the file (subject to ``focus_chains``); the top-level
+            ``summary`` scalars remain **reference-chain-filtered** for backwards
+            compatibility (interfaces involving the reference chain only).
             
         Returns:
         --------
@@ -146,65 +223,101 @@ class InterfaceAnalyser:
             if len(chains) < 2:
                 return {'error': 'Need at least 2 chains for interface analysis'}
             
-            # Analyse all pairwise interfaces
-            total_buried_area = 0
-            total_contact_area = 0
-            total_interface_rmsd = 0.0
-            interface_count = 0
-            rmsd_interface_count = 0
-            
-            for i, chain1 in enumerate(chains):
-                for j, chain2 in enumerate(chains):
-                    if i >= j:  # Avoid duplicates and self-comparison
-                        continue
-                    if focus_set is not None and (chain1.id not in focus_set and chain2.id not in focus_set):
-                        continue
-                    # In lattice / reference-chain mode, only keep interfaces that include the
-                    # reference chain (the printed totals + isolated SASA sum should not include
-                    # unrelated chain–chain pairs in the file).
-                    if ref_id and chain1.id != ref_id and chain2.id != ref_id:
-                        continue
-                    # Use the model that contains both chains (required for multi-model e.g. NMR)
-                    if chain1.parent is not chain2.parent:
-                        continue
-                    model = chain1.parent
-                    interface_data = self._analyse_pairwise_interface(chain1, chain2, model)
-                    
-                    if interface_data['contact_count'] > 0 or interface_data.get('buried_surface_area', 0) > 0:
-                        interface_data['chain_pair'] = f"{chain1.id}-{chain2.id}"
-                        results['interfaces'].append(interface_data)
-                        
-                        total_buried_area += interface_data.get('buried_surface_area', 0)
-                        total_contact_area += interface_data.get('contact_area', 0)
-                        rmsd_val = interface_data.get('interface_rmsd_ca')
-                        if rmsd_val is not None and isinstance(rmsd_val, (int, float)):
-                            total_interface_rmsd += float(rmsd_val)
-                            rmsd_interface_count += 1
-                        interface_count += 1
-            
-            # Calculate summary statistics
-            results['summary'] = {
-                'total_interfaces': interface_count,
-                'total_buried_surface_area': total_buried_area,
-                'total_contact_area': total_contact_area,
-                'average_buried_area_per_interface': total_buried_area / interface_count if interface_count > 0 else 0,
-                'average_contact_area_per_interface': total_contact_area / interface_count if interface_count > 0 else 0,
-                'average_interface_rmsd_ca': total_interface_rmsd / rmsd_interface_count if rmsd_interface_count > 0 else 0,
-            }
+            def _analyse_pairs(*, reference_filter: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+                """
+                Analyse interfaces for either:
+                - reference_filter=None: all chain–chain pairs (subject to focus_set)
+                - reference_filter='A': only interfaces involving that chain (subject to focus_set)
+                """
+                out_intfs: list[dict[str, Any]] = []
+                total_buried_area = 0.0
+                total_contact_area = 0.0
+                total_interface_rmsd = 0.0
+                interface_count = 0
+                rmsd_interface_count = 0
+
+                for i, chain1 in enumerate(chains):
+                    for j, chain2 in enumerate(chains):
+                        if i >= j:  # Avoid duplicates and self-comparison
+                            continue
+                        if focus_set is not None and (chain1.id not in focus_set and chain2.id not in focus_set):
+                            continue
+                        if reference_filter and chain1.id != reference_filter and chain2.id != reference_filter:
+                            continue
+                        # Use the model that contains both chains (required for multi-model e.g. NMR)
+                        if chain1.parent is not chain2.parent:
+                            continue
+                        model = chain1.parent
+                        interface_data = self._analyse_pairwise_interface(chain1, chain2, model)
+
+                        if interface_data['contact_count'] > 0 or interface_data.get('buried_surface_area', 0) > 0:
+                            interface_data['chain_pair'] = f"{chain1.id}-{chain2.id}"
+                            out_intfs.append(interface_data)
+
+                            total_buried_area += float(interface_data.get('buried_surface_area', 0) or 0.0)
+                            total_contact_area += float(interface_data.get('contact_area', 0) or 0.0)
+                            rmsd_val = interface_data.get('interface_rmsd_ca')
+                            if rmsd_val is not None and isinstance(rmsd_val, (int, float)):
+                                total_interface_rmsd += float(rmsd_val)
+                                rmsd_interface_count += 1
+                            interface_count += 1
+
+                summary0: dict[str, Any] = {
+                    'total_interfaces': int(interface_count),
+                    'total_buried_surface_area': float(total_buried_area),
+                    'total_contact_area': float(total_contact_area),
+                    'average_buried_area_per_interface': float(total_buried_area) / float(interface_count) if interface_count > 0 else 0.0,
+                    'average_contact_area_per_interface': float(total_contact_area) / float(interface_count) if interface_count > 0 else 0.0,
+                    'average_interface_rmsd_ca': float(total_interface_rmsd) / float(rmsd_interface_count) if rmsd_interface_count > 0 else 0.0,
+                }
+                return out_intfs, summary0
+
+            # Always compute an all-chains summary (subject to focus_set), plus the
+            # reference-chain subset if a reference chain was provided.
+            interfaces_all, summary_all = _analyse_pairs(reference_filter=None)
+            interfaces_ref, summary_ref = _analyse_pairs(reference_filter=ref_id or None)
+
+            # Backwards compatibility: keep `interfaces` as the reference-filtered list when
+            # reference_chain_id is set; otherwise include all interfaces.
+            results['interfaces'] = interfaces_ref if ref_id else interfaces_all
+
+            # Backwards compatibility: keep top-level summary fields as the reference-filtered
+            # values (current behaviour), and add all-chains fields alongside.
+            results['summary'] = dict(summary_ref)
+            results['summary']['summary_reference_chain'] = dict(summary_ref)
+            results['summary']['summary_all_chains'] = dict(summary_all)
+            for k, v in summary_all.items():
+                results['summary'][f"all_{k}"] = v
+
+            # Optional unit-suffixed aliases for downstream tabular consumers.
+            # JSON keys in this module are historically unitless (e.g. *_buried_surface_area),
+            # while some CSV/flattening tools use explicit unit suffixes (e.g. *_A2).
+            results['summary']['total_buried_surface_area_A2'] = results['summary'].get('total_buried_surface_area')
+            results['summary']['average_buried_area_per_interface_A2'] = results['summary'].get('average_buried_area_per_interface')
+            results['summary']['total_contact_area_A2'] = results['summary'].get('total_contact_area')
+            results['summary']['average_contact_area_per_interface_A2'] = results['summary'].get('average_contact_area_per_interface')
+            results['summary']['all_total_buried_surface_area_A2'] = results['summary'].get('all_total_buried_surface_area')
+            results['summary']['all_average_buried_area_per_interface_A2'] = results['summary'].get('all_average_buried_area_per_interface')
 
             # Total solvent-accessible surface (SASA) of each chain in isolation, for all chains
             # that appear in any reported interface (e.g. focus A with A–B and A–C → A, B, C).
-            involved_ids = set()
-            for intf in results['interfaces']:
-                involved_ids.add(intf.get('chain1_id'))
-                involved_ids.add(intf.get('chain2_id'))
-            involved_ids.discard(None)
+            involved_ids_ref = set()
+            for intf in interfaces_ref:
+                involved_ids_ref.add(intf.get('chain1_id'))
+                involved_ids_ref.add(intf.get('chain2_id'))
+            involved_ids_ref.discard(None)
+
+            involved_ids_all = set()
+            for intf in interfaces_all:
+                involved_ids_all.add(intf.get('chain1_id'))
+                involved_ids_all.add(intf.get('chain2_id'))
+            involved_ids_all.discard(None)
 
             chain_by_id = {}
             for ch in chains:
-                if ch.id in involved_ids and ch.id not in chain_by_id:
+                if (ch.id in involved_ids_ref or ch.id in involved_ids_all) and ch.id not in chain_by_id:
                     chain_by_id[ch.id] = ch
-            for cid in involved_ids:
+            for cid in sorted(involved_ids_ref | involved_ids_all):
                 if cid not in chain_by_id:
                     for model in structure:
                         for ch in model:
@@ -214,14 +327,22 @@ class InterfaceAnalyser:
                         if cid in chain_by_id:
                             break
 
-            sasa_isolated_by_chain = {}
-            for cid in sorted(involved_ids):
-                ch = chain_by_id.get(cid)
-                if ch is None:
-                    continue
-                sasa_val = self._compute_sasa_chain_isolated(ch)
-                if sasa_val is not None:
-                    sasa_isolated_by_chain[cid] = float(sasa_val)
+            def _sasa_dict(ids: set[str]) -> dict[str, float]:
+                out0: dict[str, float] = {}
+                for cid in sorted(ids):
+                    ch = chain_by_id.get(cid)
+                    if ch is None:
+                        continue
+                    sasa_val = self._compute_sasa_chain_isolated(ch)
+                    if sasa_val is not None:
+                        out0[cid] = float(sasa_val)
+                return out0
+
+            sasa_isolated_by_chain_ref = _sasa_dict({str(x) for x in involved_ids_ref if x})
+            sasa_isolated_by_chain_all = _sasa_dict({str(x) for x in involved_ids_all if x})
+
+            # Existing fields: keep them reference-filtered when ref_id is set; otherwise all.
+            sasa_isolated_by_chain = sasa_isolated_by_chain_ref if ref_id else sasa_isolated_by_chain_all
 
             if sasa_isolated_by_chain:
                 results['summary']['sasa_isolated_by_chain'] = sasa_isolated_by_chain
@@ -229,6 +350,22 @@ class InterfaceAnalyser:
             else:
                 results['summary']['sasa_isolated_by_chain'] = {}
                 results['summary']['sasa_isolated_sum'] = None
+
+            # Unit-suffixed aliases for SASA sums (Å²) to match CSV column conventions.
+            results['summary']['sasa_isolated_sum_A2'] = results['summary'].get('sasa_isolated_sum')
+
+            # Additional explicit summaries (always present).
+            results['summary']['all_sasa_isolated_by_chain'] = sasa_isolated_by_chain_all
+            results['summary']['all_sasa_isolated_sum'] = (
+                sum(sasa_isolated_by_chain_all.values()) if sasa_isolated_by_chain_all else None
+            )
+            results['summary']['reference_sasa_isolated_by_chain'] = sasa_isolated_by_chain_ref
+            results['summary']['reference_sasa_isolated_sum'] = (
+                sum(sasa_isolated_by_chain_ref.values()) if sasa_isolated_by_chain_ref else None
+            )
+
+            results['summary']['all_sasa_isolated_sum_A2'] = results['summary'].get('all_sasa_isolated_sum')
+            results['summary']['reference_sasa_isolated_sum_A2'] = results['summary'].get('reference_sasa_isolated_sum')
 
             if ref_id:
                 lattice = self._compute_lattice_reference_metrics(structure, ref_id)
@@ -923,10 +1060,42 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
 
         out = {'lattice_reference_chain': reference_chain_id}
 
+        ref_res, ref_atoms, ref_mass_da = _polymer_chain_res_atom_mass(ref_chain)
+        out['reference_chain_residue_count'] = int(ref_res)
+        out['reference_chain_atom_count'] = int(ref_atoms)
+        out['reference_chain_mass_Da'] = float(ref_mass_da)
+        out['reference_chain_mass_kDa'] = float(ref_mass_da) / 1000.0 if ref_mass_da > 0 else 0.0
+
         sasa_iso = self._compute_sasa_chain_isolated(ref_chain)
         sasa_cluster = self._sum_residue_sasa_for_chain_in_full_model(ref_model, reference_chain_id)
         out['sasa_reference_isolated'] = sasa_iso
         out['sasa_reference_in_cluster'] = sasa_cluster
+        if sasa_iso is not None and sasa_cluster is not None:
+            out["reference_chain_BSA"] = float(sasa_iso) - float(sasa_cluster)
+        else:
+            out["reference_chain_BSA"] = None
+
+        def _norm_sasa_triplet(
+            sasa_val: float | None,
+            n_res: int,
+            n_atoms: int,
+            mass_da: float,
+            *,
+            prefix: str,
+        ) -> None:
+            if sasa_val is None:
+                return
+            v = float(sasa_val)
+            if n_res > 0:
+                out[f"{prefix}_per_residue_reference_chain_A2"] = v / float(n_res)
+            if n_atoms > 0:
+                out[f"{prefix}_per_atom_reference_chain_A2"] = v / float(n_atoms)
+            if mass_da > 0:
+                out[f"{prefix}_per_kDa_reference_chain_A2"] = v / (mass_da / 1000.0)
+
+        _norm_sasa_triplet(sasa_iso, ref_res, ref_atoms, ref_mass_da, prefix="sasa_reference_isolated")
+        _norm_sasa_triplet(sasa_cluster, ref_res, ref_atoms, ref_mass_da, prefix="sasa_reference_in_cluster")
+        _norm_sasa_triplet(out.get("reference_chain_BSA"), ref_res, ref_atoms, ref_mass_da, prefix="reference_chain_BSA")
 
         if sasa_iso is not None and sasa_iso > 0 and sasa_cluster is not None:
             raw = 1.0 - (float(sasa_cluster) / float(sasa_iso))
@@ -1378,6 +1547,31 @@ def _run_analysis(
         print("=" * 40, file=out_stream)
         summary = results.get('summary')
         if isinstance(summary, dict):
+            # Always print a header for the totals section. In reference-chain mode, print a
+            # two-part header (all-chains totals, then reference-chain-scoped totals).
+            if reference_chain_id:
+                if 'all_total_interfaces' in summary:
+                    print("\nAll-chains interface summary (all chain–chain pairs in file):", file=out_stream)
+                    print(f"  Total interfaces: {summary.get('all_total_interfaces', 0)}", file=out_stream)
+                    print(
+                        f"  Total buried surface area: {summary.get('all_total_buried_surface_area', 0):.1f} Å²",
+                        file=out_stream,
+                    )
+                    print(
+                        f"  Average buried area per interface: {summary.get('all_average_buried_area_per_interface', 0):.1f} Å²",
+                        file=out_stream,
+                    )
+                    sasa_iso_all = summary.get('all_sasa_isolated_by_chain') or {}
+                    sasa_sum_all = summary.get('all_sasa_isolated_sum')
+                    if sasa_iso_all and sasa_sum_all is not None:
+                        print("  Isolated SASA (chains involved in any all-chains interface):", file=out_stream)
+                        for cid in sorted(sasa_iso_all.keys()):
+                            print(f"    Chain {cid}: {sasa_iso_all[cid]:.1f} Å²", file=out_stream)
+                        print(f"    Sum isolated SASA: {sasa_sum_all:.1f} Å²", file=out_stream)
+
+                print("\nReference-chain interface summary (only interfaces involving reference):", file=out_stream)
+            else:
+                print("\nInterface summary:", file=out_stream)
             print(f"Total interfaces: {summary.get('total_interfaces', 0)}", file=out_stream)
             print(f"Total buried surface area: {summary.get('total_buried_surface_area', 0):.1f} Å²", file=out_stream)
             print(f"Average buried area per interface: {summary.get('average_buried_area_per_interface', 0):.1f} Å²", file=out_stream)
@@ -1406,6 +1600,66 @@ def _run_analysis(
                     print(f"  SASA in full model (sum per-residue, chain {lc}): {src:.1f} Å²", file=out_stream)
                 else:
                     print("  SASA in full model: N/A", file=out_stream)
+                if sri is not None and src is not None:
+                    print(f"  Reference-chain BSA (SASA_iso − SASA_cluster): {float(sri) - float(src):.1f} Å²", file=out_stream)
+
+                rr = summary.get("reference_chain_residue_count")
+                ra = summary.get("reference_chain_atom_count")
+                rm = summary.get("reference_chain_mass_Da")
+                if rr is not None and ra is not None and rm is not None:
+                    rmk = float(rm) / 1000.0 if float(rm) > 0 else 0.0
+                    print(
+                        f"  Normalization divisors - reference chain: residues={int(rr)} atoms={int(ra)} "
+                        f"mass={float(rm):.1f} Da ({rmk:.3f} kDa)",
+                        file=out_stream,
+                    )
+
+                def _fmt_opt(label: str, key: str, unit: str = "Å²") -> None:
+                    v = summary.get(key)
+                    if v is None:
+                        return
+                    print(f"  {label}: {float(v):.4g} {unit}", file=out_stream)
+
+                _fmt_opt(
+                    "SASA isolated per residue (/ reference chain)",
+                    "sasa_reference_isolated_per_residue_reference_chain_A2",
+                )
+                _fmt_opt(
+                    "SASA isolated per atom (/ reference chain)",
+                    "sasa_reference_isolated_per_atom_reference_chain_A2",
+                )
+                _fmt_opt(
+                    "SASA isolated per kDa protein (/ reference chain)",
+                    "sasa_reference_isolated_per_kDa_reference_chain_A2",
+                    unit="Å²/kDa",
+                )
+                _fmt_opt(
+                    "SASA in cluster per residue (/ reference chain)",
+                    "sasa_reference_in_cluster_per_residue_reference_chain_A2",
+                )
+                _fmt_opt(
+                    "SASA in cluster per atom (/ reference chain)",
+                    "sasa_reference_in_cluster_per_atom_reference_chain_A2",
+                )
+                _fmt_opt(
+                    "SASA in cluster per kDa protein (/ reference chain)",
+                    "sasa_reference_in_cluster_per_kDa_reference_chain_A2",
+                    unit="Å²/kDa",
+                )
+                _fmt_opt(
+                    "Reference-chain BSA per residue (/ reference chain)",
+                    "reference_chain_BSA_per_residue_reference_chain_A2",
+                )
+                _fmt_opt(
+                    "Reference-chain BSA per atom (/ reference chain)",
+                    "reference_chain_BSA_per_atom_reference_chain_A2",
+                )
+                _fmt_opt(
+                    "Reference-chain BSA per kDa protein (/ reference chain)",
+                    "reference_chain_BSA_per_kDa_reference_chain_A2",
+                    unit="Å²/kDa",
+                )
+
                 lbf = summary.get('lattice_burial_fraction')
                 if lbf is not None:
                     print(f"  Lattice burial fraction (1 − SASA_cluster/SASA_iso): {lbf:.3f} ({100.0*float(lbf):.1f}%)", file=out_stream)

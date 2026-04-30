@@ -915,7 +915,23 @@ python metrics/interface_analyser_asu_charge.py model_01.pdb --chains A -o chain
 
 Options: `-o` (use `{}` for per-set or per-structure), `--per-structure`, `--set`, `--sets`, `--dry-run`, `--chains`, `--reference-chain` (focal chain: isolated vs embedded SASA, lattice burial fraction, cross-chain contact-residue fraction)
 
-The text report summary lists **isolated SASA** (Shrake–Rupley, each chain alone) for every chain that appears in any reported interface, plus the **sum** of those values (e.g. chains A, B, C when interfaces A–B and A–C are reported). With **`--reference-chain`**, the summary adds **`sasa_reference_isolated`**, **`sasa_reference_in_cluster`**, **`lattice_burial_fraction`** (approximately `1 − SASA_cluster/SASA_iso`, a geometric occlusion index, **not** thermodynamic **ΔSASA**), and **`lattice_contact_residue_fraction`** (reference residues with a cross-chain neighbour within the contact cut-off).
+The text report summary lists **isolated SASA** (Shrake–Rupley, each chain alone) for every chain that appears in any reported interface, plus the **sum** of those values (e.g. chains A, B, C when interfaces A–B and A–C are reported). With **`--reference-chain`**, the summary adds **`sasa_reference_isolated`**, **`sasa_reference_in_cluster`**, **`reference_chain_BSA`** (= `sasa_reference_isolated − sasa_reference_in_cluster`), **`lattice_burial_fraction`** (approximately `1 − SASA_cluster/SASA_iso`, a geometric occlusion index, **not** thermodynamic **ΔSASA**), and **`lattice_contact_residue_fraction`** (reference residues with a cross-chain neighbour within the contact cut-off).
+
+**Reference-chain BSA (`reference_chain_BSA`) and normalised variants (brief definition).** In lattice/reference mode, the buried/occluded surface area of the reference chain is defined as the reduction in its solvent-accessible surface when all other chains in the supplied multi-copy model are present (same coordinates), compared with the chain alone:
+
+```
+reference_chain_BSA = sasa_reference_isolated - sasa_reference_in_cluster
+```
+
+Units are Å². Larger `reference_chain_BSA` indicates greater geometric occlusion of the reference chain by neighbours in the provided assembly; `reference_chain_BSA` is an empirical packing/occlusion measure and should not be interpreted as a thermodynamic binding ΔSASA. The report may also include the following normalisations using divisors from the reference chain only:
+
+```
+reference_chain_BSA_per_residue_reference_chain_A2 = reference_chain_BSA / N_res(reference)
+reference_chain_BSA_per_atom_reference_chain_A2    = reference_chain_BSA / N_atoms(reference)
+reference_chain_BSA_per_kDa_reference_chain_A2     = reference_chain_BSA / (mass_Da(reference) / 1000)
+```
+
+The per-residue and per-atom forms support comparisons across models where the same chain is trimmed differently or has differing atom completeness; the per-kDa form supports comparisons across different proteins by mass-scale. See `metrics/metrics_details.md` (Section 2.7.1) for calculation details and edge cases.
 
 **Complementarity metrics (naming and methods).**
 
@@ -986,7 +1002,18 @@ python metrics/crystal_packing_analyser.py --input '/path/to/project/models/*_as
   --reference-chain A --interface-metrics charge --compare --output ./batch_lattice_analysis
 ```
 
-**Outputs.** Text: one block per chain pair (BSA, contacts, complementarity, etc.) plus summary lines. When **`--reference-chain`** is set, the summary totals (**Total interfaces**, **Total buried surface area**, isolated SASA list and sum) are scoped to the **reference chain** and the **partner chains that form reported interfaces with the reference** (unrelated chain–chain pairs in the same file are excluded). The lattice reference block reports `sasa_reference_isolated`, `sasa_reference_in_cluster`, `lattice_burial_fraction`, and `lattice_contact_residue_fraction`. JSON (pipeline): nested under `interface_analysis.summary` in `*_analysis.json`.
+**Outputs.** Text: one block per chain pair (BSA, contacts, complementarity, etc.) plus summary lines. When **`--reference-chain`** is set, the report prints **two** header summaries with distinct roles:
+
+- **All-chains interface summary**: totals over **every chain–chain pair** in the file (respecting **`--chains`** if used). Use this for lattice-wide / topology-level comparisons (interface counts and summed pairwise BSA across the assembly).
+- **Reference-chain interface summary** (follows): totals scoped to interfaces that include the **reference chain** only (same convention as before). Use this for the focal-copy view.
+
+Isolated SASA lines appear under each summary section where applicable. The lattice reference block (`Lattice reference chain …`) reports `sasa_reference_isolated`, `sasa_reference_in_cluster`, `reference_chain_BSA`, `lattice_burial_fraction`, and `lattice_contact_residue_fraction` for the focal chain.
+
+JSON (pipeline): nested under `interface_analysis.summary` in `*_analysis.json`; additional keys include `summary_all_chains`, `all_*` totals, and explicit `*_sasa_isolated_by_chain` maps where computed.
+
+Post-processing CSV extractors (`interface_mol_report_ec_csv.py`, `interface_mol_report_charge_csv.py`) emit matching **`all_*`** columns when present in the text report (older reports omit them).
+
+For **`--reference-chain`** lattice runs, reports also list **normalised reference-chain SASA** (and `reference_chain_BSA`): isolated/cluster SASA (and `reference_chain_BSA`) divided by residue count, atom count, and protein mass (kDa) of the **reference chain**. CSV columns mirror these lines (for example `reference_chain_*`, `sasa_*_per_*_reference_chain_*`, `reference_chain_BSA_per_*_reference_chain_*`).
 
 #### Interface report CSV extractors (charge vs EC)
 
@@ -1005,6 +1032,8 @@ python metrics/interface_mol_report_ec_csv.py /path/to/project/results_ec_*.txt 
 ```
 
 Options (both scripts): structure filter `--pdb` / `--pdbs` and chain filter `-m` / `--chains`. The EC extractor supports `--mode summary|details` and includes lattice partner detail in `lattice_ec_by_partner_chain` when present in the report. The charge extractor includes parsed lattice charge summaries when present in the report.
+
+For lattice runs with **`--reference-chain`**, summary rows include **`all_total_interfaces`**, **`all_total_buried_surface_area_A2`**, **`all_average_buried_area_per_interface_A2`**, **`all_sasa_isolated_sum_A2`**, and **`all_sasa_isolated_by_chain`** (parallel to the reference-scoped `total_interfaces`, … columns). Text reports produced before this dual-summary format omit those lines; CSV columns are left blank for those rows.
 
 #### `contact_analyser.py`
 

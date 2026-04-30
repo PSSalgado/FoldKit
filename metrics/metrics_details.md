@@ -2,7 +2,7 @@
 
 This document lists all metrics computed by the FoldKit analyser and metrics scripts, with:
 
-**Related (not covered below):** `trim_models.py` only harmonises residue ranges (standalone script; shared with `trim_superimposeLSQ.py` trimming); it does not compute packing or similarity metrics. See **README.md** (File management). **Post-processing CSV tools** `interface_mol_report_charge_csv.py`, `interface_mol_report_ec_csv.py`, `contact_molecule_report_csv.py`, and `lattice_packing_report_csv.py` do not compute new metrics; they parse or flatten analyser outputs into tables (Section 2.10, Section 3.5, Section 1.6.6). Example filenames in this repo use `model_01`, `results.txt` (interface merged output), `contact_results.txt` (`contact_analyser.py -o`), `set_a` / `set_b` (`--sets`), and `./out`; see **README.md** (opening “Example naming” paragraph).
+**Related (not covered below):** `trim_models.py` only harmonises residue ranges (standalone script; shared with `trim_superimposeLSQ.py` trimming); it does not compute packing or similarity metrics. See **README.md** (File management). **Post-processing CSV tools** `interface_mol_report_charge_csv.py`, `interface_mol_report_ec_csv.py`, `contact_molecule_report_csv.py`, and `lattice_packing_report_csv.py` do not compute new physics; they parse or flatten analyser outputs into tables (Section 2.10, Section 3.5, Section 1.6.6). For lattice runs with **`--reference-chain`**, newer reports include **all-chains** summary totals (`all_*` CSV columns) alongside **reference-only** totals (`total_interfaces`, …); older reports omit the `all_*` lines/columns. Reference-chain SASA (isolated and cluster) and reference-chain lattice-context BSA (`reference_chain_BSA`) may also be reported **normalised** per residue, per atom, and per kDa of protein mass using divisors from the **reference chain** alone; CSV columns match those labels. Example filenames in this repo use `model_01`, `results.txt` (interface merged output), `contact_results.txt` (`contact_analyser.py -o`), `set_a` / `set_b` (`--sets`), and `./out`; see **README.md** (opening “Example naming” paragraph).
 
 - **Mathematical definition** and **script calculation** for each metric.
 - **Reader-friendly formula**: a short, plain-language description of what is being computed and how.
@@ -693,6 +693,27 @@ If `Bio.PDB.SASA.ShrakeRupley` is not available or SASA computation fails, acces
 
 - **`sasa_reference_isolated`:** Shrake–Rupley SASA (Å²) of the reference chain in isolation (same probe/settings as BSA: 1.4 Å, `level='S'` on a single-chain structure).
 - **`sasa_reference_in_cluster`:** Sum of per-residue SASA (Å²) for that chain after `ShrakeRupley.compute(..., level='R')` on a **deepcopy of the full model** (all chains stay in place, so neighbouring copies occlude the probe).
+- **`reference_chain_BSA`:** Reference-chain buried/occluded area in the lattice context (Å²), defined from the two SASA contexts above:
+
+```
+reference_chain_BSA = sasa_reference_isolated - sasa_reference_in_cluster
+```
+
+  **Interpretation.** `reference_chain_BSA` approximates how much of the reference chain’s solvent-accessible surface becomes inaccessible when neighbour chains occupy the same coordinate set in the supplied multi-copy model. It is a **geometric occlusion** quantity for that static model. It is **not** a pairwise interface BSA (which uses a two-chain-only complex) and it is **not** a thermodynamic binding ΔSASA for a specified reaction.
+
+  **Normalised variants (divisors from the reference chain only).** Let \(N_\mathrm{res}\) be the number of polymer residues on the reference chain, \(N_\mathrm{atoms}\) the number of atoms on that chain, and \(M_\mathrm{Da}\) the reference-chain protein mass (Da). The report may include:
+
+```
+reference_chain_BSA_per_residue_reference_chain_A2 = reference_chain_BSA / N_res
+reference_chain_BSA_per_atom_reference_chain_A2    = reference_chain_BSA / N_atoms
+reference_chain_BSA_per_kDa_reference_chain_A2     = reference_chain_BSA / (M_Da / 1000)
+```
+
+  Units are Å², Å², and Å²/kDa respectively. These normalisations support comparability across models that differ in trimming, missing atoms, or protein size.
+
+  **Edge cases.** If either SASA term is unavailable (SASA computation absent or failed), `reference_chain_BSA` and its normalised variants are reported as `None`. If any divisor is ≤ 0, the corresponding normalised field is omitted (or left blank in downstream CSV).
+
+  **Calculation references.** SASA is computed using the Shrake–Rupley rolling-probe algorithm (probe radius 1.4 Å) as implemented in BioPython (`Bio.PDB.SASA.ShrakeRupley`). The isolated term uses structure-level output (`level='S'`) on a single-chain construct; the in-cluster term is the sum of per-residue values from residue-level output (`level='R'`) on a deepcopy of the full model. Primary method reference: Shrake, A. & Rupley, J.A. (1973). *J. Mol. Biol.* 79, 351–371.
 - **`lattice_burial_fraction`:** When both SASA values are available and isolated SASA > 0:
 
 ```

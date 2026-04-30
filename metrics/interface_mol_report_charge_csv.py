@@ -42,11 +42,54 @@ _RE_SUM_ISO_SUM = re.compile(
     r"^\s+Sum of isolated SASA .*:\s*([\d.]+)\s*Å²\s*$"
 )
 
+# When `--reference-chain` is used, newer lattice reports include an explicit
+# all-chains summary section with indented lines (optional).
+_RE_SUM_ALL_HEADER = re.compile(r"^All-chains interface summary\b")
+_RE_SUM_REF_HEADER = re.compile(r"^Reference-chain interface summary\b")
+_RE_SUM_ALL_TOTAL_INTERFACES = re.compile(r"^\s{2}Total interfaces:\s*(\d+)\s*$")
+_RE_SUM_ALL_TOTAL_BSA = re.compile(r"^\s{2}Total buried surface area:\s*([\d.]+)\s*Å²\s*$")
+_RE_SUM_ALL_AVG_BSA = re.compile(r"^\s{2}Average buried area per interface:\s*([\d.]+)\s*Å²\s*$")
+_RE_SUM_ALL_ISO_CHAIN = re.compile(r"^\s{4}Chain\s+(.+?):\s*([\d.]+)\s*Å²\s*$")
+_RE_SUM_ALL_ISO_SUM = re.compile(r"^\s{4}Sum isolated SASA:\s*([\d.]+)\s*Å²\s*$")
+
 # --- lattice reference chain block ---
 _RE_SUM_LAT_REF = re.compile(r"^Lattice reference chain\s+(.+?)\s+\(multi-copy / cluster SASA\):\s*$")
 _RE_SUM_LAT_SASA_ISO = re.compile(r"^\s+SASA isolated \(chain alone\):\s*([\d.]+)\s*Å²\s*$")
 _RE_SUM_LAT_SASA_CLUSTER = re.compile(
     r"^\s+SASA in full model .*:\s*([\d.]+)\s*Å²\s*$"
+)
+_RE_SUM_LAT_REF_BSA = re.compile(
+    r"^\s+Reference-chain BSA \(SASA_iso.*\):\s*([\d.]+)\s*Å²\s*$"
+)
+_RE_SUM_LAT_NORM_REF_DIV = re.compile(
+    r"^\s+Normalization divisors - reference chain: residues=(\d+) atoms=(\d+) mass=([\d.]+) Da \(([\d.]+) kDa\)\s*$"
+)
+_RE_SUM_LAT_ISO_PR_REF = re.compile(
+    r"^\s+SASA isolated per residue \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²\s*$"
+)
+_RE_SUM_LAT_ISO_PA_REF = re.compile(
+    r"^\s+SASA isolated per atom \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²\s*$"
+)
+_RE_SUM_LAT_ISO_PK_REF = re.compile(
+    r"^\s+SASA isolated per kDa protein \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²/kDa\s*$"
+)
+_RE_SUM_LAT_CL_PR_REF = re.compile(
+    r"^\s+SASA in cluster per residue \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²\s*$"
+)
+_RE_SUM_LAT_CL_PA_REF = re.compile(
+    r"^\s+SASA in cluster per atom \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²\s*$"
+)
+_RE_SUM_LAT_CL_PK_REF = re.compile(
+    r"^\s+SASA in cluster per kDa protein \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²/kDa\s*$"
+)
+_RE_SUM_LAT_REF_BSA_PR_REF = re.compile(
+    r"^\s+Reference-chain BSA per residue \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²\s*$"
+)
+_RE_SUM_LAT_REF_BSA_PA_REF = re.compile(
+    r"^\s+Reference-chain BSA per atom \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²\s*$"
+)
+_RE_SUM_LAT_REF_BSA_PK_REF = re.compile(
+    r"^\s+Reference-chain BSA per kDa protein \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²/kDa\s*$"
 )
 _RE_SUM_LAT_BURIAL_FRAC = re.compile(
     r"^\s+Lattice burial fraction .*:\s*([\d.]+)\s*\(\s*([\d.]+)\s*%\s*\)\s*$"
@@ -186,17 +229,21 @@ def parse_charge_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict
     in_summary = False
     current_sum: dict[str, Any] | None = None
     iso_by_chain: dict[str, float] = {}
+    iso_by_chain_all: dict[str, float] = {}
     lat_ref_chain: str | None = None
+    sum_section = "ref"
 
     def flush_summary() -> None:
-        nonlocal in_summary, current_sum, iso_by_chain, lat_ref_chain
+        nonlocal in_summary, current_sum, iso_by_chain, iso_by_chain_all, lat_ref_chain, sum_section
         if not in_summary or current_sum is None:
             return
         summaries.append(current_sum)
         in_summary = False
         current_sum = None
         iso_by_chain = {}
+        iso_by_chain_all = {}
         lat_ref_chain = None
+        sum_section = "ref"
 
     i = 0
     while i < len(lines):
@@ -230,11 +277,53 @@ def parse_charge_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict
                 "structure_basename": structure or "",
             }
             iso_by_chain = {}
+            iso_by_chain_all = {}
             lat_ref_chain = None
+            sum_section = "ref"
             i += 1
             continue
 
         if in_summary and current_sum is not None:
+            if _RE_SUM_ALL_HEADER.match(line):
+                sum_section = "all"
+                i += 1
+                continue
+            if _RE_SUM_REF_HEADER.match(line):
+                sum_section = "ref"
+                i += 1
+                continue
+
+            if sum_section == "all":
+                m = _RE_SUM_ALL_TOTAL_INTERFACES.match(line)
+                if m:
+                    current_sum["all_total_interfaces"] = int(m.group(1))
+                    i += 1
+                    continue
+                m = _RE_SUM_ALL_TOTAL_BSA.match(line)
+                if m:
+                    current_sum["all_total_buried_surface_area_A2"] = float(m.group(1))
+                    i += 1
+                    continue
+                m = _RE_SUM_ALL_AVG_BSA.match(line)
+                if m:
+                    current_sum["all_average_buried_area_per_interface_A2"] = float(m.group(1))
+                    i += 1
+                    continue
+                m = _RE_SUM_ALL_ISO_CHAIN.match(line)
+                if m:
+                    cid = _normalize_chain_id(m.group(1))
+                    iso_by_chain_all[cid] = float(m.group(2))
+                    i += 1
+                    continue
+                m = _RE_SUM_ALL_ISO_SUM.match(line)
+                if m:
+                    current_sum["all_sasa_isolated_sum_A2"] = float(m.group(1))
+                    current_sum["all_sasa_isolated_by_chain"] = ";".join(
+                        f"{k}={iso_by_chain_all[k]:.1f}" for k in sorted(iso_by_chain_all.keys())
+                    ) if iso_by_chain_all else ""
+                    i += 1
+                    continue
+
             m = _RE_SUM_TOTAL_INTERFACES.match(line)
             if m:
                 current_sum["total_interfaces"] = int(m.group(1))
@@ -284,6 +373,64 @@ def parse_charge_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict
             m = _RE_SUM_LAT_SASA_CLUSTER.match(line)
             if m:
                 current_sum["sasa_reference_in_cluster_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_REF_BSA.match(line)
+            if m:
+                current_sum["reference_chain_BSA_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_NORM_REF_DIV.match(line)
+            if m:
+                current_sum["reference_chain_residue_count"] = int(m.group(1))
+                current_sum["reference_chain_atom_count"] = int(m.group(2))
+                current_sum["reference_chain_mass_Da"] = float(m.group(3))
+                current_sum["reference_chain_mass_kDa"] = float(m.group(4))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_ISO_PR_REF.match(line)
+            if m:
+                current_sum["sasa_reference_isolated_per_residue_reference_chain_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_ISO_PA_REF.match(line)
+            if m:
+                current_sum["sasa_reference_isolated_per_atom_reference_chain_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_ISO_PK_REF.match(line)
+            if m:
+                current_sum["sasa_reference_isolated_per_kDa_reference_chain_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_CL_PR_REF.match(line)
+            if m:
+                current_sum["sasa_reference_in_cluster_per_residue_reference_chain_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_CL_PA_REF.match(line)
+            if m:
+                current_sum["sasa_reference_in_cluster_per_atom_reference_chain_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_CL_PK_REF.match(line)
+            if m:
+                current_sum["sasa_reference_in_cluster_per_kDa_reference_chain_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_REF_BSA_PR_REF.match(line)
+            if m:
+                current_sum["reference_chain_BSA_per_residue_reference_chain_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_REF_BSA_PA_REF.match(line)
+            if m:
+                current_sum["reference_chain_BSA_per_atom_reference_chain_A2"] = float(m.group(1))
+                i += 1
+                continue
+            m = _RE_SUM_LAT_REF_BSA_PK_REF.match(line)
+            if m:
+                current_sum["reference_chain_BSA_per_kDa_reference_chain_A2"] = float(m.group(1))
                 i += 1
                 continue
             m = _RE_SUM_LAT_BURIAL_FRAC.match(line)
@@ -500,6 +647,12 @@ _CSV_FIELDNAMES = [
     "charged_contacts_same",
     "charge_complementarity_density",
     # summary metrics (structure-level totals; lattice fields empty for ASU)
+    # When `--reference-chain` is set: optional all-chains totals before reference-scoped totals.
+    "all_total_interfaces",
+    "all_total_buried_surface_area_A2",
+    "all_average_buried_area_per_interface_A2",
+    "all_sasa_isolated_sum_A2",
+    "all_sasa_isolated_by_chain",
     "total_interfaces",
     "total_buried_surface_area_A2",
     "average_buried_area_per_interface_A2",
@@ -508,6 +661,20 @@ _CSV_FIELDNAMES = [
     "lattice_reference_chain",
     "sasa_reference_isolated_A2",
     "sasa_reference_in_cluster_A2",
+    "reference_chain_BSA_A2",
+    "reference_chain_BSA_per_residue_reference_chain_A2",
+    "reference_chain_BSA_per_atom_reference_chain_A2",
+    "reference_chain_BSA_per_kDa_reference_chain_A2",
+    "reference_chain_residue_count",
+    "reference_chain_atom_count",
+    "reference_chain_mass_Da",
+    "reference_chain_mass_kDa",
+    "sasa_reference_isolated_per_residue_reference_chain_A2",
+    "sasa_reference_isolated_per_atom_reference_chain_A2",
+    "sasa_reference_isolated_per_kDa_reference_chain_A2",
+    "sasa_reference_in_cluster_per_residue_reference_chain_A2",
+    "sasa_reference_in_cluster_per_atom_reference_chain_A2",
+    "sasa_reference_in_cluster_per_kDa_reference_chain_A2",
     "lattice_burial_fraction",
     "lattice_contact_residue_fraction",
     "lattice_charge_complementarity",
