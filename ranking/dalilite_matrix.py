@@ -5,7 +5,7 @@ DaliLite **matrix** mode driver (``dali.pl --matrix``).
 This script **only** runs DaliLite (``import.pl`` + ``dali.pl --matrix``). Scores and trees
 come from Dali’s own output files—there is no separate FoldKit/Dali re-scoring pass.
 
-**Always written (Dali standard layout, copied or mirrored under your output directory):**
+**Always written (Dali standard layout, copied or mirrored under the directory given with ``-d``):**
   native ``ordered`` matrix, per-query ``xxxxX.txt``, ``newick``, ``newick_unrooted``, etc.
   (see DaliLite manual for names).
 
@@ -57,7 +57,7 @@ if _REPO_ROOT not in sys.path:
 import foldkit_dali_utils as _ds
 from structure_phylogeny import _natural_sort_key
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 
 @dataclass(frozen=True)
@@ -119,7 +119,7 @@ def _import_many_and_build_query_list(
     """
     Import all structures to ``dat_dir`` and write ``query.list`` into ``out_run_root``.
 
-    Dali uses a 4-letter + chain identifier. We build stable 4-letter ids from the filename stem,
+    Dali uses a 4-letter + chain identifier. Stable 4-letter ids are built from the filename stem,
     with collision handling, then append the chain letter as the 5th character, matching
     ``import.pl`` expectations (see DaliLite manual: ``--pdbid 1ppt`` + chain -> ``1pptA``).
     """
@@ -701,7 +701,7 @@ def main() -> None:
     ap.add_argument(
         "--export-z-matrix",
         action="store_true",
-        help="After Dali: write a square matrix CSV of Dali's 'ordered' matrix (relabelled to your model names).",
+        help="After Dali: write a square matrix CSV of Dali's 'ordered' matrix (relabelled to supplied model names).",
     )
     ap.add_argument(
         "--export-ranking",
@@ -720,7 +720,7 @@ def main() -> None:
         help=(
             "Row/column order for exported square matrix, pairwise table, ranking, and heatmaps. "
             "natural (default): S1, S2, S3, … before S10, S11 (numeric-aware; same as rmsd_to_csv). "
-            "alphanumeric: strict string order — S10 and S11 come before S2 (often not what you want). "
+            "alphanumeric: strict string order — S10 and S11 come before S2 (often undesirable for numbered labels). "
             "dali: keep Dali's 'ordered' matrix row order after relabelling to model names."
         ),
     )
@@ -794,11 +794,13 @@ def main() -> None:
     ap.add_argument("--short-heatmap-labels", action="store_true")
     ap.add_argument(
         "--heatmap-diverging-center",
+        "--heatmap-diverging-centre",
         choices=("none", "median"),
         default="none",
     )
     ap.add_argument(
         "--heatmap-colorbar-orientation",
+        "--heatmap-colourbar-orientation",
         choices=("vertical", "horizontal"),
         default="vertical",
     )
@@ -836,6 +838,7 @@ def main() -> None:
     )
     ap.add_argument(
         "--heatmap-cell-border-color",
+        "--heatmap-cell-border-colour",
         default="black",
         help="Per-cell border colour.",
     )
@@ -852,7 +855,7 @@ def main() -> None:
         help=(
             "Cell labels on the Z heatmap: none, main (Z only), hatch (n_core numbers only; Z is colour only), "
             "main+hatch (Z + n_core on two lines), or auto (hatch when n_core is available from Dali .txt, else none). "
-            "Use --heatmap-n-core-patterns only if you want binned n_core hatches on the Z figure."
+            "Use --heatmap-n-core-patterns only to add binned n_core hatches on the Z figure."
         ),
     )
     ap.add_argument(
@@ -874,20 +877,23 @@ def main() -> None:
     )
     ap.add_argument(
         "--heatmap-annotate-color-light",
+        "--heatmap-annotate-colour-light",
         default="black",
-        help="Annotation colour on light cells (foldkit_heatmap: --annotate-color-light).",
+        help="Annotation colour on light cells (foldkit_heatmap: --annotate-colour-light).",
     )
     ap.add_argument(
         "--heatmap-annotate-color-dark",
+        "--heatmap-annotate-colour-dark",
         default="white",
-        help="Annotation colour on dark cells (foldkit_heatmap: --annotate-color-dark).",
+        help="Annotation colour on dark cells (foldkit_heatmap: --annotate-colour-dark).",
     )
     ap.add_argument(
         "--heatmap-annotate-color-threshold",
+        "--heatmap-annotate-colour-threshold",
         type=float,
         default=0.45,
         metavar="LUMA",
-        help="Luminance threshold for auto text colour (foldkit_heatmap: --annotate-color-threshold).",
+        help="Luminance threshold for auto text colour (foldkit_heatmap: --annotate-colour-threshold).",
     )
     ap.add_argument(
         "--heatmap-n-core-patterns",
@@ -939,20 +945,23 @@ def main() -> None:
     )
     ap.add_argument(
         "--heatmap-hatch-color-light",
+        "--heatmap-hatch-colour-light",
         default="black",
-        help="Hatch colour on light cells (foldkit_heatmap: --hatch-color-light).",
+        help="Hatch colour on light cells (foldkit_heatmap: --hatch-colour-light).",
     )
     ap.add_argument(
         "--heatmap-hatch-color-dark",
+        "--heatmap-hatch-colour-dark",
         default="white",
-        help="Hatch colour on dark cells (foldkit_heatmap: --hatch-color-dark).",
+        help="Hatch colour on dark cells (foldkit_heatmap: --hatch-colour-dark).",
     )
     ap.add_argument(
         "--heatmap-hatch-color-threshold",
+        "--heatmap-hatch-colour-threshold",
         type=float,
         default=0.45,
         metavar="LUMA",
-        help="Luminance threshold for hatch line colour (foldkit_heatmap: --hatch-color-threshold).",
+        help="Luminance threshold for hatch line colour (foldkit_heatmap: --hatch-colour-threshold).",
     )
     ap.add_argument(
         "-q",
@@ -1283,7 +1292,7 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 raise SystemExit(1)
-            from foldkit_heatmap import plot_heatmap
+            from utils.foldkit_heatmap import plot_heatmap
 
         if args.heatmap:
             hp = os.path.join(out_dir, args.heatmap)

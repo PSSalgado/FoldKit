@@ -62,7 +62,7 @@ _RE_SUM_LAT_REF_BSA = re.compile(
     r"^\s+Reference-chain BSA \(SASA_iso.*\):\s*([\d.]+)\s*Å²\s*$"
 )
 _RE_SUM_LAT_NORM_REF_DIV = re.compile(
-    r"^\s+Normalization divisors - reference chain: residues=(\d+) atoms=(\d+) mass=([\d.]+) Da \(([\d.]+) kDa\)\s*$"
+    r"^\s+Normalisation divisors - reference chain: residues=(\d+) atoms=(\d+) mass=([\d.]+) Da \(([\d.]+) kDa\)\s*$"
 )
 _RE_SUM_LAT_ISO_PR_REF = re.compile(
     r"^\s+SASA isolated per residue \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²\s*$"
@@ -149,7 +149,7 @@ def _split_chain_pair(pair: str) -> tuple[str, str] | None:
     return a.strip(), b.strip()
 
 
-def _normalize_chain_id(s: str) -> str:
+def _normalise_chain_id(s: str) -> str:
     return s.strip()
 
 
@@ -311,7 +311,7 @@ def parse_charge_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict
                     continue
                 m = _RE_SUM_ALL_ISO_CHAIN.match(line)
                 if m:
-                    cid = _normalize_chain_id(m.group(1))
+                    cid = _normalise_chain_id(m.group(1))
                     iso_by_chain_all[cid] = float(m.group(2))
                     i += 1
                     continue
@@ -342,7 +342,7 @@ def parse_charge_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict
 
             m = _RE_SUM_ISO_CHAIN.match(line)
             if m:
-                cid = _normalize_chain_id(m.group(1))
+                cid = _normalise_chain_id(m.group(1))
                 iso_by_chain[cid] = float(m.group(2))
                 i += 1
                 continue
@@ -361,7 +361,7 @@ def parse_charge_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict
 
             m = _RE_SUM_LAT_REF.match(line)
             if m:
-                lat_ref_chain = _normalize_chain_id(m.group(1))
+                lat_ref_chain = _normalise_chain_id(m.group(1))
                 current_sum["lattice_reference_chain"] = lat_ref_chain
                 i += 1
                 continue
@@ -506,7 +506,7 @@ def parse_charge_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict
             ifaces.append(rec)
             continue
 
-        # end-of-structure / next header: if we were in summary and are leaving it, store current summary
+        # end-of-structure / next header: when leaving an open summary, store the current summary
         if in_summary and current_sum is not None and (
             _RE_INTERFACE_START.match(line)
             or _RE_PROGRESS.match(line)
@@ -541,8 +541,8 @@ def filter_by_molecules(records: list[dict[str, Any]], molecules: set[str]) -> l
         return [{**dict(r), "matched_molecules": "", "focus_chain": ""} for r in records]
     out: list[dict[str, Any]] = []
     for r in records:
-        c1 = _normalize_chain_id(str(r.get("chain1_id", "")))
-        c2 = _normalize_chain_id(str(r.get("chain2_id", "")))
+        c1 = _normalise_chain_id(str(r.get("chain1_id", "")))
+        c2 = _normalise_chain_id(str(r.get("chain2_id", "")))
         matched = sorted({x for x in (c1, c2) if x in molecules})
         if not matched:
             continue
@@ -558,7 +558,7 @@ def _collect_chains_ordered(args: argparse.Namespace) -> tuple[list[str], set[st
     seen: set[str] = set()
 
     def add(m: str) -> None:
-        m = _normalize_chain_id(m)
+        m = _normalise_chain_id(m)
         if not m or m in seen:
             return
         seen.add(m)
@@ -590,8 +590,8 @@ def apply_group_by_chain_layout(
     order_idx = {c: i for i, c in enumerate(ordered_chains)}
     out = []
     for r in rows:
-        c1 = _normalize_chain_id(str(r.get("chain1_id", "")))
-        c2 = _normalize_chain_id(str(r.get("chain2_id", "")))
+        c1 = _normalise_chain_id(str(r.get("chain1_id", "")))
+        c2 = _normalise_chain_id(str(r.get("chain2_id", "")))
         in_iface = {c1, c2}
         for foc in ordered_chains:
             if foc not in in_iface:
@@ -628,7 +628,7 @@ def _sort_rows(rows: list[dict[str, Any]]) -> None:
 
 
 _CSV_FIELDNAMES = [
-    "report_path",
+    "report_txt",
     "row_type",  # interface | summary
     "set_label",
     "structure_basename",
@@ -772,7 +772,7 @@ def main() -> None:
         iface_rows = apply_group_by_chain_layout(iface_rows, ordered_chains, args.group_by_chain)
         for r in iface_rows:
             row = dict(r)
-            row["report_path"] = report_path
+            row["report_txt"] = os.path.basename(str(report_path))
             row["row_type"] = "interface"
             all_rows.append(row)
 
@@ -780,7 +780,7 @@ def main() -> None:
             sum_rows = filter_by_structures(sum_rows, pdb_patterns)
             for s in sum_rows:
                 row = dict(s)
-                row["report_path"] = report_path
+                row["report_txt"] = os.path.basename(str(report_path))
                 row["row_type"] = "summary"
                 row.setdefault("matched_molecules", "")
                 row.setdefault("focus_chain", "")

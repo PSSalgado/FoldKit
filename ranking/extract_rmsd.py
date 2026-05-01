@@ -7,7 +7,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 _EXTRACT_EPILOG = """
 Examples (from repository root):
@@ -92,8 +92,8 @@ def extract_ssm_rmsd_values(log_file: str, output_dir=None, rmsd_output_path=Non
     """
     Extract molecule/superposition info and RMSD values from a Coot log for SSM.
     SSM logs use different wording than LSQ: scripts print "Superposing X onto …",
-    and Coot may print "Aligning … to …". We capture whichever alignment line appears
-    before each "INFO: core rmsd" block and write it together with the RMSD block.
+    and Coot may print "Aligning … to …". Whichever alignment line appears
+    before each "INFO: core rmsd" block is captured and written together with the RMSD block.
 
     output_dir: if set, RMSD text uses the standard basename under this directory.
     rmsd_output_path: if set, write RMSD to this exact file (parent dirs created).
@@ -546,7 +546,7 @@ def _run_cli(argv):
         parser.error(
             "The positional path {!r} is a directory, not a Coot log file. "
             "Use directory scan: --dir {} [--format ssm] [-o ...]. "
-            "If you used --dir= /path, remove the space after '='.".format(
+            "If the flag was written as --dir= /path, remove the space after '='.".format(
                 args.log_file,
                 args.log_file,
             )

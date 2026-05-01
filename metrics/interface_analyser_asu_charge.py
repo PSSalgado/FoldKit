@@ -18,7 +18,7 @@ if _REPO_ROOT not in sys.path:
 
 from metrics.interface_analyser_base import InterfaceAnalyser, _run_analysis, collect_structure_paths
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 
 def main() -> None:
@@ -65,7 +65,7 @@ Examples (from repository root):
         print("No structure files found.", file=sys.stderr)
         raise SystemExit(1)
     if len(paths) != 1 and not args.output:
-        print("Error: ASU mode expects one input structure unless you provide -o.", file=sys.stderr)
+        print("Error: ASU mode expects one input structure; specify --output (-o) when passing multiple.", file=sys.stderr)
         raise SystemExit(1)
 
     analyser = InterfaceAnalyser()

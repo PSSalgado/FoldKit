@@ -46,7 +46,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 
 def _is_atom_line(line: str) -> bool:
@@ -486,7 +486,7 @@ def process_file(
 
     if merge_map:
         new_lines, err = _apply_merge_map(new_lines, merge_map)
-    else:
+    elif chain_from or chain_to:
         if merge_renumber:
             new_lines, err = _merge_renumber(new_lines, chain_from, chain_to)
         else:
@@ -629,7 +629,7 @@ def main() -> None:
         if getattr(args, "chain_order", None):
             summary_log.kv("chain_order", args.chain_order)
 
-    merge_map = None
+    merge_map: list[tuple[str, str]] | None = None
     if args.merge_map:
         try:
             merge_map = _parse_merge_map(args.merge_map)
@@ -637,13 +637,38 @@ def main() -> None:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
 
+    post_steps_only = bool(
+        args.rename_sequential or args.renumber_per_chain or args.reorder_chains
+    )
+
     if merge_map is None:
-        if not args.chain_from or not args.chain_to:
-            print("Error: either provide --merge-map or provide both --from and --to.", file=sys.stderr)
+        chain_from = args.chain_from or ""
+        chain_to = args.chain_to or ""
+        if chain_from or chain_to:
+            if not chain_from or not chain_to:
+                print(
+                    "Error: provide both --from and --to, or omit both when using only "
+                    "--renumber-per-chain / --reorder-chains / --rename-sequential.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            if len(chain_from) != 1 or len(chain_to) != 1:
+                print("Error: --from and --to must be single-character chain IDs.", file=sys.stderr)
+                sys.exit(2)
+        elif not post_steps_only:
+            print(
+                "Error: either provide --merge-map, provide both --from and --to, or request "
+                "at least one of --rename-sequential, --renumber-per-chain, --reorder-chains.",
+                file=sys.stderr,
+            )
             sys.exit(2)
-        if len(args.chain_from) != 1 or len(args.chain_to) != 1:
-            print("Error: --from and --to must be single-character chain IDs.", file=sys.stderr)
-            sys.exit(2)
+
+    if args.merge_renumber and not merge_map and not (args.chain_from and args.chain_to):
+        print(
+            "Error: --merge-renumber applies only when merging (--merge-map or both --from and --to).",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     chain_order = None
     if args.chain_order:

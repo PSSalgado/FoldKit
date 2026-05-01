@@ -8,7 +8,7 @@ import os
 import re
 
 
-def _normalize_ref_model_pattern(pattern):
+def _normalise_ref_model_pattern(pattern):
     """Normalise a pattern by removing special characters, converting to lowercase."""
     if pattern is None:
         return None
@@ -35,8 +35,8 @@ def find_ref_model_matches(
     if divider:
         print(f"Using divider: '{divider}'")
 
-    norm_ref_pattern = _normalize_ref_model_pattern(ref_pattern)
-    norm_model_pattern = _normalize_ref_model_pattern(model_pattern)
+    norm_ref_pattern = _normalise_ref_model_pattern(ref_pattern)
+    norm_model_pattern = _normalise_ref_model_pattern(model_pattern)
 
     ref_file_glob = os.path.join(ref_dir, ref_file_pattern)
     all_ref_files = glob.glob(ref_file_glob)
@@ -45,27 +45,27 @@ def find_ref_model_matches(
     ref_files = []
     for ref_file in all_ref_files:
         filename = os.path.basename(ref_file)
-        norm_filename = _normalize_ref_model_pattern(filename)
+        norm_filename = _normalise_ref_model_pattern(filename)
 
         if divider is None:
             if norm_ref_pattern in norm_filename:
-                if target_pattern is None or _normalize_ref_model_pattern(target_pattern) in norm_filename:
+                if target_pattern is None or _normalise_ref_model_pattern(target_pattern) in norm_filename:
                     ref_files.append(ref_file)
                     print(f"Matched reference: {filename}")
         elif divider in filename:
-            norm_divider = _normalize_ref_model_pattern(divider)
+            norm_divider = _normalise_ref_model_pattern(divider)
             if strict_position and target_pattern is not None:
                 parts = filename.split(divider)
                 if len(parts) != 2:
                     continue
-                first_part = _normalize_ref_model_pattern(parts[0])
-                second_part = _normalize_ref_model_pattern(parts[1])
-                if norm_ref_pattern in first_part and _normalize_ref_model_pattern(target_pattern) in second_part:
+                first_part = _normalise_ref_model_pattern(parts[0])
+                second_part = _normalise_ref_model_pattern(parts[1])
+                if norm_ref_pattern in first_part and _normalise_ref_model_pattern(target_pattern) in second_part:
                     ref_files.append(ref_file)
                     print(f"Matched reference: {filename}")
             else:
                 if norm_divider in norm_filename and norm_ref_pattern in norm_filename:
-                    if target_pattern is None or _normalize_ref_model_pattern(target_pattern) in norm_filename:
+                    if target_pattern is None or _normalise_ref_model_pattern(target_pattern) in norm_filename:
                         ref_files.append(ref_file)
                         print(f"Matched reference: {filename}")
 
@@ -115,13 +115,13 @@ def find_ref_model_matches(
         matching_subdirs = []
         for subdir in subdirs:
             subdir_path = os.path.join(model_dir, subdir)
-            if norm_model_pattern in _normalize_ref_model_pattern(subdir):
+            if norm_model_pattern in _normalise_ref_model_pattern(subdir):
                 matching_subdirs.append(subdir_path)
                 print(f"Matched subdirectory by name: {subdir}")
                 continue
             has_matching_files = False
             for file_path in glob.glob(os.path.join(subdir_path, model_file_pattern)):
-                if norm_model_pattern in _normalize_ref_model_pattern(os.path.basename(file_path)):
+                if norm_model_pattern in _normalise_ref_model_pattern(os.path.basename(file_path)):
                     has_matching_files = True
                     break
             if has_matching_files:
@@ -156,7 +156,7 @@ def find_ref_model_matches(
     matching_models = []
     for model_file in flat_models:
         filename = os.path.basename(model_file)
-        if norm_model_pattern in _normalize_ref_model_pattern(filename):
+        if norm_model_pattern in _normalise_ref_model_pattern(filename):
             matching_models.append(model_file)
             print(f"Matched model file: {filename}")
 

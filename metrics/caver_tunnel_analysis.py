@@ -1063,7 +1063,7 @@ def plot_profile(
     if invert_y:
         ax.invert_yaxis()
     ax.set_aspect("auto")
-    # Fixed margins: tight_layout() shrinks the main axes; we set margins once, then add margin labels.
+    # Fixed margins: tight_layout() shrinks the main axes; margins are set once, then margin labels are added.
     fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
 
     if annotate and isinstance(annotate, dict):
@@ -1580,6 +1580,13 @@ def main() -> None:
         choices=("ec", "hydropathy"),
         default="ec",
         help="Colour the plot by EC or Kyte–Doolittle hydropathy.",
+    )
+    ap.add_argument(
+        "--colour-by",
+        choices=("ec", "hydropathy"),
+        default=None,
+        dest="color_by",
+        help="Alias for --color-by.",
     )
     ap.add_argument(
         "--color-scale",

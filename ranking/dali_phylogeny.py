@@ -8,7 +8,7 @@ This script mirrors the typical DALI workflow at the level of downstream analysi
 3) Build a dendrogram / phylogeny from that distance matrix (prefer NJ).
 
 It does NOT call the public DALI server. Instead, it consumes pairwise Z-scores
-that you already computed with DALI (e.g. DaliLite or other DALI workflows).
+computed separately with DALI (e.g. DaliLite or other DALI workflows).
 
 Input:
   - Pairwise Z-score table (TSV/CSV/space-delimited): model_01, model_02, zscore
@@ -51,7 +51,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 
 def read_pairwise_zscores(path: str) -> dict[tuple[str, str], float]:

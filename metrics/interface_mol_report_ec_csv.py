@@ -64,7 +64,7 @@ _RE_SUM_LAT_REF_BSA = re.compile(
     r"^\s+Reference-chain BSA \(SASA_iso.*\):\s*([\d.]+)\s*Å²\s*$"
 )
 _RE_SUM_LAT_NORM_REF_DIV = re.compile(
-    r"^\s+Normalization divisors - reference chain: residues=(\d+) atoms=(\d+) mass=([\d.]+) Da \(([\d.]+) kDa\)\s*$"
+    r"^\s+Normalisation divisors - reference chain: residues=(\d+) atoms=(\d+) mass=([\d.]+) Da \(([\d.]+) kDa\)\s*$"
 )
 _RE_SUM_LAT_ISO_PR_REF = re.compile(
     r"^\s+SASA isolated per residue \(/ reference chain\):\s*([\d.eE+-]+)\s*Å²\s*$"
@@ -154,7 +154,7 @@ def _split_chain_pair(pair: str) -> tuple[str, str] | None:
     return a.strip(), b.strip()
 
 
-def _normalize_chain_id(s: str) -> str:
+def _normalise_chain_id(s: str) -> str:
     return s.strip()
 
 
@@ -232,7 +232,7 @@ def _parse_interface_block(lines: list[str]) -> dict[str, Any]:
         if m:
             pol_idx += 1
             prefix = f"polarity_{pol_idx}"
-            out[f"{prefix}_chain"] = _normalize_chain_id(m.group(1))
+            out[f"{prefix}_chain"] = _normalise_chain_id(m.group(1))
             out[f"{prefix}_charged"] = int(m.group(2))
             out[f"{prefix}_polar"] = int(m.group(3))
             out[f"{prefix}_apolar"] = int(m.group(4))
@@ -242,7 +242,7 @@ def _parse_interface_block(lines: list[str]) -> dict[str, Any]:
         if m:
             acc_idx += 1
             prefix = f"accessibility_{acc_idx}"
-            out[f"{prefix}_chain"] = _normalize_chain_id(m.group(1))
+            out[f"{prefix}_chain"] = _normalise_chain_id(m.group(1))
             out[f"{prefix}_avg_sasa_A2"] = float(m.group(2))
             out[f"{prefix}_accessible_fraction"] = float(m.group(3))
             continue
@@ -349,7 +349,7 @@ def parse_ec_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict[str
                     continue
                 m = _RE_SUM_ALL_ISO_CHAIN.match(line)
                 if m:
-                    cid = _normalize_chain_id(m.group(1))
+                    cid = _normalise_chain_id(m.group(1))
                     iso_by_chain_all[cid] = float(m.group(2))
                     i += 1
                     continue
@@ -380,7 +380,7 @@ def parse_ec_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict[str
 
             m = _RE_SUM_ISO_CHAIN.match(line)
             if m:
-                cid = _normalize_chain_id(m.group(1))
+                cid = _normalise_chain_id(m.group(1))
                 iso_by_chain[cid] = float(m.group(2))
                 i += 1
                 continue
@@ -396,7 +396,7 @@ def parse_ec_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict[str
             # lattice reference info (if present)
             m = _RE_SUM_LAT_REF.match(line)
             if m:
-                current_sum["lattice_reference_chain"] = _normalize_chain_id(m.group(1))
+                current_sum["lattice_reference_chain"] = _normalise_chain_id(m.group(1))
                 i += 1
                 continue
             m = _RE_SUM_LAT_SASA_ISO.match(line)
@@ -507,7 +507,7 @@ def parse_ec_report_text(text: str) -> tuple[list[dict[str, Any]], list[dict[str
                 continue
             m = _RE_SUM_LAT_EC_PARTNER.match(line)
             if m:
-                cid = _normalize_chain_id(m.group(1))
+                cid = _normalise_chain_id(m.group(1))
                 ec_by_partner[cid] = {
                     "partner_chain": cid,
                     "ec_r": float(m.group(2)),
@@ -568,8 +568,8 @@ def filter_by_molecules(records: list[dict[str, Any]], molecules: set[str]) -> l
         return [{**dict(r), "matched_molecules": "", "focus_chain": ""} for r in records]
     out: list[dict[str, Any]] = []
     for r in records:
-        c1 = _normalize_chain_id(str(r.get("chain1_id", "")))
-        c2 = _normalize_chain_id(str(r.get("chain2_id", "")))
+        c1 = _normalise_chain_id(str(r.get("chain1_id", "")))
+        c2 = _normalise_chain_id(str(r.get("chain2_id", "")))
         matched = sorted({x for x in (c1, c2) if x in molecules})
         if not matched:
             continue
@@ -585,7 +585,7 @@ def _collect_chains_ordered(args: argparse.Namespace) -> tuple[list[str], set[st
     seen: set[str] = set()
 
     def add(m: str) -> None:
-        m = _normalize_chain_id(m)
+        m = _normalise_chain_id(m)
         if not m or m in seen:
             return
         seen.add(m)
@@ -617,8 +617,8 @@ def apply_group_by_chain_layout(
     order_idx = {c: i for i, c in enumerate(ordered_chains)}
     out = []
     for r in rows:
-        c1 = _normalize_chain_id(str(r.get("chain1_id", "")))
-        c2 = _normalize_chain_id(str(r.get("chain2_id", "")))
+        c1 = _normalise_chain_id(str(r.get("chain1_id", "")))
+        c2 = _normalise_chain_id(str(r.get("chain2_id", "")))
         in_iface = {c1, c2}
         for foc in ordered_chains:
             if foc not in in_iface:
@@ -655,7 +655,7 @@ def _sort_rows(rows: list[dict[str, Any]]) -> None:
 
 
 _CSV_SUMMARY_FIELDS = [
-    "report_path",
+    "report_txt",
     "structure_basename",
     "all_total_interfaces",
     "all_total_buried_surface_area_A2",
@@ -828,7 +828,7 @@ def main() -> None:
         if args.mode == "summary":
             for s in sum_rows:
                 row = dict(s)
-                row["report_path"] = report_path
+                row["report_txt"] = os.path.basename(str(report_path))
                 all_rows.append(row)
             continue
 
@@ -839,12 +839,12 @@ def main() -> None:
         if args.include_summary:
             for s in sum_rows:
                 row = dict(s)
-                row["report_path"] = report_path
+                row["report_txt"] = os.path.basename(str(report_path))
                 all_rows.append(row)
 
         for r in iface_rows:
             row = dict(r)
-            row["report_path"] = report_path
+            row["report_txt"] = os.path.basename(str(report_path))
             all_rows.append(row)
 
     if not all_rows:

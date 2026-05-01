@@ -45,11 +45,11 @@ def _expand_paths(inputs: list[str]) -> list[str]:
             if matches:
                 out.extend(matches)
             else:
-                print(f"Warning: skip unmatched glob {raw!r}", file=sys.stderr)
+                print(f"Warning: skipping unmatched glob {raw!r}", file=sys.stderr)
         elif os.path.isfile(raw):
             out.append(raw)
         else:
-            print(f"Warning: skip missing path {raw!r}", file=sys.stderr)
+            print(f"Warning: skipping missing path {raw!r}", file=sys.stderr)
     # stable unique order
     seen: set[str] = set()
     uniq: list[str] = []
@@ -59,6 +59,55 @@ def _expand_paths(inputs: list[str]) -> list[str]:
             seen.add(ap)
             uniq.append(ap)
     return uniq
+
+
+def _maybe_drop_redundant_all_columns(
+    fieldnames: list[str],
+    rows: list[dict[str, object]],
+) -> list[str]:
+    """
+    In `--chains A`-style reports, the "all-chains interface summary" is already
+    scoped by the focus-chain filter, so the `all_*` summary scalars become
+    identical to the reference/top-level scalars. In that common case, keep the
+    combined CSV compact by dropping those redundant columns entirely.
+    """
+    pairs = [
+        ("all_total_interfaces", "total_interfaces", "int"),
+        ("all_total_buried_surface_area_A2", "total_buried_surface_area_A2", "float"),
+        ("all_average_buried_area_per_interface_A2", "average_buried_area_per_interface_A2", "float"),
+        ("all_sasa_isolated_sum_A2", "sasa_isolated_sum_A2", "float"),
+        ("all_sasa_isolated_by_chain", "sasa_isolated_by_chain", "str"),
+    ]
+
+    def _empty(v: object) -> bool:
+        return v is None or v == ""
+
+    def _equal(v_all: object, v_ref: object, kind: str) -> bool:
+        if kind == "int":
+            try:
+                return int(v_all) == int(v_ref)
+            except Exception:
+                return False
+        if kind == "float":
+            try:
+                return abs(float(v_all) - float(v_ref)) <= 1e-6
+            except Exception:
+                return False
+        # str: exact compare after stringify (covers "A=123.4;B=..." ordering already normalised upstream)
+        return str(v_all) == str(v_ref)
+
+    # Only drop if for every pair, every row is either missing one side, or equal.
+    for k_all, k_ref, kind in pairs:
+        for r in rows:
+            v_all = r.get(k_all)
+            v_ref = r.get(k_ref)
+            if _empty(v_all) or _empty(v_ref):
+                continue
+            if not _equal(v_all, v_ref, kind):
+                return fieldnames
+
+    drop = {k_all for (k_all, _k_ref, _kind) in pairs}
+    return [f for f in fieldnames if f not in drop]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -99,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         # One structure per report file → take first summary row.
         row = dict(summaries[0])
-        row["report_path"] = path
+        row["report_txt"] = os.path.basename(str(path))
         iso = row.get("sasa_reference_isolated_A2")
         clu = row.get("sasa_reference_in_cluster_A2")
         try:
@@ -110,7 +159,9 @@ def main(argv: list[str] | None = None) -> int:
 
         rows.append(row)
 
-    rows.sort(key=lambda r: (str(r.get("structure_basename", "")), str(r.get("report_path", ""))))
+    rows.sort(key=lambda r: (str(r.get("structure_basename", "")), str(r.get("report_txt", ""))))
+
+    fieldnames = _maybe_drop_redundant_all_columns(fieldnames, rows)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)) or ".", exist_ok=True)
     with open(args.output, "w", newline="", encoding="utf-8") as f:

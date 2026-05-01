@@ -13,7 +13,7 @@ if _REPO_ROOT not in sys.path:
 
 from superimposition.superimpose_pattern_match import find_ref_model_matches
 
-from cli_log import setup_log_from_argv
+from utils.cli_log import setup_log_from_argv
 
 _argv_no_log, _ = setup_log_from_argv(
     script_path=__file__,
@@ -145,7 +145,7 @@ def _drain_coot_stdout_and_announce(
                             log_file,
                             0,
                             summary_on_exit
-                            + " Coot is still open for inspection; close the window when you are done.",
+                            + " Coot is still open for inspection; close the window after inspection.",
                             rmsd_format=rmsd_format,
                         )
                         announced = True
@@ -200,7 +200,7 @@ def foldkit_least_squares_superpose(imol_ref, imol_mov, ref_chain_id, mov_chain_
 """
 
 
-def _normalize_lsq_match_type(s):
+def _normalise_lsq_match_type(s):
     """Return one of ca, main, all (default main)."""
     if not s:
         return "main"
@@ -219,7 +219,7 @@ def create_coot_script(
     lsq_match_type="main",
 ):
     """Legacy one-to-many template. If keep_coot_open is False, skip reload-for-display and exit Coot."""
-    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    mt = repr(_normalise_lsq_match_type(lsq_match_type))
     script_content = f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
@@ -295,7 +295,7 @@ def create_lsq_script(
     aligned_tag: substring between model basename and reference basename in output PDB names
     (default _LSQaligned2_; use _LSQaligned_ for --pattern mode compatibility).
     """
-    mt = _normalize_lsq_match_type(lsq_match_type)
+    mt = _normalise_lsq_match_type(lsq_match_type)
     mt_lit = repr(mt)
     ref_chain_assign = (
         "reference_chain = chain_ids(reference_mol)[0]"
@@ -373,7 +373,7 @@ def create_all_vs_all_lsq_script(
     lsq_match_type="main",
 ):
     """Create Coot script for all-vs-all LSQ superposition (Coot manual LSQ API)."""
-    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    mt = repr(_normalise_lsq_match_type(lsq_match_type))
     ref_assign = (
         "reference_chain = chain_ids(reference_mol)[0]"
         if ref_chain is None
@@ -481,7 +481,7 @@ def create_axb_lsq_script(
     if not keep_coot_open:
         exit_line = "coot_real_exit(0)  # AxB default: non-interactive batch (exit when done)"
 
-    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    mt = repr(_normalise_lsq_match_type(lsq_match_type))
     ref_assign = (
         "reference_chain = chain_ids(reference_mol)[0]"
         if ref_chain is None
@@ -687,7 +687,7 @@ def main_pattern_mode():
             output_suffix = args[i].split("=", 1)[1]
             args.pop(i)
         elif args[i].startswith("--lsq-match-type="):
-            lsq_match_type = _normalize_lsq_match_type(args[i].split("=", 1)[1])
+            lsq_match_type = _normalise_lsq_match_type(args[i].split("=", 1)[1])
             args.pop(i)
         else:
             i += 1
@@ -844,7 +844,7 @@ def main():
         elif arg.startswith("--model-chain="):
             model_chain = arg.split("=", 1)[1]
         elif arg.startswith("--lsq-match-type="):
-            lsq_match_type = _normalize_lsq_match_type(arg.split("=", 1)[1])
+            lsq_match_type = _normalise_lsq_match_type(arg.split("=", 1)[1])
         elif arg.startswith("--output-dir=") or arg.startswith("--out-dir="):
             pass  # already collected above
         elif not arg.startswith("--"):
@@ -1195,7 +1195,7 @@ def main():
             # Reference file specified from command line
             print("Using reference file: {}".format(os.path.basename(reference_file)))
             
-            # Remove reference file from the list of models to align if it's in there
+            # Remove the reference file from the list of models to align when present
             model_files = [f for f in model_files if os.path.abspath(f) != reference_file]
             
             if not model_files:

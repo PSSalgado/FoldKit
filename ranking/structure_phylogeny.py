@@ -30,7 +30,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 
 def _parse_rmsd_number(line: str) -> float | None:
@@ -382,7 +382,7 @@ def _symmetrize_matrix(m: list[list[float]]) -> list[list[float]]:
 def _z_to_distance(z: float, transform: str, scale: float, zmax: float) -> float:
     """
     Convert a (possibly negative) z-score into a distance.
-    Negative z indicates below-average similarity; we clamp at 0 for transforms that expect similarity.
+    Negative z indicates below-average similarity; values are clamped at 0 for transforms that expect similarity.
     """
     zp = max(0.0, float(z))
     if transform == "inv":
@@ -587,7 +587,7 @@ def _biopython_midpoint_root(tree, ids, matrix_clean):
     for i, (clade, bl) in enumerate(path_ab):
         acc += bl
         if acc >= mid:
-            # Midpoint is on the edge we just traversed; outgroup is the clade on the A side
+            # Midpoint sits on the edge traversed above; the outgroup is the clade on the A side
             outgroup_clade = path_ab[i - 1][0] if i > 0 else path_ab[0][0]
             tree.root_with_outgroup(outgroup_clade)
             return

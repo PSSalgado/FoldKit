@@ -41,7 +41,7 @@ import foldkit_dali_utils as du
 import foldkit_dali_like_scores as _ds
 from structure_phylogeny import _natural_sort_key
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 warnings.filterwarnings("ignore", category=UserWarning, module="Bio")
 
@@ -137,7 +137,7 @@ def _pair_result_from_biotite_fallback(
     sb = parser.get_structure("B", pdb_b)
     coords_A = _ds.get_ca_coords_biopython(sa, chain_a)
     coords_B = _ds.get_ca_coords_biopython(sb, chain_b)
-    equivs = _ds.normalize_equivalences(equiv_raw, coords_A, coords_B)
+    equivs = _ds.normalise_equivalences(equiv_raw, coords_A, coords_B)
     if len(equivs) < 3:
         return None, f"biotite fallback: only {len(equivs)} matched residues after normalisation"
     np = _ds.np
@@ -308,8 +308,7 @@ def run_dalilite_pair(
                 "DaliLite found no significant structural match: the summary table has no "
                 "hit row, so equivalences and transrot are empty. This is typical when Z "
                 "would be below DaliLite’s reporting threshold (~2)—e.g. unrelated folds, "
-                "different domains, or very divergent models. Try pairs you expect to be "
-                "structurally homologous, or use foldkit_dali_like_scores.py with --no-dalilite for "
+                "different domains, or very divergent models. Try structurally homologous pairs, or use foldkit_dali_like_scores.py with --no-dalilite for "
                 "biotite/sequence-order alignment (different method, not Dali Z). "
             )
         else:
@@ -414,7 +413,7 @@ def score_pair_from_dalilite(
     coords_B = _ds.get_ca_coords_biopython(struct_b, cb_use)
     ca = ca_use or _ds._get_first_chain_id(coords_A)
     cb = cb_use or _ds._get_first_chain_id(coords_B)
-    equivs = _ds.normalize_equivalences(dali["equivs"], coords_A, coords_B)
+    equivs = _ds.normalise_equivalences(dali["equivs"], coords_A, coords_B)
     raw_score, n_core = _ds.compute_dali_score(coords_A, coords_B, equivs)
     span = _ds.core_residue_spans_from_equivs(equivs)
     L_A, L_B = len(coords_A), len(coords_B)
@@ -629,9 +628,9 @@ def _write_dalilite_z_heatmap(
 ) -> None:
     """Square Dali Z heatmap via ``foldkit_heatmap.plot_heatmap`` (hatch legend: aligned Cα, Dali n_core)."""
     try:
-        from foldkit_heatmap import plot_heatmap as _plot_heatmap
+        from utils.foldkit_heatmap import plot_heatmap as _plot_heatmap
     except ImportError as e:
-        print("Error: --heatmap requires foldkit_heatmap in the same package.", file=sys.stderr)
+        print("Error: --heatmap requires utils.foldkit_heatmap.", file=sys.stderr)
         raise SystemExit(1) from e
     mat = _matrix_from_zscores(labels, zscores)
     n_core_mat: list | None = None
@@ -698,7 +697,7 @@ the system temp directory (very long paths can hit Fortran 80-character limits i
 
 mkdssp: DaliLite's import.pl calls mkdssp via bin/mpidali.pm ($DSSP_EXE). That binary
 must exist (symlink a compatible mkdssp to the expected path, or edit mpidali.pm).
-Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install.
+Optional: MKDSSP=/path/to/mkdssp aligns dali_score diagnostics with the local install.
 """,
     )
     ap.add_argument(
@@ -857,12 +856,14 @@ Optional: MKDSSP=/path/to/mkdssp helps dali_score diagnostics match your install
     )
     ap.add_argument(
         "--heatmap-diverging-center",
+        "--heatmap-diverging-centre",
         choices=("none", "median"),
         default="none",
         help="For --heatmap: linear scale (none) or TwoSlopeNorm at the median Z (median).",
     )
     ap.add_argument(
         "--heatmap-colorbar-orientation",
+        "--heatmap-colourbar-orientation",
         choices=("vertical", "horizontal"),
         default="vertical",
         help="Colour bar placement for --heatmap (default: vertical).",

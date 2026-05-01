@@ -126,13 +126,13 @@ process_combined_file <- function(combined_file, color_palette_name = "RdYlBu") 
     # Read the CSV file
     data <- read.csv(combined_file, check.names = FALSE)
     
-    # Check if we have the required columns
+    # Check that the required columns are present
     if (!"Subdomain" %in% colnames(data) || !"Model" %in% colnames(data)) {
         cat("Combined file does not have the expected format\n")
         return(FALSE)
     }
     
-    # Define the preferred group/subdomain order (customise for your CSV's group labels)
+    # Define the preferred group/subdomain order (customise per CSV group labels)
     subdomain_order <- c("sd", "D1", "D2", "ID", "ad")
     
     # Extract the protein name prefix from model names
@@ -146,7 +146,7 @@ process_combined_file <- function(combined_file, color_palette_name = "RdYlBu") 
     all_subdomains <- unique(data$Subdomain)
     
     # Order subdomains based on the preferred order
-    # First check if we have any of the preferred subdomains
+    # First check whether any of the preferred subdomains are present
     subdomains <- c()
     
     # First add subdomains in the specified order
@@ -244,7 +244,7 @@ process_combined_file <- function(combined_file, color_palette_name = "RdYlBu") 
     annotation_colors <- list(Subdomain = subdomain_colors)
     
     # Use only protein names for display
-    # These are the parts before the "_" in our model_names
+    # These are the parts before the "_" in the model_names
     row_labels <- sub("_.*", "", rownames(rmsd_matrix))
     col_labels <- sub("_.*", "", colnames(rmsd_matrix))
     
@@ -282,7 +282,7 @@ process_combined_file <- function(combined_file, color_palette_name = "RdYlBu") 
         diag(clustering_matrix) <- 0
         
         # Now create the clustered heatmap with the modified matrix
-        # We'll cluster within subdomains by using gaps
+        # Cluster within subdomains by using gaps
         
         # Determine where the subdomain boundaries are
         subdomain_sizes <- sapply(subdomains, function(sd) length(subdomain_proteins[[sd]]))

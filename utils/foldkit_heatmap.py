@@ -4,9 +4,9 @@ Matplotlib square-matrix heatmaps for FoldKit (RMSD, Dali Z, …).
 
 Used by ``rmsd_to_csv`` and ``dalilite_pairs`` without those entry points
 importing each other. Documented in the main ``README.md`` (``rmsd_to_csv.py`` and
-``dalilite_pairs.py`` sections) and in ``metrics/metrics_details.md`` §6.3.1.
-CLI details: ``python ranking/rmsd_to_csv.py --help`` and
-``python ranking/dalilite_pairs.py --help``.
+``dalilite_pairs.py`` sections) and in ``metrics/metrics_details.md`` Section 6.3.1.
+CLI details: ``python ranking/rmsd_to_csv.py --help``,
+``python ranking/dalilite_pairs.py --help``, and ``python utils/foldkit_heatmap.py --help``.
 """
 from __future__ import annotations
 
@@ -16,15 +16,19 @@ import re
 import sys
 import tempfile
 
-from structure_phylogeny import _natural_sort_key
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from ranking.structure_phylogeny import _natural_sort_key
 
 
 def short_heatmap_label(name: str) -> str:
     """
     Shorten model names for heatmap axis labels only (CSV data unchanged).
 
-    Example: S1refAF3_CWB2s.pdb -> S1_CWB2s — leading letter+digits from the first underscore
-    segment, plus the segment after the last underscore. If the pattern does not apply, returns
+    Example: model01ref_set_a.pdb -> model01_set_a — leading letter+digits from the first underscore
+    segment, plus the segment after the last underscore. When the pattern does not apply, returns
     the basename without extension.
     """
     s = (name or "").strip()
@@ -124,7 +128,7 @@ def _nice_tick_values_linear_segment(vmin: float, vmax: float, nbins: int = 6):
 def _set_heatmap_colorbar_ticks(cbar, norm) -> None:
     """
     Set colour-bar ticks in data units. TwoSlopeNorm (median centre) is non-linear in display
-    space, so we pick nice ticks separately below and above vcenter instead of a uniform locator.
+    space, so nice ticks are picked separately below and above vcenter instead of using a uniform locator.
     """
     import matplotlib.colors as mcolors
     import matplotlib.ticker as mticker
@@ -159,6 +163,346 @@ def _apply_heatmap_y_axis_right(ax) -> None:
     ax.yaxis.set_ticks_position("right")
     ax.yaxis.set_label_position("right")
     ax.tick_params(axis="y", which="major", left=False, right=True, labelleft=False, labelright=True)
+
+
+def heatmap_should_rotate_xticklabels(labels: list[str], *, ncols: int) -> bool:
+    """
+    Heuristic: keep x tick labels horizontal unless crowded.
+    """
+    max_len = max((len(str(x)) for x in labels), default=0)
+    return bool(int(ncols) >= 18 or int(max_len) >= 10)
+
+
+def heatmap_ticks_for_norm(norm, *, max_ticks: int = 6) -> list[float]:
+    """
+    Return readable tick values for a colorbar given a matplotlib norm.
+    """
+    import matplotlib.colors as mcolors
+    import numpy as np
+
+    vmin, vmax = float(norm.vmin), float(norm.vmax)
+    if isinstance(norm, mcolors.TwoSlopeNorm):
+        vc = float(norm.vcenter)
+        span = max(vmax - vmin, 1e-30)
+        if abs(vc - vmin) < 1e-9 * span or abs(vc - vmax) < 1e-9 * span:
+            ticks = _nice_tick_values_linear_segment(vmin, vmax, nbins=max_ticks)
+        else:
+            t_lo = _nice_tick_values_linear_segment(vmin, vc, nbins=max(3, max_ticks - 1))
+            t_hi = _nice_tick_values_linear_segment(vc, vmax, nbins=max(3, max_ticks - 1))
+            ticks = np.unique(np.concatenate([t_lo, t_hi]))
+    else:
+        ticks = _nice_tick_values_linear_segment(vmin, vmax, nbins=max_ticks)
+    return [float(x) for x in np.asarray(ticks, dtype=float) if np.isfinite(x)]
+
+
+def apply_heatmap_scale(arr, scale: str):
+    """
+    Apply a generic heatmap scaling to numeric arrays.
+
+    Supported:
+      - linear
+      - log10     (requires >0)
+      - log1p     (handles zeros; requires >=0)
+      - clip_p95  (clip vmax to 95th percentile)
+      - clip_p98  (clip vmax to 98th percentile)
+
+    Returns (scaled_arr, label_prefix, label_suffix).
+    """
+    import numpy as np
+
+    s = str(scale or "linear").strip().lower()
+    x = np.array(arr, dtype=float, copy=True)
+    finite = x[np.isfinite(x)]
+    if s == "linear":
+        return x, "", ""
+    if s == "log10":
+        if finite.size and np.nanmin(finite) <= 0:
+            raise ValueError("log10 scale requires all finite values > 0")
+        return np.log10(x), "log10(", ")"
+    if s == "log1p":
+        if finite.size and np.nanmin(finite) < 0:
+            raise ValueError("log1p scale requires all finite values >= 0")
+        return np.log1p(x), "log1p(", ")"
+    if s in ("clip_p95", "clip_p98"):
+        p = 95.0 if s.endswith("95") else 98.0
+        if finite.size == 0:
+            return x, "", f" (clip p{int(p)})"
+        vmax = float(np.percentile(finite, p))
+        if np.isfinite(vmax):
+            x = np.minimum(x, vmax)
+        return x, "", f" (clip p{int(p)})"
+    raise ValueError(f"Unknown heatmap scale: {scale!r}")
+
+
+def nice_round_up(value: float, *, sig: int = 2) -> float:
+    """
+    Round ``value`` up to a friendly number with ``sig`` significant figures.
+
+    Examples: ``1234.7 -> 1300`` (sig=2), ``58.3 -> 60`` (sig=2), ``0.0042 -> 0.0042`` (sig=2).
+    Used to pick a readable cap tick on the colour bar from a percentile estimate.
+    """
+    import math
+
+    v = float(value)
+    if not math.isfinite(v) or v == 0.0:
+        return v
+    s = max(1, int(sig))
+    sign = 1.0 if v > 0 else -1.0
+    av = abs(v)
+    exp = math.floor(math.log10(av))
+    factor = 10.0 ** (exp - (s - 1))
+    if sign > 0:
+        return float(math.ceil(av / factor) * factor)
+    return float(-math.floor(av / factor) * factor)
+
+
+def compose_split_cmap(
+    below_name: str,
+    above_name: str,
+    *,
+    n: int = 512,
+    name: str = "split",
+):
+    """
+    Build a single colour map whose ``[0, 0.5)`` half samples ``below_name`` and ``[0.5, 1]``
+    half samples ``above_name``. Used together with a ``TwoSlopeNorm(vcenter=cap)`` so values
+    below ``cap`` get one gradient and values above ``cap`` get a contrasting gradient.
+
+    ``set_under("white")`` is applied to keep the FoldKit diagonal-rendering convention.
+    """
+    import matplotlib.colors as mcolors
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    n_eff = max(2, int(n))
+    half = n_eff // 2
+    try:
+        below = plt.get_cmap(str(below_name).strip())
+    except (ValueError, TypeError):
+        below = plt.get_cmap("viridis_r")
+    try:
+        above = plt.get_cmap(str(above_name).strip())
+    except (ValueError, TypeError):
+        above = plt.get_cmap("Reds")
+    below_colors = below(np.linspace(0.0, 1.0, half))
+    above_colors = above(np.linspace(0.0, 1.0, n_eff - half))
+    stacked = np.vstack([below_colors, above_colors])
+    cmap = mcolors.LinearSegmentedColormap.from_list(str(name), stacked, N=n_eff)
+    cmap.set_under("white")
+    return cmap
+
+
+def format_outlier_note(
+    items: list[tuple[str, str, float]],
+    *,
+    cap: float,
+    units: str = "\u00c5\u00b2",
+    max_lines: int = 6,
+) -> str:
+    """
+    Format above-cap pairs as a multi-line note for placement next to the colour bar.
+
+    ``items`` is ``[(structure_label, interface_label, value), ...]``; sorted descending by value.
+    Up to ``max_lines`` lines are listed; the rest are summarised as ``+N more``.
+    """
+    import math
+
+    if not items:
+        return ""
+    cap_str = f"{cap:g}"
+    head = f"Above-cap BSA (cap = {cap_str} {units}):"
+    finite = [
+        (str(s), str(p), float(v))
+        for (s, p, v) in items
+        if v is not None and isinstance(v, (int, float)) and math.isfinite(float(v))
+    ]
+    finite.sort(key=lambda t: t[2], reverse=True)
+    if not finite:
+        return ""
+    n_show = max(1, int(max_lines))
+    show = finite[:n_show]
+    tail_n = max(0, len(finite) - n_show)
+    body = [f"  {s} \u00b7 {p}: {v:g} {units}" for (s, p, v) in show]
+    if tail_n > 0:
+        body.append(f"  +{tail_n} more")
+    return "\n".join([head, *body])
+
+
+def parse_boundaries_csv(s: str | None) -> list[float]:
+    """Parse comma-separated ascending boundary edges for ``BoundaryNorm`` (≥ 2 unique values)."""
+    if s is None or not str(s).strip():
+        return []
+    vals = [float(x.strip()) for x in str(s).split(",") if x.strip()]
+    out = sorted(set(vals))
+    if len(vals) != len(out):
+        pass  # duplicates removed silently
+    return out
+
+
+def _fmt_boundary_tick_number(x: float) -> str:
+    import math
+
+    if not math.isfinite(float(x)):
+        return ""
+    ax = abs(float(x))
+    if ax >= 1000 or (ax > 0 and ax < 0.01):
+        return f"{float(x):.4g}"
+    if abs(float(x) - round(float(x))) < 1e-5 * max(1.0, ax):
+        return str(int(round(float(x))))
+    return f"{float(x):g}"
+
+
+def boundary_bin_centres_and_labels(edges: list[float]) -> tuple[list[float], list[str]]:
+    """
+    Tick positions at bin centres and labels ``low–high`` (Unicode en dash) per interval.
+
+    Intervals follow matplotlib ``BoundaryNorm``: interior bins are ``[b_i, b_{i+1})`` except the
+    last interval is treated inclusively at both ends for labelling (`low–high`).
+    """
+    import numpy as np
+
+    b = np.asarray(edges, dtype=float)
+    if b.size < 2:
+        raise ValueError("boundaries need at least two edges")
+    if not np.all(np.diff(b) > 0):
+        raise ValueError("boundaries must be strictly increasing")
+    centres: list[float] = []
+    labels: list[str] = []
+    n = int(b.size - 1)
+    for i in range(n):
+        lo, hi = float(b[i]), float(b[i + 1])
+        centres.append(0.5 * (lo + hi))
+        ls = _fmt_boundary_tick_number(lo)
+        hs = _fmt_boundary_tick_number(hi)
+        labels.append(f"{ls}\u2013{hs}")
+    return centres, labels
+
+
+def make_boundary_norm_cmap(edges: list[float], cmap_name: str):
+    """
+    Build ``BoundaryNorm`` + ``ListedColormap`` with one colour per interval ``edges[i]..edges[i+1]``.
+    Values outside ``[edges[0], edges[-1]]`` map to the nearest bucket (matplotlib behaviour).
+    """
+    import matplotlib.colors as mcolors
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    b = np.asarray(edges, dtype=float)
+    if b.size < 2 or not np.all(np.diff(b) > 0):
+        raise ValueError("boundaries must be strictly increasing with at least two edges")
+    n_bins = int(b.size - 1)
+    try:
+        base_cmap = plt.get_cmap(str(cmap_name).strip()).copy()
+    except ValueError:
+        base_cmap = plt.get_cmap("viridis").copy()
+    cols = base_cmap(np.linspace(0.12, 0.92, n_bins))
+    listed = mcolors.ListedColormap(cols)
+    listed.set_bad("#e0e0e0")
+    norm = mcolors.BoundaryNorm(b, listed.N)
+    return norm, listed
+
+
+def add_generic_heatmap_args(g, *, prefix: str = "heatmap-") -> None:
+    """
+    Add FoldKit-generic heatmap CLI options to an argparse group, with a prefix.
+    """
+    p = str(prefix)
+    g.add_argument(f"--{p}cmap", default="viridis_r", metavar="NAME", help="Matplotlib colour map name.")
+    g.add_argument(f"--{p}vmin", type=float, default=None, metavar="V", help="Colour scale floor (data units).")
+    g.add_argument(f"--{p}vmax", type=float, default=None, metavar="V", help="Colour scale ceiling (data units).")
+    g.add_argument(
+        f"--{p}diverging-center",
+        f"--{p}diverging-centre",
+        choices=("none", "median"),
+        default="none",
+        help="Use TwoSlopeNorm centred at the median (good for diverging maps).",
+    )
+    g.add_argument(
+        f"--{p}scale",
+        choices=("linear", "log10", "log1p", "clip_p95", "clip_p98"),
+        default="linear",
+        help="Generic scale transform for heatmap colours (and annotated values).",
+    )
+    g.add_argument(
+        f"--{p}boundaries",
+        default=None,
+        metavar="V0,V1,…",
+        help=(
+            "Comma-separated ascending edges for discrete buckets (BoundaryNorm): creates "
+            "len(edges)-1 coloured intervals; colour-bar ticks show each range (e.g. 100–950). "
+            "Same numeric space as after --heatmap-scale."
+        ),
+    )
+    g.add_argument(
+        f"--{p}colorbar-orientation",
+        f"--{p}colourbar-orientation",
+        choices=("vertical", "horizontal"),
+        default="vertical",
+        help="Colour bar orientation.",
+    )
+    g.add_argument(f"--{p}y-axis-right", action="store_true", help="Put row tick labels on the right.")
+    g.add_argument(f"--{p}short-labels", action="store_true", help="Shorten structure axis labels.")
+    g.add_argument(
+        f"--{p}cbar-ticks",
+        default=None,
+        metavar="T0,T1,…",
+        help="Explicit colour-bar ticks (comma-separated data units).",
+    )
+    g.add_argument(
+        f"--{p}cbar-tick-step",
+        type=float,
+        default=None,
+        metavar="STEP",
+        help="Colour-bar tick spacing in data units (e.g. 5).",
+    )
+    g.add_argument(
+        f"--{p}format",
+        default="png",
+        metavar="{png|svg|pdf}",
+        help="Heatmap output format: png, svg, or pdf.",
+    )
+    g.add_argument(
+        f"--{p}dpi",
+        type=int,
+        default=150,
+        metavar="N",
+        help="Figure DPI for raster output (PNG).",
+    )
+    g.add_argument(
+        f"--{p}figscale",
+        type=float,
+        default=1.0,
+        metavar="F",
+        help="Scale factor for heatmap figure size.",
+    )
+    g.add_argument(
+        f"--{p}axis-labelsize",
+        type=float,
+        default=9.0,
+        metavar="PT",
+        help="Font size for axis tick labels.",
+    )
+    g.add_argument(
+        f"--{p}cbar-tick-fontsize",
+        type=float,
+        default=10.0,
+        metavar="PT",
+        help="Colour-bar tick label size.",
+    )
+    g.add_argument(
+        f"--{p}cbar-label-fontsize",
+        type=float,
+        default=12.0,
+        metavar="PT",
+        help="Colour-bar label size.",
+    )
+    g.add_argument(
+        f"--{p}cbar-thickness-scale",
+        type=float,
+        default=1.65,
+        metavar="F",
+        help="Scale colour-bar strip thickness for readability.",
+    )
 
 
 def _apply_label_order(
@@ -225,7 +569,7 @@ def _heatmap_vector_format(fmt: str) -> bool:
 
 # Second-channel hatch: cycle none → vertical → horizontal → diagonal (thin black lines).
 # Matplotlib tightens hatch spacing by repeating | - / ; too few repeats look empty, too many
-# merge into solid black (especially on small cells). Tune these if your matrix size changes a lot.
+# merge into solid black (especially on small cells). Tune these when matrix dimensions vary widely.
 _HATCH_LINEWIDTH_PT = 0.15
 _HATCH_LINE_COLOR = "grey"
 _HATCH_REPEAT_CELLS = 4
@@ -339,6 +683,7 @@ def _draw_heatmap_vector_cells(
     annotate_hatch_fmt: str = "{:.0f}",
     annotate_hatch_fontsize: float | None = None,
     triangle: str | None = None,
+    annotate_offdiag_only: bool = True,
 ) -> None:
     """
     Draw one matplotlib Rectangle per matrix cell, matching imshow(origin='lower') layout.
@@ -368,7 +713,7 @@ def _draw_heatmap_vector_cells(
     )
     for i in range(nrow):
         for j in range(ncol):
-            # Note: we plot with imshow(origin='lower') semantics (row 0 at bottom).
+            # Note: imshow(origin='lower') semantics apply (row 0 at bottom).
             # The diagonal runs bottom-left → top-right. The region "under" that diagonal
             # (bottom-right half, including diagonal) corresponds to i <= j.
             if triangle == "lower" and i > j:
@@ -423,7 +768,8 @@ def _draw_heatmap_vector_cells(
                 )
                 hrect.set_gid(f"rmsd_hatch_r{i}_c{j}")
                 ax.add_patch(hrect)
-            if use_annot and (triangle != "lower" or i <= j) and i != j:
+            skip_diag_annot = bool(annotate_offdiag_only and i == j)
+            if use_annot and (triangle != "lower" or i <= j) and not skip_diag_annot:
                 av = annotate_value_arr[i, j]
                 luma = _relative_luminance_srgb(fc)
                 tc = (
@@ -558,6 +904,10 @@ def _add_raster_colorbar(
     mappable=None,
     vertical_colorbar_on_left: bool = False,
     ticks: "list[float] | None" = None,
+    tick_labels: "list[str] | None" = None,
+    tick_labelsize: float | None = None,
+    label_fontsize: float | None = None,
+    thickness_scale: float = 1.0,
 ):
     """
     Colour bar as a raster, sized to match the heatmap grid extent (vertical: same height as the
@@ -586,8 +936,9 @@ def _add_raster_colorbar(
         xmin, ymin, bw, bh = pos.x0, pos.y0, pos.width, min(pos.width, pos.height)
 
     pad = 0.012
+    ts = max(0.5, float(thickness_scale))
     if orient == "vertical":
-        cw = max(0.007, min(0.024, 0.016 * ncols / max(nrows, ncols, 8)))
+        cw = max(0.007, min(0.024, 0.016 * ncols / max(nrows, ncols, 8))) * ts
         if vertical_colorbar_on_left:
             right = xmin - pad
             left = right - cw
@@ -608,7 +959,7 @@ def _add_raster_colorbar(
                 left = xmin + bw + pad
             cax = fig.add_axes([left, ymin, cw, bh])
     else:
-        ch = max(0.007, min(0.032, 0.022))
+        ch = max(0.007, min(0.032, 0.022)) * ts
         hpad = 0.022
         bottom = 0.0
         for _ in range(10):
@@ -625,9 +976,18 @@ def _add_raster_colorbar(
         cax = fig.add_axes([xmin, bottom, bw, ch])
 
     cbar = fig.colorbar(mappable, cax=cax, orientation=orient, extend="neither", label=label)
+    if tick_labelsize is not None and float(tick_labelsize) > 0:
+        cbar.ax.tick_params(which="major", labelsize=float(tick_labelsize))
+    if label_fontsize is not None and float(label_fontsize) > 0:
+        cbar.set_label(label, fontsize=float(label_fontsize))
     if ticks is not None and len(ticks) > 0:
         _ticks = [float(x) for x in ticks]
         cbar.set_ticks(_ticks)
+        if tick_labels is not None and len(tick_labels) == len(_ticks):
+            if orient == "vertical":
+                cbar.ax.set_yticklabels(list(tick_labels))
+            else:
+                cbar.ax.set_xticklabels(list(tick_labels))
     else:
         _set_heatmap_colorbar_ticks(cbar, norm)
     if hasattr(cbar, "solids") and cbar.solids is not None:
@@ -1341,9 +1701,10 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--vmax", type=float, default=None, help="Colour scale ceiling (data units).")
     ap.add_argument(
         "--diverging-center",
+        "--diverging-centre",
         choices=("none", "median"),
         default="none",
-        help="Use TwoSlopeNorm centred at the median (good for diverging colormaps).",
+        help="Use TwoSlopeNorm centred at the median (good for diverging colour maps).",
     )
     ap.add_argument(
         "--short-labels",
@@ -1352,6 +1713,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     ap.add_argument(
         "--colorbar-orientation",
+        "--colourbar-orientation",
         choices=("vertical", "horizontal"),
         default="vertical",
         help="Colour bar layout.",
@@ -1414,6 +1776,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     ap.add_argument(
         "--cell-border-color",
+        "--cell-border-colour",
         default=_CELL_BORDER_COLOR,
         help="Per-cell border colour.",
     )
@@ -1441,16 +1804,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     ap.add_argument(
         "--annotate-color-light",
+        "--annotate-colour-light",
         default="black",
         help="Annotation colour on light cells.",
     )
     ap.add_argument(
         "--annotate-color-dark",
+        "--annotate-colour-dark",
         default="white",
         help="Annotation colour on dark cells (for contrast).",
     )
     ap.add_argument(
         "--annotate-color-threshold",
+        "--annotate-colour-threshold",
         type=float,
         default=0.45,
         metavar="LUMA",
@@ -1518,16 +1884,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     hatch.add_argument(
         "--hatch-color-light",
+        "--hatch-colour-light",
         default="black",
         help="Hatch colour on light cells.",
     )
     hatch.add_argument(
         "--hatch-color-dark",
+        "--hatch-colour-dark",
         default="white",
         help="Hatch colour on dark cells (for contrast).",
     )
     hatch.add_argument(
         "--hatch-color-threshold",
+        "--hatch-colour-threshold",
         type=float,
         default=0.45,
         metavar="LUMA",

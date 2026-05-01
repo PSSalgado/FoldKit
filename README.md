@@ -354,17 +354,17 @@ Options: `--tags` (required unless `TAGS` is set in the script), `--conditions`,
 
 ### `dalilite_pairs.py`
 
-Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target on query frame), pairwise or merged CSV, optional Z-matrix CSV, Newick tree, optional dendrogram image, and an optional **Z-score heatmap** (matplotlib; layout and colour bar match **`rmsd_to_csv.py`** via shared **`ranking/foldkit_heatmap.py`**). Requires DaliLite and **mkdssp** (same constraints as `foldkit_dali_like_scores.py`; see [Appendix — DaliLite](#dalilite-foldkit_dali_like_scorespy-dalilite_pairspy)). In **all-vs-all** mode, structure files are taken from the **root of each given directory only** unless **`--recursive`** is set (then subfolders are included, matching the **default** directory scan in `foldkit_dali_like_scores.py`; that script can match root-only behaviour with **`--root-only-dirs`**).
+Pairwise or **all-vs-all** DaliLite runs with **superposed PDB** output (target on query frame), pairwise or merged CSV, optional Z-matrix CSV, Newick tree, optional dendrogram image, and an optional **Z-score heatmap** (matplotlib; layout and colour bar match **`rmsd_to_csv.py`** via shared **`utils/foldkit_heatmap.py`**). Requires DaliLite and **mkdssp** (same constraints as `foldkit_dali_like_scores.py`; see [Appendix — DaliLite](#dalilite-foldkit_dali_like_scorespy-dalilite_pairspy)). In **all-vs-all** mode, structure files are taken from the **root of each given directory only** unless **`--recursive`** is set (then subfolders are included, matching the **default** directory scan in `foldkit_dali_like_scores.py`; that script can match root-only behaviour with **`--root-only-dirs`**).
 
 **Optional run summary log:** most scripts accept `--log [FILE]` to write a short summary of tasks and errors (no stdout/stderr tee). Logging is optional and summary-only.
 
 **Heatmap (`--heatmap PATH`):** writes a square figure from pairwise Dali Z (colour bar label **Dali Z**). The file extension selects **PNG**, **PDF**, or **SVG**. Options aligned with `rmsd_to_csv.py` / `foldkit_heatmap.py` include `--heatmap-title`, `--cmap`, `--vmin`, `--vmax`, `--short-heatmap-labels`, `--heatmap-diverging-center` (`none` or `median`), `--heatmap-colorbar-orientation` (`vertical` or `horizontal`), and `--heatmap-y-axis-right`. Autoscale and median use **all finite off-diagonal** Z values (not RMSD-style “positive only”). All-vs-all produces the full matrix; pairwise mode produces a 2×2 plot. **Axis order** for the heatmap and **`--output-matrix`** matches **`rmsd_to_csv.py`**: structure labels are **natural-sorted** (alphanumeric, numeric-aware).
 
-**Optional second channel (hatch):** **`--heatmap-n-core-patterns`** encodes **`n_core`** (aligned Cα count per pair) as **binned hatch patterns** on off-diagonal cells; **colour still encodes Dali Z**. Use **`--heatmap-n-core-bins N`** for equal-width bins over observed `n_core` (default **4**), or **`--heatmap-n-core-edges E0,E1,…`** for explicit boundaries (comma-separated; extended to the observed min/max if needed). Legend title uses the script’s label for that quantity (aligned Cα / Dali `n_core`). For fine control of **hatch density**, **cell borders**, **triangle cropping**, or **white hatches on dark cells**, replot from CSVs with `ranking/foldkit_heatmap.py` (see below).
+**Optional second channel (hatch):** **`--heatmap-n-core-patterns`** encodes **`n_core`** (aligned Cα count per pair) as **binned hatch patterns** on off-diagonal cells; **colour still encodes Dali Z**. Use **`--heatmap-n-core-bins N`** for equal-width bins over observed `n_core` (default **4**), or **`--heatmap-n-core-edges E0,E1,…`** for explicit boundaries (comma-separated; extended to the observed min/max if needed). Legend title uses the script’s label for that quantity (aligned Cα / Dali `n_core`). For fine control of **hatch density**, **cell borders**, **triangle cropping**, or **white hatches on dark cells**, replot from CSVs with `utils/foldkit_heatmap.py` (see below).
 
 **Tree / dendrogram (all-vs-all):** the optional **Newick** (`--output-tree`) is a **neighbour-joining** tree on the pairwise Z→distance table (not “Dali’s own tree” object). The written string is **rooted in practice**: by default **midpoint-rooted**; pass **`--root LABEL`** for an outgroup, or **`--no-midpoint-root`** to skip midpoint-rooting. To get **two comparable outputs in one run** (midpoint rooted vs. no-midpoint), use **`--output-tree-nomid`**, and optionally **`--output-plot-nomid`** (ignored if the primary run already set **`--no-midpoint-root`**). The **dendrogram** image (`--output-plot`, or `--output-plot-nomid`) is a Matplotlib/ete3 rendering of the corresponding Newick.
 
-To regenerate the heatmap without rerunning DaliLite, or to apply additional styling controls (hatch density/contrast, per-cell borders, triangle cropping), use the standalone CLI in **`ranking/foldkit_heatmap.py`** (see below) on the written **`--output-matrix`** CSV plus the pairs CSV (for `n_core`).
+To regenerate the heatmap without rerunning DaliLite, or to apply additional styling controls (hatch density/contrast, per-cell borders, triangle cropping), use the standalone CLI in **`utils/foldkit_heatmap.py`** (see below) on the written **`--output-matrix`** CSV plus the pairs CSV (for `n_core`).
 
 **Table outputs and Z-score column:** The **`z_score` field in CSV** is the **DaliLite summary Z** when DaliLite returns a value on the hit line. If that is missing, FoldKit fills **`z_score`** with the **empirical (Holm-style) Z** from `foldkit_dali_like_scores.compute_z_score`. The script states which applies: progress lines use **`Z=… (DaliLite)`** versus **`empirical Z-score=… (FoldKit dali-like)`**; in pairwise mode, **`empirical Z-score:`** or **`Z-score: … (DaliLite reported)`** is printed accordingly. The **pairs** CSV and **`--output-matrix`** are **natural-ordered** by label; the **ranking** CSV (`--output-ranking`, default `dali_ranking.csv`) is ordered **only by Z** (average then maximum), not by label.
 
@@ -388,17 +388,17 @@ python ranking/dalilite_pairs.py --all-vs-all /path/to/project/models/ /path/to/
 Opens PDB/mmCIF in Coot with C-alpha representation. **Directory mode:** pass one or more directories (top-level `*.pdb`, `*.cif`, `*.mmcif`); optional `--filter SUBSTRING` on basename. **Pattern mode:** pass glob patterns, with optional directories to search (recursive).
 
 ```bash
-python superimposition/open_models_in_coot.py [--filter SUBSTRING] dir1 [dir2 ...]
-python superimposition/open_models_in_coot.py pattern [pattern ...] [dir1] [dir2 ...]
+python utils/open_models_in_coot.py [--filter SUBSTRING] dir1 [dir2 ...]
+python utils/open_models_in_coot.py pattern [pattern ...] [dir1] [dir2 ...]
 ```
 
 Examples:
 
 ```bash
-python superimposition/open_models_in_coot.py models/
-python superimposition/open_models_in_coot.py --filter set_a dir1 dir2
-python superimposition/open_models_in_coot.py '*set_a*LSQaligned2*ref*pdb'
-python superimposition/open_models_in_coot.py '*model_*.cif' models/
+python utils/open_models_in_coot.py models/
+python utils/open_models_in_coot.py --filter set_a dir1 dir2
+python utils/open_models_in_coot.py '*set_a*LSQaligned2*ref*pdb'
+python utils/open_models_in_coot.py '*model_*.cif' models/
 ```
 
 #### References (superimposition)
@@ -469,7 +469,7 @@ Output: `rmsd_heatmap_[subdomain].pdf`, `combined_rmsd_heatmap.pdf`, `combined_r
 
 ### `rmsd_to_csv.py`
 
-Converts pairwise RMSD inputs (all-vs-all SSM or LSQ text, or an existing square RMSD CSV) to a square CSV table. Optional **matplotlib** heatmaps require no R. Figures are drawn by **`ranking/foldkit_heatmap.py`** (same module as **`dalilite_pairs.py`** heatmaps; `dalilite` does not import this script).
+Converts pairwise RMSD inputs (all-vs-all SSM or LSQ text, or an existing square RMSD CSV) to a square CSV table. Optional **matplotlib** heatmaps require no R. Figures are drawn by **`utils/foldkit_heatmap.py`** (same module as **`dalilite_pairs.py`** heatmaps; `dalilite` does not import this script).
 
 #### Single-file mode (default)
 
@@ -504,7 +504,7 @@ Heatmaps share the following controls for `--plot`, for figures under `--heatmap
 
 ### `foldkit_heatmap.py` (standalone heatmap CLI)
 
-`ranking/foldkit_heatmap.py` can be run **on its own** to plot **any** square matrix CSV (header `Model,<id1>,<id2>,…`) as a heatmap, optionally with a **second-channel hatch** either from:
+`utils/foldkit_heatmap.py` can be run **on its own** to plot **any** square matrix CSV (header `Model,<id1>,<id2>,…`) as a heatmap, optionally with a **second-channel hatch** either from:
 
 - A second **square matrix** CSV (`--hatch-matrix`), or
 - A **pair table** CSV (`--hatch-pairs`) with columns `label_a`, `label_b`, and a value column (default `n_core`).
@@ -524,7 +524,7 @@ Extra styling controls available here (not exposed by all upstream scripts):
 Example (replot a Dali Z heatmap with `n_core` hatch, more-spaced lines, and lower-triangle only):
 
 ```bash
-python ranking/foldkit_heatmap.py \
+python utils/foldkit_heatmap.py \
   --matrix /path/to/dali_run/z_matrix.csv \
   --hatch-pairs /path/to/dali_run/pairs.csv \
   --hatch-pairs-value-col n_core \
@@ -538,7 +538,7 @@ python ranking/foldkit_heatmap.py \
 Example (Dali Z heatmap with **`n_core` values** printed in each cell):
 
 ```bash
-python ranking/foldkit_heatmap.py \
+python utils/foldkit_heatmap.py \
   --matrix /path/to/dali_run/z_matrix.csv \
   --hatch-pairs /path/to/dali_run/pairs.csv \
   --hatch-pairs-value-col n_core --hatch-name "Dali n_core (aligned Cα)" \
@@ -550,7 +550,7 @@ python ranking/foldkit_heatmap.py \
 Example (% identity heatmap with values printed in each cell):
 
 ```bash
-python ranking/foldkit_heatmap.py \
+python utils/foldkit_heatmap.py \
   --matrix-pairs /path/to/dali_run/pairs.csv \
   --matrix-pairs-value-col pct_id \
   --title "Percent identity" --cmap viridis --cbar-label "% identity" \
@@ -561,7 +561,7 @@ python ranking/foldkit_heatmap.py \
 Example (plot **percent identity** from a Dali pairs table as its own heatmap, reusing the label order from a Z-matrix CSV):
 
 ```bash
-python ranking/foldkit_heatmap.py \
+python utils/foldkit_heatmap.py \
   --matrix-pairs /path/to/dali_run/pairs.csv \
   --matrix-pairs-value-col pct_id \
   --matrix-pairs-order-from /path/to/dali_run/z_matrix.csv \
@@ -728,7 +728,7 @@ Options: `--dalilite-path DIR`, `--no-dalilite`, `--filter` (substring or glob o
 
 Driver for DaliLite **`dali.pl --matrix`**: runs **`import.pl`** and the matrix run, then copies Dali’s native **ordered** matrix, per-query **`.txt`** hit files, **Newick** trees, and related artefacts into **`-d`**. It does **not** apply a separate FoldKit re-scoring pass; all numeric values come from Dali’s outputs.
 
-**Optional re-exports** (from those files) include a pairwise table, a square Z-matrix CSV, a ranking, and one or more **matplotlib** heatmaps. A **second** heatmap, **`--heatmap-pct-id PATH`**, can plot a **% identity** matrix alongside the Dali Z heatmap (`--heatmap`); use **`--heatmap-pct-id-vmin`** and **`--heatmap-pct-id-vmax`** to set the **colour bar** limits for that figure explicitly (independent of the Z heatmap scale). The script shares styling conventions with `ranking/foldkit_heatmap.py` for the figures it produces.
+**Optional re-exports** (from those files) include a pairwise table, a square Z-matrix CSV, a ranking, and one or more **matplotlib** heatmaps. A **second** heatmap, **`--heatmap-pct-id PATH`**, can plot a **% identity** matrix alongside the Dali Z heatmap (`--heatmap`); use **`--heatmap-pct-id-vmin`** and **`--heatmap-pct-id-vmax`** to set the **colour bar** limits for that figure explicitly (independent of the Z heatmap scale). The script shares styling conventions with `utils/foldkit_heatmap.py` for the figures it produces.
 
 **Path length note:** DaliLite’s tools often require short paths; the script may run under a temporary directory and mirror results to the configured output path (see the script’s docstring and `--help`).
 
@@ -753,7 +753,7 @@ The pipeline implements established ways to quantify crystal packing differences
 
 - **Quantitative metrics:** packing density (Matthews coefficient, solvent content), interface and contact analysis.
 - **Multi-copy lattices:** `lattice_packing_analyser.py` for symmetry-expanded / supercell models; `lattice_packing_report_csv.py` to collate per-structure JSON or text into a single table.
-- **Tunnel metrics (optional Caver):** per-point **electrostatic complementarity**-style scores and **Kyte–Doolittle** hydropathy along a tunnel, with optional **rolling “local”** values for colouring and **matplotlib** profile figures (see `metrics/metrics_details.md` §1.7 and `metrics/EC_details.md`).
+- **Tunnel metrics (optional Caver):** per-point **electrostatic complementarity**-style scores and **Kyte–Doolittle** hydropathy along a tunnel, with optional **rolling “local”** values for colouring and **matplotlib** profile figures (see `metrics/metrics_details.md` Section 1.7 and `metrics/EC_details.md`).
 - **Batch export:** `--compare` writes `batch_analysis_results.json` with all per-structure outputs in one file.
 
 ### Scientific background
@@ -875,7 +875,7 @@ Analyses a **Caver 3.0 (PyMOL plugin)** result directory. Expect, under the run 
 
 **For the tunnel cluster given by `--tunnel`:**
 
-- **Electrostatic complementarity (EC), tunnel analogue** — a McCoy-style *facing-point* construction adapted to a tunnel: Coulomb-summed potentials at centreline points from charged residues in a shell (`--shell-a`, default 3.0 Å). The geometry differs from interface EC in `interface_analyser_*_ec.py` (path vs protein–protein interface); see `metrics/EC_details.md` and `metrics/metrics_details.md` §1.7.
+- **Electrostatic complementarity (EC), tunnel analogue** — a McCoy-style *facing-point* construction adapted to a tunnel: Coulomb-summed potentials at centreline points from charged residues in a shell (`--shell-a`, default 3.0 Å). The geometry differs from interface EC in `interface_analyser_*_ec.py` (path vs protein–protein interface); see `metrics/EC_details.md` and `metrics/metrics_details.md` Section 1.7.
 - **Optional “local” windowing** — a rolling, odd-width window along the path (`--local-window`) used to compute local series for colouring (EC correlation and hydropathy). Set `0` to disable.
 - **Hydropathy (Kyte–Doolittle)** — mean of tabulated per-residue values for residues assigned to each profile point.
 - **Plots** can be coloured by **EC** or **hydropathy** (`--color-by`). **Opening diameter** (twice the Caver radius) can be shown with **`--diameter`**. **Figure** format is chosen from **`--plot-out`** (e.g. `.png`, `.pdf`, `.svg`).
@@ -1034,6 +1034,27 @@ python metrics/interface_mol_report_ec_csv.py /path/to/project/results_ec_*.txt 
 Options (both scripts): structure filter `--pdb` / `--pdbs` and chain filter `-m` / `--chains`. The EC extractor supports `--mode summary|details` and includes lattice partner detail in `lattice_ec_by_partner_chain` when present in the report. The charge extractor includes parsed lattice charge summaries when present in the report.
 
 For lattice runs with **`--reference-chain`**, summary rows include **`all_total_interfaces`**, **`all_total_buried_surface_area_A2`**, **`all_average_buried_area_per_interface_A2`**, **`all_sasa_isolated_sum_A2`**, and **`all_sasa_isolated_by_chain`** (parallel to the reference-scoped `total_interfaces`, … columns). Text reports produced before this dual-summary format omit those lines; CSV columns are left blank for those rows.
+
+#### `interface_analysis_matrix.py`
+
+Cross-structure comparison of interface analyser text reports: writes a per-interface CSV plus matrix CSVs and heatmaps for **BSA**, **EC (r)**, **EC per 1000 Å²**, **contact counts**, and (for charge reports) opposite/same-sign charged contact counts. Matrix columns are canonical chain pairs (`A-B`, `A-C`, …) sorted lexicographically.
+
+```bash
+PYTHONPATH=. python metrics/interface_analysis_matrix.py reports/*.txt --output-dir ./compare/
+
+PYTHONPATH=. python metrics/interface_analysis_matrix.py reports/*.txt \
+  --prefix ./out/run1 --metrics bsa ec_density contacts
+```
+
+When one interface dominates the **BSA** colour scale, use **`--heatmap-bsa-robust`** to split the colour bar between the bulk and the dominant interface(s). A canonical chain pair is auto-flagged as an outlier when its **minimum BSA across structures** exceeds **`--heatmap-bsa-outlier-factor`** (default `3.0`) times the median of the remaining cells; the cap is the rounded maximum of non-outlier cells, so the entire outlier interface goes above the split. Override the auto rule with **`--heatmap-bsa-split-at VALUE`** (Å²). Cells below the cap use ``--heatmap-cmap`` and cells above use a contrasting gradient (**`--heatmap-bsa-above-cmap`**, default ``Reds``), so differences between large-BSA interfaces remain visible. Above-cap pairs are listed with their raw Å² in a figure note (disable with **`--heatmap-bsa-no-outlier-note`**). For binned readouts use ``--heatmap-boundaries-by-metric bsa=…``; for log-compressed scales use ``--heatmap-scale-by-metric bsa=log1p``. Explicit ``--heatmap-vmax-by-metric bsa=…`` or ``--heatmap-boundaries-by-metric bsa=…`` settings take precedence over ``--heatmap-bsa-robust`` (a stderr warning is emitted).
+
+```bash
+PYTHONPATH=. python metrics/interface_analysis_matrix.py reports/*.txt \
+  --output-dir ./compare/ --heatmap-bsa-robust                              # auto-detect outlier interfaces
+
+PYTHONPATH=. python metrics/interface_analysis_matrix.py reports/*.txt \
+  --output-dir ./compare/ --heatmap-bsa-robust --heatmap-bsa-split-at 600    # explicit threshold
+```
 
 #### `contact_analyser.py`
 
@@ -1243,7 +1264,7 @@ working_directory/
 - **All-vs-all file discovery:** **`dalilite_pairs.py`** collects structures from the **root** of each given directory unless **`--recursive`** is set. **`foldkit_dali_like_scores.py`** defaults to a **recursive** directory scan; use **`--root-only-dirs`** for root-level only.
 - **Z in tables:** When DaliLite writes a hit line, the **`z_score`** column is **DaliLite’s reported Z**; otherwise it is **FoldKit’s empirical Z** (the script labels **empirical Z-score** in the log when the latter is used). **`raw_score`** in FoldKit is always the **recomputed** Dali sum over the mapped core; **`lali` / `nres` / `%id`** in CSV come from DaliLite’s summary when present.
 - **Table order (dalilite_pairs):** pairs CSV and Z-matrix use **natural-sorted** labels; the ranking file is **sorted by Z** only. **`--equivalences-dir`** writes per-pair TSVs of aligned residues (see the **`dalilite_pairs.py`** subsection).
-- **Z heatmap:** **`dalilite_pairs.py`** can write a matplotlib Z-score heatmap with **`--heatmap PATH`** using **`ranking/foldkit_heatmap.py`** (same style options as **`rmsd_to_csv.py`**: `--cmap`, `--vmin`, `--vmax`, `--heatmap-diverging-center`, etc.). Optional second channel: **`--heatmap-n-core-patterns`** (with **`--heatmap-n-core-bins`** / **`--heatmap-n-core-edges`**) encodes **`n_core`** as hatch while colour remains **Dali Z**; see [Superimposition — `dalilite_pairs.py`](#dalilite_pairspy).
+- **Z heatmap:** **`dalilite_pairs.py`** can write a matplotlib Z-score heatmap with **`--heatmap PATH`** using **`utils/foldkit_heatmap.py`** (same style options as **`rmsd_to_csv.py`**: `--cmap`, `--vmin`, `--vmax`, `--heatmap-diverging-center`, etc.). Optional second channel: **`--heatmap-n-core-patterns`** (with **`--heatmap-n-core-bins`** / **`--heatmap-n-core-edges`**) encodes **`n_core`** as hatch while colour remains **Dali Z**; see [Superimposition — `dalilite_pairs.py`](#dalilite_pairspy).
 - **Matrix mode (`dalilite_matrix.py`):** runs **`dali.pl --matrix`**, keeps Dali’s own ordered matrix and text outputs, and can optionally re-export **tables and figures**. A **% identity** heatmap uses **`--heatmap-pct-id PATH`**; set **`--heatmap-pct-id-vmin`** and **`--heatmap-pct-id-vmax`** to fix the **colour** scale for that figure (separate from the Z heatmap’s **`--vmin` / `--vmax`**). See [Ranking — `dalilite_matrix.py`](#dalilite_matrixpy).
 
 ### Notes
@@ -1254,6 +1275,6 @@ working_directory/
 - Original input files are not modified by superposition scripts; outputs go to new directories.
 - RMSD extraction parses alignment and RMSD lines from Coot logs.
 
-## License
+## Licence
 
 FoldKit is licensed under the [Apache License, Version 2.0](LICENSE).

@@ -74,7 +74,7 @@ def _contact_within_limit(contact_type: str, distance: float) -> bool:
     return False
 
 
-# Match `metrics/lattice_packing_analyser.py` for mass normalization (Da).
+# Match `metrics/lattice_packing_analyser.py` for mass normalisation (Da).
 _ATOMIC_WEIGHTS_DA: dict[str, float] = {
     "C": 12.011,
     "N": 14.007,
@@ -1609,7 +1609,7 @@ def _run_analysis(
                 if rr is not None and ra is not None and rm is not None:
                     rmk = float(rm) / 1000.0 if float(rm) > 0 else 0.0
                     print(
-                        f"  Normalization divisors - reference chain: residues={int(rr)} atoms={int(ra)} "
+                        f"  Normalisation divisors - reference chain: residues={int(rr)} atoms={int(ra)} "
                         f"mass={float(rm):.1f} Da ({rmk:.3f} kDa)",
                         file=out_stream,
                     )
@@ -1994,7 +1994,7 @@ Legacy (interfaces only): python metrics/interface_molecule_report_csv.py result
                 "The shell expands '*.pdb' in the current working directory.",
                 f"Current directory: {os.getcwd()}",
                 f"Input received: {args.input}",
-                "Run from the directory that contains your PDB files, or pass explicit paths/directories.",
+                "Run from a directory that contains the structure files, or pass explicit paths/directories.",
                 "",
             ])
         single_file = args.output and '{}' not in args.output
@@ -2025,7 +2025,7 @@ Legacy (interfaces only): python metrics/interface_molecule_report_csv.py result
 
     if not paths:
         print("No structure files found.", file=sys.stderr)
-        print("Run from the directory that contains your PDB files, or pass explicit paths/directories.", file=sys.stderr)
+        print("Run from a directory that contains the structure files, or pass explicit paths/directories.", file=sys.stderr)
         sys.exit(1)
 
     # Single output file for all sets, or one file per set when -o contains '{}'

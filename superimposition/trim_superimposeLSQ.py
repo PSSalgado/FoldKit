@@ -14,10 +14,10 @@ from file_management.trim_models import (
 
 from superimposition.superimpose_coot_LSQ import (
     COOT_LSQ_HELPERS_PY,
-    _normalize_lsq_match_type,
+    _normalise_lsq_match_type,
 )
 
-from cli_log import setup_log_from_argv
+from utils.cli_log import setup_log_from_argv
 
 _argv_no_log, _ = setup_log_from_argv(
     script_path=__file__,
@@ -29,7 +29,7 @@ sys.argv = [sys.argv[0]] + _argv_no_log
 
 def create_coot_script(reference_file, model_files, output_dir, lsq_match_type="main"):
     """Create Coot script for superposition with visualisation (Coot manual LSQ API)."""
-    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    mt = repr(_normalise_lsq_match_type(lsq_match_type))
     script_content = f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
@@ -82,7 +82,7 @@ set_rotation_centre(x, y, z)
 
 def create_lsq_script(reference_file, model_files, output_dir, lsq_match_type="main"):
     """Create Coot script for LSQ superposition (Coot manual LSQ API)."""
-    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    mt = repr(_normalise_lsq_match_type(lsq_match_type))
     return f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
@@ -115,7 +115,7 @@ coot_real_exit(0)
 
 def create_all_vs_all_lsq_script(model_files, output_dir, lsq_match_type="main"):
     """Create Coot script for all-vs-all LSQ superposition."""
-    mt = repr(_normalize_lsq_match_type(lsq_match_type))
+    mt = repr(_normalise_lsq_match_type(lsq_match_type))
     return f"""{COOT_LSQ_HELPERS_PY}
 import os
 import sys
@@ -336,7 +336,7 @@ def main():
                     print("Operation cancelled.")
                     sys.exit(0)
             
-            # Create output directory if it doesn't exist
+            # Create output directory if absent
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             
@@ -392,7 +392,7 @@ def main():
                 print(f"Log file written to: {log_file}")
             
         except ValueError:
-            print("Invalid input. Please enter a number.")
+            print("Invalid input. Enter a number.")
             sys.exit(1)
 
 if __name__ == "__main__":

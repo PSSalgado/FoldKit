@@ -51,7 +51,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 from structure_phylogeny import _natural_sort_key
 
 
@@ -250,7 +250,7 @@ def write_equivalences_tsv(path: str, equivs) -> None:
             )
 
 
-def normalize_equivalences(equivs, coords_A, coords_B):
+def normalise_equivalences(equivs, coords_A, coords_B):
     """
     Convert equivalences to keys that exist in coords_A and coords_B.
     For single-chain: (chain, resnum, icode) may use ' ' for chain; match by resnum.
@@ -413,7 +413,7 @@ def _dalilite_preflight_mkdssp(bin_dir: str) -> str | None:
         'DaliLite import.pl requires mkdssp (see bin/mpidali.pm $DSSP_EXE). '
         f'Expected {exe!r} but it is missing or not executable. Install a '
         'compatible mkdssp, symlink it to that path, or edit $DSSP_EXE in '
-        'mpidali.pm to your mkdssp binary.'
+        'mpidali.pm so $DSSP_EXE points at the mkdssp binary.'
     )
 
 
@@ -928,10 +928,10 @@ def compute_dali_score(coords_A, coords_B, equivs):
             phi = _residue_pair_score(d_A, d_B)
             S += phi
     # Dali sums over unordered pairs; each pair (i,j) with i<j is counted once,
-    # but the formula often writes Σ Σ. Check original: it's a double sum over
+    # but the formula often writes Σ Σ. The original is a double sum over
     # i,j in core, so each pair (i,j) and (j,i) both contribute. Typically
-    # φ(i,j)=φ(j,i), so S = 2 * sum_{i<j} φ(i,j). Our loop counts both,
-    # so we're good.
+    # φ(i,j)=φ(j,i), so S = 2 * sum_{i<j} φ(i,j). The loop above counts both,
+    # which matches the canonical form.
     return float(S), n
 
 
@@ -1039,7 +1039,7 @@ def run(pdb_a: str, pdb_b: str, alignment_file: str = None,
             pdb_a, pdb_b, dalilite_path, cid_a, cid_b
         )
         if equivs_dali:
-            equivs = normalize_equivalences(
+            equivs = normalise_equivalences(
                 equivs_dali, coords_A, coords_B
             )
             if equivs:
@@ -1048,7 +1048,7 @@ def run(pdb_a: str, pdb_b: str, alignment_file: str = None,
     # 2. From alignment file
     if (equivs is None or len(equivs) < 3) and alignment_file and os.path.isfile(alignment_file):
         raw_equivs = parse_alignment_file(alignment_file)
-        equivs = normalize_equivalences(raw_equivs, coords_A, coords_B)
+        equivs = normalise_equivalences(raw_equivs, coords_A, coords_B)
         if equivs:
             source = 'alignment_file'
 
@@ -1075,7 +1075,7 @@ def run(pdb_a: str, pdb_b: str, alignment_file: str = None,
 
     raw_score, n_core = compute_dali_score(coords_A, coords_B, equivs)
 
-    # Use DaliLite Z-score when available (canonical); else our empirical fit
+    # Use DaliLite Z-score when available (canonical); else the empirical fit
     if dalilite_result and dalilite_result.get('z_score') is not None:
         z_score = dalilite_result['z_score']
     else:

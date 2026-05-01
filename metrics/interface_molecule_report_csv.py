@@ -6,8 +6,8 @@ write CSV table(s).
 
 The analyser labels each interface with a chain pair like ``A-B``. With a chain
 filter, rows are kept where either side matches a requested chain (case-sensitive).
-With a structure filter, only rows from matching PDB sections are kept. You can
-use **chains only**, **PDBs only**, or **both**.
+With a structure filter, only rows from matching PDB sections are kept. Use
+**chains only**, **PDBs only**, or **both**.
 
 Examples::
 
@@ -37,7 +37,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 # --- context lines (multi-structure / multi-set output) ---
 _RE_SET = re.compile(r"^Set '([^']*)' \(patterns:")
@@ -91,7 +91,7 @@ def _split_chain_pair(pair: str) -> tuple[str, str] | None:
     return a.strip(), b.strip()
 
 
-def _normalize_chain_id(s: str) -> str:
+def _normalise_chain_id(s: str) -> str:
     return s.strip()
 
 
@@ -201,7 +201,7 @@ def _parse_interface_block(lines: list[str]) -> dict[str, Any]:
         if m:
             pol_idx += 1
             prefix = f"polarity_{pol_idx}"
-            out[f"{prefix}_chain"] = _normalize_chain_id(m.group(1))
+            out[f"{prefix}_chain"] = _normalise_chain_id(m.group(1))
             out[f"{prefix}_charged"] = int(m.group(2))
             out[f"{prefix}_polar"] = int(m.group(3))
             out[f"{prefix}_apolar"] = int(m.group(4))
@@ -211,7 +211,7 @@ def _parse_interface_block(lines: list[str]) -> dict[str, Any]:
         if m:
             acc_idx += 1
             prefix = f"accessibility_{acc_idx}"
-            out[f"{prefix}_chain"] = _normalize_chain_id(m.group(1))
+            out[f"{prefix}_chain"] = _normalise_chain_id(m.group(1))
             out[f"{prefix}_avg_sasa_A2"] = float(m.group(2))
             out[f"{prefix}_accessible_fraction"] = float(m.group(3))
             continue
@@ -300,8 +300,8 @@ def filter_by_molecules(
         return [{**dict(r), "focus_chain": ""} for r in records]
     out: list[dict[str, Any]] = []
     for r in records:
-        c1 = _normalize_chain_id(str(r.get("chain1_id", "")))
-        c2 = _normalize_chain_id(str(r.get("chain2_id", "")))
+        c1 = _normalise_chain_id(str(r.get("chain1_id", "")))
+        c2 = _normalise_chain_id(str(r.get("chain2_id", "")))
         matched = sorted({x for x in (c1, c2) if x in molecules})
         if not matched:
             continue
@@ -313,7 +313,7 @@ def filter_by_molecules(
 
 
 _CSV_FIELDNAMES = [
-    "report_path",
+    "report_txt",
     "set_label",
     "structure_basename",
     "interface_number",
@@ -422,7 +422,7 @@ def combine_group_key_glob(stem: str, patterns: list[str]) -> str:
 def _sort_merged_rows(rows: list[dict[str, Any]]) -> None:
     rows.sort(
         key=lambda r: (
-            str(r.get("report_path", "")),
+            str(r.get("report_txt", "")),
             str(r.get("structure_basename", "")),
             int(r.get("interface_number") or 0),
             str(r.get("focus_chain", "")),
@@ -474,7 +474,7 @@ def _collect_chains_ordered(
     seen: set[str] = set()
 
     def add(m: str) -> None:
-        m = _normalize_chain_id(m)
+        m = _normalise_chain_id(m)
         if not m or m in seen:
             return
         seen.add(m)
@@ -515,8 +515,8 @@ def apply_group_by_chain_layout(
     order_idx = {c: i for i, c in enumerate(ordered_chains)}
     out = []
     for r in rows:
-        c1 = _normalize_chain_id(str(r.get("chain1_id", "")))
-        c2 = _normalize_chain_id(str(r.get("chain2_id", "")))
+        c1 = _normalise_chain_id(str(r.get("chain1_id", "")))
+        c2 = _normalise_chain_id(str(r.get("chain2_id", "")))
         in_iface = {c1, c2}
         for foc in ordered_chains:
             if foc not in in_iface:
@@ -639,8 +639,8 @@ Examples:
         help=(
             "With two or more chains: one row per (interface, focus_chain) so each PDB "
             "file lists all interfaces involving chain A, then all involving B (column "
-            "focus_chain). A–B interfaces appear twice. Sort order follows the chain list "
-            "you gave (e.g. --chains A,B)."
+            "focus_chain). A–B interfaces appear twice. Sort order follows the supplied "
+            "chain list (e.g. --chains A,B)."
         ),
     )
     ap.add_argument(
@@ -726,7 +726,7 @@ Examples:
         filtered = apply_group_by_chain_layout(filtered, ordered_chains, args.group_by_chain)
         for r in filtered:
             row = dict(r)
-            row["report_path"] = report_path
+            row["report_txt"] = os.path.basename(str(report_path))
             filtered_all.append(row)
 
     by_st = group_by_structure(filtered_all)

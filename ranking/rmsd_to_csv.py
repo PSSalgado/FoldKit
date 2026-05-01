@@ -47,9 +47,11 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
-from foldkit_heatmap import (
+from utils.foldkit_heatmap import (
+    _CELL_BORDER_COLOR,
+    _CELL_BORDER_LINEWIDTH_PT,
     _add_raster_colorbar,
     _apply_heatmap_y_axis_right,
     _draw_heatmap_vector_cells,
@@ -68,34 +70,17 @@ def _resolved_path(path: str) -> str:
 
 
 # Reuse parsing and matrix logic from structure_phylogeny
-try:
-    from structure_phylogeny import (
-        _natural_sort_key,
-        alignments_pair_counts_to_matrix,
-        alignments_to_matrix,
-        detect_format,
-        parse_lsq_rmsd_txt,
-        parse_lsq_rmsd_txt_with_pair_counts,
-        parse_rmsd_csv,
-        parse_ssm_rmsd_txt,
-        parse_ssm_rmsd_txt_with_pair_counts,
-    )
-except ImportError:
-    # Run from repository root (python ranking/rmsd_to_csv.py ...)
-    _dir = os.path.dirname(os.path.abspath(__file__))
-    if _dir not in sys.path:
-        sys.path.insert(0, _dir)
-    from structure_phylogeny import (
-        _natural_sort_key,
-        alignments_pair_counts_to_matrix,
-        alignments_to_matrix,
-        detect_format,
-        parse_lsq_rmsd_txt,
-        parse_lsq_rmsd_txt_with_pair_counts,
-        parse_rmsd_csv,
-        parse_ssm_rmsd_txt,
-        parse_ssm_rmsd_txt_with_pair_counts,
-    )
+from ranking.structure_phylogeny import (
+    _natural_sort_key,
+    alignments_pair_counts_to_matrix,
+    alignments_to_matrix,
+    detect_format,
+    parse_lsq_rmsd_txt,
+    parse_lsq_rmsd_txt_with_pair_counts,
+    parse_rmsd_csv,
+    parse_ssm_rmsd_txt,
+    parse_ssm_rmsd_txt_with_pair_counts,
+)
 
 
 # Colour = RMSD; hatch = binned counts from Coot log (LSQ/SSM only).
@@ -171,7 +156,7 @@ def reorder_matrix(ids: list[str], matrix: list[list[float]], order: list[str]) 
 
     Note: LSQ/SSM logs sometimes embed extra suffixes in labels (e.g. "_rechain") while
     an --order-dir scan typically yields raw structure stems. To make ordering robust,
-    we also try a conservative normalised match when an exact label is absent.
+    a conservative normalised match is also tried when an exact label is absent.
     """
 
     def _norm(s: str) -> str:
@@ -739,6 +724,15 @@ def plot_combined_rmsd_heatmap_from_csv(
             interpolation="nearest",
             norm=norm,
         )
+        ax.set_xticks(np.arange(-0.5, n_c, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, n_r, 1), minor=True)
+        ax.grid(
+            which="minor",
+            color=_CELL_BORDER_COLOR,
+            linestyle="-",
+            linewidth=float(_CELL_BORDER_LINEWIDTH_PT),
+        )
+        ax.tick_params(which="minor", bottom=False, left=False)
     ax.set_xticks(range(n_c))
     ax.set_yticks(range(n_r))
     ax.set_xticklabels(col_tick_labels, rotation=45, ha="right", fontsize=x_fs)
@@ -1282,20 +1276,22 @@ Examples (from repository root):
     ap.add_argument(
         "--short-heatmap-labels",
         action="store_true",
-        help="Heatmap figures only: shorten axis labels, e.g. S1refAF3_CWB2s.pdb -> S1_CWB2s (leading "
+        help="Heatmap figures only: shorten axis labels, e.g. model01ref_set_a.pdb -> model01_set_a (leading "
         "letter+digits from first segment + last underscore segment). CSV tables unchanged.",
     )
     ap.add_argument(
         "--heatmap-diverging-center",
+        "--heatmap-diverging-centre",
         choices=("none", "median"),
         default="none",
-        help="Use matplotlib TwoSlopeNorm with centre at the median RMSD so diverging colormaps "
+        help="Use matplotlib TwoSlopeNorm with centre at the median RMSD so diverging colour maps "
         "(e.g. PuOr_r, RdBu_r) map low vs high around the median. Batch: median from merged CSV for "
         "all figures when combined_rmsd_table.csv is written; with --no-combined, per-matrix median. "
         "Single-file: median of that matrix. Default: none (linear scale).",
     )
     ap.add_argument(
         "--heatmap-colorbar-orientation",
+        "--heatmap-colourbar-orientation",
         choices=("vertical", "horizontal"),
         default="vertical",
         help="Colour bar layout for heatmap figures (single-file --plot or batch --heatmap-dir). "

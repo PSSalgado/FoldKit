@@ -15,7 +15,11 @@ import os
 import subprocess
 import sys
 
-from cli_log import setup_log_from_argv
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from utils.cli_log import setup_log_from_argv
 
 _argv_no_log, _ = setup_log_from_argv(
     script_path=__file__,

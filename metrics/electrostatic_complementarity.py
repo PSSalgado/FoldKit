@@ -35,7 +35,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 try:
     from Bio.PDB.PDBParser import PDBParser
@@ -127,7 +127,7 @@ def _contact_atoms(chain_a, chain_b, contact_distance: float) -> Tuple[List, Lis
 def _pair_facing_points(points_a: np.ndarray, points_b: np.ndarray) -> Optional[np.ndarray]:
     """
     For each point in A, find the index of nearest neighbour in B.
-    Returns idx array of shape (n_a,), or None if pairing isn't possible.
+    Returns idx array of shape (n_a,), or None when pairing is not possible.
     """
     if points_a.size == 0 or points_b.size == 0:
         return None
@@ -171,8 +171,8 @@ def _pearson_r(x: np.ndarray, y: np.ndarray) -> Optional[float]:
     y0 = y - float(np.mean(y))
     den = float(np.sqrt(np.sum(x0 * x0) * np.sum(y0 * y0)))
     # If there is no variance in one or both vectors, the correlation is undefined.
-    # For FoldKit reporting we return 0.0 (no linear relationship) instead of None,
-    # so callers don't drop EC fields and fall back to charge-complementarity.
+    # For FoldKit reporting return 0.0 (no linear relationship) instead of None,
+    # so callers do not drop EC fields and fall back to charge-complementarity.
     if not math.isfinite(den) or den <= 0.0:
         return 0.0
     r = float(np.sum(x0 * y0) / den)

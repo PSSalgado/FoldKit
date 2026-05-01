@@ -35,7 +35,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 
 _PRESET_COLUMNS: dict[str, list[str]] = {
@@ -287,9 +287,8 @@ def main() -> None:
         epilog="""
 Notes:
 - For CSV generation, JSON is preferred (more robust than parsing TXT).
-- If you already generated a combined TXT/JSON directly from lattice_packing_analyser.py
-  (by passing single paths to --output-txt / --output-json), you can point this script
-  at those outputs instead.
+- When a combined TXT/JSON was written directly from lattice_packing_analyser.py
+  (single paths to --output-txt / --output-json), pass those paths here instead of raw analyser inputs.
 """,
     )
     ap.add_argument(

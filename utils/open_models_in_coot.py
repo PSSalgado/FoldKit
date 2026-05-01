@@ -11,9 +11,9 @@ Two ways to select files:
      Recursive search under each directory; supports PDB and mmCIF.
 
 Examples:
-  python superimposition/open_models_in_coot.py models/
-  python superimposition/open_models_in_coot.py --filter set_a dir1/ dir2/
-  python superimposition/open_models_in_coot.py '*tag*LSQaligned2*ref*pdb' models/
+  python utils/open_models_in_coot.py models/
+  python utils/open_models_in_coot.py --filter set_a dir1/ dir2/
+  python utils/open_models_in_coot.py '*tag*LSQaligned2*ref*pdb' models/
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 
 
 def is_structure_file(file_path: Path) -> bool:
@@ -122,9 +122,9 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples (from repository root):
-  python superimposition/open_models_in_coot.py models/
-  python superimposition/open_models_in_coot.py --filter set_a dir1/ dir2/
-  python superimposition/open_models_in_coot.py '*model_*.cif' /path/to/search
+  python utils/open_models_in_coot.py models/
+  python utils/open_models_in_coot.py --filter set_a dir1/ dir2/
+  python utils/open_models_in_coot.py '*model_*.cif' /path/to/search
 """,
     )
     ap.add_argument(

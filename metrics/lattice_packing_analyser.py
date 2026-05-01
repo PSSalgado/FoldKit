@@ -50,7 +50,7 @@ except Exception:
     PDBParser = None  # type: ignore[assignment]
     BIOPYTHON_AVAILABLE = False
 
-from cli_log import add_log_args, setup_log_from_args
+from utils.cli_log import add_log_args, setup_log_from_args
 from metrics.interface_analyser_base import collect_structure_paths, filter_paths_by_patterns
 
 
@@ -240,13 +240,13 @@ def analyse_lattice_packing(
 
     if source in ("auto", "cryst1") and cryst1:
         v = _unit_cell_volume_a3(cryst1)
-        # Merge defaults first so they can't overwrite computed volume fields.
+        # Merge defaults first so they cannot overwrite computed volume fields.
         vol_meta = {**vol_meta, "source": "cryst1", "volume_a3": float(v), "cryst1": cryst1}
     elif source == "cryst1" and not cryst1:
         return {"error": "volume_source=cryst1 but CRYST1 record not found"}
     else:
         bbox = _bbox_volume_a3(coords_arr, pad_a=bbox_pad_a)
-        # Merge defaults first so they can't overwrite computed bbox volume.
+        # Merge defaults first so they cannot overwrite computed bbox volume.
         vol_meta = {**vol_meta, "source": "bbox", **bbox}
 
     volume_a3 = float(vol_meta.get("volume_a3") or 0.0)

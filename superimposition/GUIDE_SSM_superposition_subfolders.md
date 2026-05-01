@@ -68,7 +68,7 @@ Use **`superimpose_coot_SSM.py`** with **`--ref-chain`** and/or **`--model-chain
 python superimposition/superimpose_coot_SSM.py --ref-chain=B --model-chain=B --filter=set_a "$REFERENCE" "$ROOT_FOLDER"
 ```
 
-- You will be prompted if `SSMaligned2_<ref_name>/` already exists (files may be overwritten).
+- A confirmation prompt appears when `SSMaligned2_<ref_name>/` already exists (files may be overwritten).
 - Coot will open, run the script, and the log is written automatically.
 
 **Result of Step 2:**

@@ -81,7 +81,7 @@ def write_equivalences_tsv(path: str, equivs) -> None:
             f.write(f"{ca!s}\t{int(ra)}\t{ia!s}\t{cb!s}\t{int(rb)}\t{ib!s}\n")
 
 
-def normalize_equivalences(equivs, coords_A, coords_B):
+def normalise_equivalences(equivs, coords_A, coords_B):
     """
     Convert equivalences to keys that exist in coords_A and coords_B.
     For single-chain: (chain, resnum, icode) may use ' ' for chain; match by resnum.

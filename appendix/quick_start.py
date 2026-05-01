@@ -6,10 +6,15 @@ Quick Start Guide for Crystal Packing Analysis
 This script demonstrates basic usage of the crystal packing analysis pipeline.
 """
 
+import os
 import sys
 from pathlib import Path
 
-from cli_log import setup_log_from_argv
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from utils.cli_log import setup_log_from_argv
 
 _argv_no_log, _ = setup_log_from_argv(
     script_path=__file__,
@@ -85,7 +90,7 @@ def main():
     print("NEXT STEPS:")
     print("="*50)
     print("\n1. Install dependencies: pip install -r requirements.txt")
-    print("2. Test with your PDB files")
+    print("2. Test with representative structure files")
     print("3. Check README.md for detailed documentation")
     print("4. Customise analysis parameters as needed")
     

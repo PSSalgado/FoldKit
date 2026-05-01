@@ -12,7 +12,7 @@ if _REPO_ROOT not in sys.path:
 
 from superimposition.superimpose_pattern_match import find_ref_model_matches
 
-from cli_log import setup_log_from_argv
+from utils.cli_log import setup_log_from_argv
 
 _argv_no_log, _ = setup_log_from_argv(
     script_path=__file__,
@@ -141,7 +141,7 @@ reference_chain = chain_ids(reference_mol)[0]
 ref_name = os.path.splitext(os.path.basename("{0}"))[0]
 graphics_to_ca_representation(reference_mol)
 
-# Create output directory if it doesn't exist
+# Create output directory if absent
 if not os.path.exists("{1}"):
     os.makedirs("{1}")
 
@@ -227,7 +227,7 @@ set_nomenclature_errors_on_read("ignore")
 # Turn off symmetry display
 set_show_symmetry_master(0)
 
-# Create output directory if it doesn't exist
+# Create output directory if absent
 if not os.path.exists("{0}"):
     os.makedirs("{0}")
 
@@ -1219,7 +1219,7 @@ def main():
             continue
         model_files.extend(dir_models)
     
-    # Remove reference file from the list if it's in the input directories (one-to-many mode only)
+    # Remove the reference file from the list when present in the input directories (one-to-many mode only)
     if reference_file:
         reference_name = os.path.basename(reference_file)
         model_files = [f for f in model_files if os.path.basename(f) != reference_name]
