@@ -27,7 +27,7 @@ import argparse
 import math
 import os
 import sys
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -36,6 +36,14 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from utils.cli_log import add_log_args, setup_log_from_args
+
+try:
+    from scipy.spatial import cKDTree
+
+    _HAVE_CKDTREE = True
+except Exception:
+    cKDTree = None  # type: ignore[assignment]
+    _HAVE_CKDTREE = False
 
 try:
     from Bio.PDB.PDBParser import PDBParser
@@ -90,6 +98,54 @@ def _charges_for_chain_atoms(chain) -> Tuple[np.ndarray, np.ndarray]:
     return np.vstack(coords), np.asarray(charges, dtype=float)
 
 
+def _atom_sort_key(atom: Any) -> tuple:
+    c = np.asarray(atom.coord, dtype=float)
+    serial = getattr(atom, "serial", None)
+    try:
+        s_int = int(serial) if serial is not None else 0
+    except Exception:
+        s_int = 0
+    return (float(c[0]), float(c[1]), float(c[2]), s_int)
+
+
+def _subsample_atoms(atoms: List, max_n: int) -> List:
+    """Deterministic subsample: exactly ``min(max_n, len(atoms))`` atoms when ``max_n > 0``."""
+    if max_n <= 0:
+        return []
+    n = len(atoms)
+    if n <= max_n:
+        return list(atoms)
+    sa = sorted(atoms, key=_atom_sort_key)
+    k = max_n
+    if k == 1:
+        return [sa[n // 2]]
+    # Spread k picks across [0, n-1]; ``i * (n-1) // (k-1)`` yields k distinct indices when k <= n.
+    indices = [i * (n - 1) // (k - 1) for i in range(k)]
+    return [sa[j] for j in indices]
+
+
+def _limit_contact_atom_sets(
+    a_atoms: List,
+    b_atoms: List,
+    max_total: Optional[int],
+) -> Tuple[List, List]:
+    """Cap total contact atoms for EC surface sampling (deterministic)."""
+    if max_total is None:
+        return a_atoms, b_atoms
+    na, nb = len(a_atoms), len(b_atoms)
+    if na + nb <= max_total:
+        return a_atoms, b_atoms
+    if na == 0 or nb == 0:
+        return a_atoms, b_atoms
+    # Proportional split, at least one atom per side when both non-empty.
+    ta = max(1, min(na, int(round(max_total * na / float(na + nb)))))
+    tb = max_total - ta
+    tb = max(1, min(nb, tb))
+    ta = max_total - tb
+    ta = max(1, min(na, ta))
+    return _subsample_atoms(a_atoms, ta), _subsample_atoms(b_atoms, tb)
+
+
 def _contact_atoms(chain_a, chain_b, contact_distance: float) -> Tuple[List, List]:
     """
     Return contact heavy atoms on A and B within `contact_distance` (Å), based on
@@ -131,6 +187,11 @@ def _pair_facing_points(points_a: np.ndarray, points_b: np.ndarray) -> Optional[
     """
     if points_a.size == 0 or points_b.size == 0:
         return None
+    if _HAVE_CKDTREE and cKDTree is not None:
+        tree = cKDTree(points_b)
+        _, idx = tree.query(points_a, k=1)
+        idx = np.asarray(idx, dtype=int).reshape(-1)
+        return idx
     idx = np.empty((points_a.shape[0],), dtype=int)
     for i in range(points_a.shape[0]):
         d2 = np.sum((points_b - points_a[i]) ** 2, axis=1)
@@ -154,11 +215,24 @@ def _coulomb_potential(
         return np.zeros((sample_points.shape[0],), dtype=float)
     eps = float(epsilon_r) if float(epsilon_r) > 0 else 4.0
     rmin = float(r_min) if float(r_min) > 0 else 1.0
-    out = np.zeros((sample_points.shape[0],), dtype=float)
-    for i, p in enumerate(sample_points):
-        r = np.linalg.norm(charge_coords - p[None, :], axis=1)
+    p_ct = sample_points.shape[0]
+    c_ct = charge_coords.shape[0]
+    max_elems = 4_000_000
+    out = np.zeros((p_ct,), dtype=float)
+    if p_ct * c_ct <= max_elems:
+        diff = sample_points[:, None, :] - charge_coords[None, :, :]
+        r = np.linalg.norm(diff, axis=2)
         r = np.maximum(r, rmin)
-        out[i] = float(np.sum(charge_values / (eps * r)))
+        out = np.sum(charge_values / (eps * r), axis=1)
+        return np.asarray(out, dtype=float)
+
+    row_chunk = max(1, max_elems // max(1, c_ct))
+    for start in range(0, p_ct, row_chunk):
+        end = min(start + row_chunk, p_ct)
+        diff = sample_points[start:end, None, :] - charge_coords[None, :, :]
+        r = np.linalg.norm(diff, axis=2)
+        r = np.maximum(r, rmin)
+        out[start:end] = np.sum(charge_values / (eps * r), axis=1)
     return out
 
 
@@ -186,6 +260,7 @@ def compute_ec_complementarity_detailed(
     contact_distance: float = 5.0,
     epsilon_r: float = 4.0,
     r_min: float = 1.0,
+    ec_max_contact_points: Optional[int] = None,
 ) -> Dict[str, object]:
     """
     Compute an EC correlation score for a chain pair.
@@ -197,8 +272,12 @@ def compute_ec_complementarity_detailed(
     - r: correlation coefficient (float) or None if not computable
     - n_pairs: number of facing point pairs used (int)
     - details: small diagnostics dict
+
+    ec_max_contact_points: optional cap on contact atoms used as surface samples (both chains).
     """
     a_atoms, b_atoms = _contact_atoms(chain_a, chain_b, float(contact_distance))
+    na_raw, nb_raw = len(a_atoms), len(b_atoms)
+    a_atoms, b_atoms = _limit_contact_atom_sets(a_atoms, b_atoms, ec_max_contact_points)
     if not a_atoms or not b_atoms:
         return {"r": None, "n_pairs": 0, "details": {"reason": "no_contact_atoms"}}
 
@@ -214,16 +293,22 @@ def compute_ec_complementarity_detailed(
     phi_a = _coulomb_potential(pts_a, coords_b, q_b, epsilon_r=epsilon_r, r_min=r_min)
     phi_b = _coulomb_potential(pts_b[nn], coords_a, q_a, epsilon_r=epsilon_r, r_min=r_min)
     r = _pearson_r(phi_a, -phi_b)
+    details = {
+        "n_contact_atoms_a": int(len(a_atoms)),
+        "n_contact_atoms_b": int(len(b_atoms)),
+        "n_contact_atoms_a_raw": int(na_raw),
+        "n_contact_atoms_b_raw": int(nb_raw),
+        "epsilon_r": float(epsilon_r),
+        "r_min": float(r_min),
+        "charge_model": "residue_sign_uniform_over_heavy_atoms",
+        "pairing_backend": "cKDTree" if _HAVE_CKDTREE else "numpy_brute",
+    }
+    if ec_max_contact_points is not None:
+        details["ec_max_contact_points"] = int(ec_max_contact_points)
     return {
         "r": r,
         "n_pairs": int(phi_a.size),
-        "details": {
-            "n_contact_atoms_a": int(len(a_atoms)),
-            "n_contact_atoms_b": int(len(b_atoms)),
-            "epsilon_r": float(epsilon_r),
-            "r_min": float(r_min),
-            "charge_model": "residue_sign_uniform_over_heavy_atoms",
-        },
+        "details": details,
     }
 
 
@@ -238,10 +323,11 @@ def analyze_structure_ec(
     focus_chains: Optional[Sequence[str]] = None,
     mode: str = "full",
     contact_distance: float = 5.0,
+    ec_max_contact_points: Optional[int] = None,
 ) -> Dict[str, object]:
     """
     Structure-level driver used by the CLI.
-    Returns a dict with `interfaces`: list of chain-pair results.
+    Returns dict with `interfaces`: list of chain-pair results.
     """
     if not BIOPYTHON_AVAILABLE or PDBParser is None:
         return {"error": "BioPython not available", "interfaces": []}
@@ -255,12 +341,16 @@ def analyze_structure_ec(
         fs = {str(c).strip() for c in focus_chains if str(c).strip()}
         chains = [c for c in chains if c.id in fs]
 
+    ec_kw = {"contact_distance": float(contact_distance)}
+    if ec_max_contact_points is not None:
+        ec_kw["ec_max_contact_points"] = int(ec_max_contact_points)
+
     interfaces = []
     for i in range(len(chains)):
         for j in range(i + 1, len(chains)):
             ca = chains[i]
             cb = chains[j]
-            d = compute_ec_complementarity_detailed(ca, cb, contact_distance=float(contact_distance))
+            d = compute_ec_complementarity_detailed(ca, cb, **ec_kw)
             interfaces.append(
                 {
                     "chain_a": ca.id,
@@ -310,6 +400,16 @@ Examples (from repository root):
         ),
     )
     parser.add_argument(
+        "--ec-max-contact-points",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Optional cap on contact heavy atoms used as EC surface samples (both chains combined). "
+            "Use on very large interfaces."
+        ),
+    )
+    parser.add_argument(
         "--output",
         "-o",
         metavar="FILE",
@@ -341,6 +441,7 @@ Examples (from repository root):
             args.input,
             focus_chains=focus_chains,
             mode=str(args.mode).strip().lower(),
+            ec_max_contact_points=getattr(args, "ec_max_contact_points", None),
         )
 
         # Minimal, stable text output: one line per interface.
@@ -368,4 +469,3 @@ Examples (from repository root):
 
 if __name__ == "__main__":
     main()
-

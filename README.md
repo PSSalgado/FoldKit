@@ -958,6 +958,20 @@ python metrics/interface_analyser_lattice_charge.py expanded_assembly.pdb --refe
 python metrics/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
 ```
 
+**Two-phase run (`--phase sasa` then `--phase ec`).** Default **`--phase full`** runs SASA/BSA and EC in one process (same definitions). Split when **wall-clock** is the bottleneck on **very large** multi-chain assemblies (atom count high enough that one **full-model** SASA pass dominates runtime), under **HPC session limits**, or when you want EC deferred until after an overnight SASA-only job. Phase **`sasa`** writes a JSON **`--sidecar-out`** artifact; phase **`ec`** reads **`--sidecar`** and parses the PDB once for chains while reusing stored BSA and lattice SASA summary fields—no duplicate Shrake–Rupley for the whole assembly. Requirements:
+
+- **Identical PDB bytes** as recorded by SHA-256 in the sidecar (same path optional).
+- **Same** `--reference-chain`, `--chains`, `--skip-accessibility-sasa`, `--ec-max-contact-points`, and implicit contact distance as phase **sasa**.
+
+Phased mode expects **exactly one** structure path per invocation.
+
+```bash
+python metrics/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A --phase sasa \
+  --sidecar-out lattice_ec_sidecar.json -o lattice_sasa.txt
+python metrics/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A --phase ec \
+  --sidecar lattice_ec_sidecar.json -o lattice_ec.txt
+```
+
 #### Lattice entrypoints (reference-chain reports)
 
 For multi-copy coordinate models, use the lattice interface entrypoints:

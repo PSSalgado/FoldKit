@@ -20,13 +20,16 @@ https://biopython.org/wiki/Interface_Analysis
 
 import copy
 import glob
+import math
 import os
 import sys
-import numpy as np
-from typing import Any
+import threading
 import warnings
-import math
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 try:
     from Bio.PDB.PDBParser import PDBParser
@@ -59,6 +62,26 @@ H_BOND_MAX = 3.5
 ELECTROSTATIC_MAX = 5.0
 HYDROPHOBIC_MIN, HYDROPHOBIC_MAX = 3.5, 4.5
 VDW_MAX = 5.0
+
+
+def _foldkit_interface_workers() -> int:
+    """
+    Parallel worker count for pairwise interface analysis and EC loops.
+
+    Environment variable ``FOLDKIT_INTERFACE_WORKERS``:
+    - unset or invalid: 1 (sequential, backward compatible)
+    - integer >= 2: cap at 64
+    """
+    raw = os.environ.get("FOLDKIT_INTERFACE_WORKERS", "").strip()
+    if not raw:
+        return 1
+    try:
+        n = int(raw)
+    except ValueError:
+        return 1
+    if n <= 1:
+        return 1
+    return min(n, 64)
 
 
 def _contact_within_limit(contact_type: str, distance: float) -> bool:
@@ -149,7 +172,7 @@ def _model_polymer_res_atom_mass(model: Any) -> tuple[int, int, float]:
 class InterfaceAnalyser:
     """Analyser for protein-protein interfaces in crystal structures."""
 
-    def __init__(self, contact_distance=5.0):
+    def __init__(self, contact_distance=5.0, *, skip_accessibility_sasa: bool = False):
         """
         Initialise the interface analyser.
 
@@ -157,6 +180,9 @@ class InterfaceAnalyser:
         -----------
         contact_distance : float
             Maximum distance for considering atoms in contact (Å)
+        skip_accessibility_sasa : bool
+            When True, skip per-residue SASA in the full model used only for contact-residue
+            accessibility summaries (faster on large assemblies; those fields reflect missing SASA).
         """
         if BIOPYTHON_AVAILABLE and PDBParser is not None:
             self.parser = PDBParser(QUIET=True)
@@ -164,6 +190,8 @@ class InterfaceAnalyser:
             self.parser = None
 
         self.contact_distance = contact_distance
+        self.skip_accessibility_sasa = bool(skip_accessibility_sasa)
+        self._sasa_cache_lock = threading.Lock()
 
         # Atomic radii for surface area calculations (Å)
         self.atomic_radii = {
@@ -190,11 +218,11 @@ class InterfaceAnalyser:
             compute lattice-style metrics: SASA of that chain alone vs sum of its
             per-residue SASA in the full model (all chains occluding), and
             fraction of reference residues with a cross-chain neighbour within
-            contact_distance. Pairwise interface totals are computed twice:
-            ``summary_all_chains`` / ``all_*`` fields aggregate **every**
-            chain pair in the file (subject to ``focus_chains``); the top-level
-            ``summary`` scalars remain **reference-chain-filtered** for backwards
-            compatibility (interfaces involving the reference chain only).
+            contact_distance. Normally pairwise totals are computed twice so
+            ``summary_all_chains`` / ``all_*`` aggregate **every** chain pair (subject to
+            ``focus_chains``) while top-level ``summary`` stays reference-chain-filtered.
+            When ``focus_chains`` is exactly ``{reference_chain_id}``, both summaries use the
+            same pair list and only one pairwise pass is run.
             
         Returns:
         --------
@@ -222,7 +250,11 @@ class InterfaceAnalyser:
             
             if len(chains) < 2:
                 return {'error': 'Need at least 2 chains for interface analysis'}
-            
+
+            # Cleared each structure load so cached SASA maps never leak stale geometry between runs.
+            self._model_residue_sasa_cache = {}
+            self._chain_isolated_sasa_cache: dict[int, float | None] = {}
+
             def _analyse_pairs(*, reference_filter: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
                 """
                 Analyse interfaces for either:
@@ -236,6 +268,7 @@ class InterfaceAnalyser:
                 interface_count = 0
                 rmsd_interface_count = 0
 
+                pair_specs: list[tuple[Any, Any, Any]] = []
                 for i, chain1 in enumerate(chains):
                     for j, chain2 in enumerate(chains):
                         if i >= j:  # Avoid duplicates and self-comparison
@@ -248,19 +281,33 @@ class InterfaceAnalyser:
                         if chain1.parent is not chain2.parent:
                             continue
                         model = chain1.parent
-                        interface_data = self._analyse_pairwise_interface(chain1, chain2, model)
+                        pair_specs.append((chain1, chain2, model))
 
-                        if interface_data['contact_count'] > 0 or interface_data.get('buried_surface_area', 0) > 0:
-                            interface_data['chain_pair'] = f"{chain1.id}-{chain2.id}"
-                            out_intfs.append(interface_data)
+                workers_iface = _foldkit_interface_workers()
+                if workers_iface <= 1 or len(pair_specs) <= 1:
+                    interface_rows = [
+                        self._analyse_pairwise_interface(c1, c2, m) for (c1, c2, m) in pair_specs
+                    ]
+                else:
+                    def _iface_job(spec: tuple[Any, Any, Any]) -> dict[str, Any]:
+                        c1, c2, m = spec
+                        return self._analyse_pairwise_interface(c1, c2, m)
 
-                            total_buried_area += float(interface_data.get('buried_surface_area', 0) or 0.0)
-                            total_contact_area += float(interface_data.get('contact_area', 0) or 0.0)
-                            rmsd_val = interface_data.get('interface_rmsd_ca')
-                            if rmsd_val is not None and isinstance(rmsd_val, (int, float)):
-                                total_interface_rmsd += float(rmsd_val)
-                                rmsd_interface_count += 1
-                            interface_count += 1
+                    with ThreadPoolExecutor(max_workers=workers_iface) as pool:
+                        interface_rows = list(pool.map(_iface_job, pair_specs))
+
+                for interface_data, (chain1, chain2, _m) in zip(interface_rows, pair_specs):
+                    if interface_data['contact_count'] > 0 or interface_data.get('buried_surface_area', 0) > 0:
+                        interface_data['chain_pair'] = f"{chain1.id}-{chain2.id}"
+                        out_intfs.append(interface_data)
+
+                        total_buried_area += float(interface_data.get('buried_surface_area', 0) or 0.0)
+                        total_contact_area += float(interface_data.get('contact_area', 0) or 0.0)
+                        rmsd_val = interface_data.get('interface_rmsd_ca')
+                        if rmsd_val is not None and isinstance(rmsd_val, (int, float)):
+                            total_interface_rmsd += float(rmsd_val)
+                            rmsd_interface_count += 1
+                        interface_count += 1
 
                 summary0: dict[str, Any] = {
                     'total_interfaces': int(interface_count),
@@ -272,10 +319,18 @@ class InterfaceAnalyser:
                 }
                 return out_intfs, summary0
 
-            # Always compute an all-chains summary (subject to focus_set), plus the
-            # reference-chain subset if a reference chain was provided.
-            interfaces_all, summary_all = _analyse_pairs(reference_filter=None)
-            interfaces_ref, summary_ref = _analyse_pairs(reference_filter=ref_id or None)
+            # All-chains summary (subject to focus_set) plus reference-chain subset when given.
+            # When focus is exactly {reference chain}, enumerating pairs with vs without reference_filter
+            # yields the same set — skip duplicate expensive pairwise passes.
+            single_focus_matches_ref = bool(
+                ref_id and focus_set is not None and len(focus_set) == 1 and ref_id in focus_set
+            )
+            if single_focus_matches_ref:
+                interfaces_ref, summary_ref = _analyse_pairs(reference_filter=ref_id)
+                interfaces_all, summary_all = interfaces_ref, summary_ref
+            else:
+                interfaces_all, summary_all = _analyse_pairs(reference_filter=None)
+                interfaces_ref, summary_ref = _analyse_pairs(reference_filter=ref_id or None)
 
             # Backwards compatibility: keep `interfaces` as the reference-filtered list when
             # reference_chain_id is set; otherwise include all interfaces.
@@ -416,21 +471,41 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
     McCoy, Epa & Colman (1997) J Mol Biol 268:570–584. DOI: 10.1006/jmbi.1997.0987.
     """
 
-    def __init__(self, contact_distance=5.0, ec_mode: str = "full"):
-        super().__init__(contact_distance=contact_distance)
+    def __init__(
+        self,
+        contact_distance=5.0,
+        ec_mode: str = "full",
+        *,
+        skip_accessibility_sasa: bool = False,
+        ec_max_contact_points: int | None = None,
+    ):
+        super().__init__(
+            contact_distance=contact_distance,
+            skip_accessibility_sasa=skip_accessibility_sasa,
+        )
         mode = (ec_mode or "full").strip().lower()
         self.ec_mode = mode
         self._ec_detail_fn = None
+        self.ec_max_contact_points = (
+            int(ec_max_contact_points) if ec_max_contact_points is not None else None
+        )
+        if self.ec_max_contact_points is not None and self.ec_max_contact_points < 4:
+            self.ec_max_contact_points = 4
 
         if mode != "full":
             raise ValueError("ec_mode must be 'full'")
 
         try:
-            from electrostatic_complementarity import compute_ec_complementarity_detailed
+            from metrics.electrostatic_complementarity import compute_ec_complementarity_detailed
 
             self._ec_detail_fn = compute_ec_complementarity_detailed
         except Exception:
-            self._ec_detail_fn = None
+            try:
+                from electrostatic_complementarity import compute_ec_complementarity_detailed  # type: ignore
+
+                self._ec_detail_fn = compute_ec_complementarity_detailed
+            except Exception:
+                self._ec_detail_fn = None
 
     def analyse_interfaces(self, pdb_file, focus_chains=None, reference_chain_id=None):
         return self.analyze_interfaces(
@@ -443,10 +518,17 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
     def _compute_lattice_charge_metrics(self, *args, **kwargs):
         return None
 
-    def analyze_interfaces(self, pdb_file, focus_chains=None, reference_chain_id=None):
-        results = super().analyse_interfaces(
+    def analyze_interfaces_sasa_only(self, pdb_file, focus_chains=None, reference_chain_id=None):
+        """SASA/BSA + lattice summaries only (no EC); for two-phase runs with JSON sidecar."""
+        return super().analyse_interfaces(
             pdb_file, focus_chains=focus_chains, reference_chain_id=reference_chain_id
         )
+
+    def apply_ec_phase(self, pdb_file, results, reference_chain_id=None):
+        """
+        Given a results dict from the SASA/BSA phase, parse ``pdb_file`` once for chains
+        and fill per-interface EC fields plus lattice EC summary (mutates ``results``).
+        """
         if "error" in results or self._ec_detail_fn is None or self.parser is None:
             return results
 
@@ -461,12 +543,33 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
                 chain_by_id[ch.id] = ch
 
         interfaces = results.get("interfaces", []) or []
-        for iface in interfaces:
-            c1 = chain_by_id.get(iface.get("chain1_id"))
-            c2 = chain_by_id.get(iface.get("chain2_id"))
+        ec_kw: dict[str, Any] = {"contact_distance": self.contact_distance}
+        if getattr(self, "ec_max_contact_points", None) is not None:
+            ec_kw["ec_max_contact_points"] = self.ec_max_contact_points
+
+        ec_by_pair: dict[tuple[str, str], dict] = {}
+
+        def _ec_job(idx_iface: tuple[int, dict[str, Any]]) -> tuple[int, dict[str, Any] | None]:
+            _idx, iface0 = idx_iface
+            c1 = chain_by_id.get(iface0.get("chain1_id"))
+            c2 = chain_by_id.get(iface0.get("chain2_id"))
             if c1 is None or c2 is None:
-                continue
-            d = self._ec_detail_fn(c1, c2, contact_distance=self.contact_distance)
+                return _idx, None
+            d0 = self._ec_detail_fn(c1, c2, **ec_kw)
+            if not isinstance(d0, dict):
+                return _idx, None
+            return _idx, d0
+
+        workers_ec = _foldkit_interface_workers()
+        ec_tasks = list(enumerate(interfaces))
+        if workers_ec <= 1 or len(ec_tasks) <= 1:
+            ec_outputs = [_ec_job(t) for t in ec_tasks]
+        else:
+            with ThreadPoolExecutor(max_workers=workers_ec) as pool:
+                ec_outputs = list(pool.map(_ec_job, ec_tasks))
+
+        for idx, d in ec_outputs:
+            iface = interfaces[idx]
             if not isinstance(d, dict):
                 continue
 
@@ -474,6 +577,10 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
             n_pairs = int(d.get("n_pairs", 0) or 0)
             iface["ec_r"] = r_val
             iface["ec_n_pairs"] = n_pairs
+
+            id1, id2 = iface.get("chain1_id"), iface.get("chain2_id")
+            if id1 is not None and id2 is not None:
+                ec_by_pair[tuple(sorted((str(id1), str(id2))))] = d
 
             bsa = float(iface.get("buried_surface_area", 0) or 0.0)
             if r_val is not None and bsa > 0:
@@ -520,7 +627,9 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
             partner = chain_by_id.get(pid)
             if partner is None:
                 continue
-            d = self._ec_detail_fn(ref_chain, partner, contact_distance=self.contact_distance)
+            d = ec_by_pair.get(tuple(sorted((ref_id, str(pid)))))
+            if not isinstance(d, dict):
+                d = self._ec_detail_fn(ref_chain, partner, **ec_kw)
             if not isinstance(d, dict):
                 continue
             r_val = d.get("r")
@@ -576,7 +685,13 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
         }
 
         return results
-    
+
+    def analyze_interfaces(self, pdb_file, focus_chains=None, reference_chain_id=None):
+        results = self.analyze_interfaces_sasa_only(
+            pdb_file, focus_chains=focus_chains, reference_chain_id=reference_chain_id
+        )
+        return self.apply_ec_phase(pdb_file, results, reference_chain_id)
+
     def _analyse_pairwise_interface(self, chain1, chain2, model):
         """
         Analyse interface between two chains using Biopython wiki approach:
@@ -617,9 +732,15 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
         results['contact_type_counts'] = type_counts
         results['hydrogen_bonds'] = type_counts.get('hydrogen_bond', 0)
 
+        ns_atoms2 = NeighborSearch(atoms2) if (NeighborSearch is not None and atoms2) else None
+        ns_atoms1 = NeighborSearch(atoms1) if (NeighborSearch is not None and atoms1) else None
         # Contact residues: NeighborSearch interface residues filtered by the same criteria (distance + type limits)
-        contact_residues1 = {r for r in interface_residues1 if self._residue_passes_contact_criteria(r, atoms2)}
-        contact_residues2 = {r for r in interface_residues2 if self._residue_passes_contact_criteria(r, atoms1)}
+        contact_residues1 = {
+            r for r in interface_residues1 if self._residue_passes_contact_criteria(r, atoms2, ns_atoms2)
+        }
+        contact_residues2 = {
+            r for r in interface_residues2 if self._residue_passes_contact_criteria(r, atoms1, ns_atoms1)
+        }
 
         # If NeighborSearch was unavailable or returned nothing, derive contact residues from the filtered contacts
         if (not contact_residues1 and not contact_residues2) and contacts:
@@ -631,8 +752,11 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
         buried_area = self._calculate_buried_surface_area(chain1, chain2, model)
         results['buried_surface_area'] = buried_area
 
-        # Optional per-residue SASA for accessibility; computed once per chain pair
-        residue_sasa = self._compute_residue_sasa_for_chains(model, (chain1.id, chain2.id))
+        # Optional per-residue SASA for accessibility; cached per model across chain pairs
+        if self.skip_accessibility_sasa:
+            residue_sasa = {}
+        else:
+            residue_sasa = self._compute_residue_sasa_for_chains(model, (chain1.id, chain2.id))
 
         # Interface RMSD (CA atoms) for matched contact residues, when possible
         interface_rmsd = self._calculate_interface_rmsd(chain1, chain2, contact_residues1, contact_residues2)
@@ -699,26 +823,57 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
 
         return results
     
-    def _residue_passes_contact_criteria(self, residue, other_chain_atoms):
+    def _residue_passes_contact_criteria(self, residue, other_chain_atoms, ns_other=None):
         """True if residue has at least one atom that, with some atom in other_chain_atoms, satisfies the same distance + type-specific criteria as the contact list."""
+        cutoff = float(self.contact_distance)
+        if ns_other is not None:
+            for atom in residue.get_atoms():
+                nearby = ns_other.search(atom.coord, cutoff, 'A')
+                if not nearby:
+                    continue
+                for other in nearby:
+                    d = float(np.linalg.norm(atom.coord - other.coord))
+                    if d <= cutoff:
+                        contact_type = self._classify_contact_type(atom, other)
+                        if _contact_within_limit(contact_type, d):
+                            return True
+            return False
         for atom in residue.get_atoms():
             for other in other_chain_atoms:
                 d = float(np.linalg.norm(atom.coord - other.coord))
-                if d <= self.contact_distance:
+                if d <= cutoff:
                     contact_type = self._classify_contact_type(atom, other)
                     if _contact_within_limit(contact_type, d):
                         return True
         return False
     
     def _find_contacts(self, atoms1, atoms2):
-        """Find all contacts between two sets of atoms."""
+        """Find all contacts between two sets of atoms (within ``contact_distance``)."""
         contacts = []
-        
-        # Simple O(n²) approach for smaller sets
+        if not atoms1 or not atoms2:
+            return contacts
+        cutoff = float(self.contact_distance)
+        if NeighborSearch is not None:
+            ns = NeighborSearch(atoms2)
+            for atom1 in atoms1:
+                nearby = ns.search(atom1.coord, cutoff, 'A')
+                if not nearby:
+                    continue
+                for atom2 in nearby:
+                    distance = float(np.linalg.norm(atom1.coord - atom2.coord))
+                    if distance <= cutoff:
+                        contacts.append({
+                            'atom1': atom1,
+                            'atom2': atom2,
+                            'distance': distance,
+                            'residue1': atom1.parent,
+                            'residue2': atom2.parent
+                        })
+            return contacts
         for atom1 in atoms1:
             for atom2 in atoms2:
                 distance = np.linalg.norm(atom1.coord - atom2.coord)
-                if distance <= self.contact_distance:
+                if distance <= cutoff:
                     contacts.append({
                         'atom1': atom1,
                         'atom2': atom2,
@@ -726,7 +881,6 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
                         'residue1': atom1.parent,
                         'residue2': atom2.parent
                     })
-        
         return contacts
 
     def _classify_contact_type(self, atom1, atom2):
@@ -781,9 +935,25 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
         """
         Sum per-residue SASA (Å²) for chain_id after Shrake–Rupley on a deepcopy
         of the full model (all chains present → mates occlude the probe).
+
+        Reuses ``_model_residue_sasa_cache`` when pairwise analysis already computed
+        full-model residue SASA (same geometry), avoiding a second assembly-wide SR pass.
         """
         if not SASA_AVAILABLE or ShrakeRupley is None:
             return None
+        # Reuse full-model residue SASA whenever present; independent of
+        # ``skip_accessibility_sasa`` (that flag only skips *computing* maps for accessibility).
+        mid = id(model)
+        with self._sasa_cache_lock:
+            cache = getattr(self, "_model_residue_sasa_cache", None)
+            if isinstance(cache, dict) and mid in cache:
+                full_map = cache[mid]
+                if any(cid == chain_id for cid, _ in full_map):
+                    return sum(
+                        float(v)
+                        for (cid, _rid), v in full_map.items()
+                        if cid == chain_id
+                    )
         try:
             model_copy = copy.deepcopy(model)
         except (RecursionError, TypeError):
@@ -1140,24 +1310,42 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
         """
         Shrake–Rupley SASA (Å²) for one chain alone (probe 1.4 Å, n_points=100).
         Returns None if SASA is unavailable or computation fails.
+
+        Memoised per chain object during ``analyse_interfaces`` so pairwise BSA does not
+        repeat isolated SASA for the same chain across many lattice partners.
         """
         if not SASA_AVAILABLE or ShrakeRupley is None or StructureClass is None or ModelClass is None:
             return None
-        try:
-            c_copy = copy.deepcopy(chain)
-        except (RecursionError, TypeError):
-            return None
-        try:
-            st = StructureClass("single")
-            m = ModelClass(0)
-            m.add(c_copy)
-            st.add(m)
-            sr_chain = ShrakeRupley(probe_radius=1.4, n_points=100)
-            sr_chain.compute(st, level='S')
-            val = getattr(st, 'sasa', None)
-            return float(val) if val is not None else None
-        except Exception:
-            return None
+        oid = id(chain)
+        icache_fast = getattr(self, "_chain_isolated_sasa_cache", None)
+        if isinstance(icache_fast, dict) and oid in icache_fast:
+            return icache_fast[oid]
+        with self._sasa_cache_lock:
+            icache = getattr(self, "_chain_isolated_sasa_cache", None)
+            if not isinstance(icache, dict):
+                icache = {}
+                self._chain_isolated_sasa_cache = icache
+            if oid in icache:
+                return icache[oid]
+            try:
+                c_copy = copy.deepcopy(chain)
+            except (RecursionError, TypeError):
+                icache[oid] = None
+                return None
+            try:
+                st = StructureClass("single")
+                m = ModelClass(0)
+                m.add(c_copy)
+                st.add(m)
+                sr_chain = ShrakeRupley(probe_radius=1.4, n_points=100)
+                sr_chain.compute(st, level='S')
+                val = getattr(st, 'sasa', None)
+                out = float(val) if val is not None else None
+                icache[oid] = out
+                return out
+            except Exception:
+                icache[oid] = None
+                return None
 
     def _calculate_buried_surface_area(self, chain1, chain2, _full_model):
         """
@@ -1393,29 +1581,46 @@ class InterfaceAnalyserEC(InterfaceAnalyser):
         Returns a dict keyed by (chain_id, residue.id) → SASA (Å²).
 
         Uses ShrakeRupley(level='R') when available; otherwise returns an empty dict.
+        One full-model Shrake–Rupley pass per model is cached on ``self._model_residue_sasa_cache``.
         """
+        if self.skip_accessibility_sasa:
+            return {}
         if not SASA_AVAILABLE or ShrakeRupley is None:
             return {}
+        wanted = frozenset(chain_ids)
         try:
-            # Work on a deepcopy of the model to avoid mutating the original and to keep
-            # per-residue SASA consistent with the full assembly geometry.
-            try:
-                model_copy = copy.deepcopy(model)
-            except (RecursionError, TypeError):
-                return {}
+            mid = id(model)
+            # All cache reads/writes for this model go through one lock so misses cannot race
+            # unlocked checks against fills from other threads.
+            with self._sasa_cache_lock:
+                cache = getattr(self, "_model_residue_sasa_cache", None)
+                if cache is None:
+                    cache = {}
+                    self._model_residue_sasa_cache = cache
 
-            sr = ShrakeRupley(probe_radius=1.4, n_points=100)
-            sr.compute(model_copy, level='R')
+                if mid in cache:
+                    full_map = cache[mid]
+                    return {k: v for k, v in full_map.items() if k[0] in wanted}
 
-            residue_sasa = {}
-            for chain in model_copy.get_chains():
-                if chain.id not in chain_ids:
-                    continue
-                for residue in chain.get_residues():
-                    sasa = getattr(residue, 'sasa', None)
-                    if sasa is not None:
-                        residue_sasa[(chain.id, residue.id)] = float(sasa)
-            return residue_sasa
+                try:
+                    model_copy = copy.deepcopy(model)
+                except (RecursionError, TypeError):
+                    # Memoise failure so other threads / pair jobs skip repeat deepcopy work,
+                    # and post-lock reads never assume cache[mid] exists without assignment.
+                    cache[mid] = {}
+                    return {}
+
+                sr = ShrakeRupley(probe_radius=1.4, n_points=100)
+                sr.compute(model_copy, level='R')
+
+                full_map = {}
+                for chain in model_copy.get_chains():
+                    for residue in chain.get_residues():
+                        sasa = getattr(residue, "sasa", None)
+                        if sasa is not None:
+                            full_map[(chain.id, residue.id)] = float(sasa)
+                cache[mid] = full_map
+                return {k: v for k, v in full_map.items() if k[0] in wanted}
         except Exception:
             return {}
 
@@ -1522,17 +1727,29 @@ def _run_analysis(
     focus_chains=None,
     reference_chain_id=None,
     summary_log=None,
+    *,
+    analyse_hook=None,
+    after_results=None,
 ):
-    """Run interface analysis on paths and write results to out_stream."""
+    """Run interface analysis on paths and write results to out_stream.
+
+    ``analyse_hook(analyser, pdb_file) -> results`` overrides the default
+    ``analyse_interfaces`` call (used for phased lattice EC runs).
+
+    ``after_results(pdb_file, results)`` runs after a successful report for each file.
+    """
     for i, pdb_file in enumerate(paths):
         if len(paths) > 1:
             print(f"\n{'='*50}\n[{i+1}/{len(paths)}] {os.path.basename(pdb_file)}\n{'='*50}", file=out_stream)
         else:
             print(f"Analysing interfaces in {pdb_file}...", file=out_stream)
 
-        results = analyser.analyse_interfaces(
-            pdb_file, focus_chains=focus_chains, reference_chain_id=reference_chain_id
-        )
+        if analyse_hook is not None:
+            results = analyse_hook(analyser, pdb_file)
+        else:
+            results = analyser.analyse_interfaces(
+                pdb_file, focus_chains=focus_chains, reference_chain_id=reference_chain_id
+            )
 
         if 'error' in results:
             print(f"Error: {results['error']}", file=out_stream)
@@ -1805,6 +2022,9 @@ def _run_analysis(
                     acc2 = interface.get('accessibility_chain2') or {}
                     print(f"  Accessibility {c1}: avg SASA={acc1.get('average_sasa', 0.0):.1f} Å²  accessible_fraction={acc1.get('accessible_fraction', 0.0):.2f}", file=out_stream)
                     print(f"  Accessibility {c2}: avg SASA={acc2.get('average_sasa', 0.0):.1f} Å²  accessible_fraction={acc2.get('accessible_fraction', 0.0):.2f}", file=out_stream)
+
+        if after_results is not None:
+            after_results(pdb_file, results)
 
     if len(paths) > 1:
         print(f"\nDone. Processed {len(paths)} file(s).", file=out_stream)

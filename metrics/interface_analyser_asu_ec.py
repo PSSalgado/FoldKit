@@ -11,7 +11,12 @@ definition.
 import argparse
 import sys
 
-from metrics.interface_analyser_base import InterfaceAnalyserEC, _run_analysis, collect_structure_paths
+from metrics.interface_analyser_base import (
+    InterfaceAnalyserEC,
+    _foldkit_interface_workers,
+    _run_analysis,
+    collect_structure_paths,
+)
 
 from utils.cli_log import add_log_args, setup_log_from_args
 
@@ -42,6 +47,21 @@ Examples (from repository root):
         metavar="IDS",
         help="Focus analysis on specific chain IDs (comma-separated).",
     )
+    parser.add_argument(
+        "--skip-accessibility-sasa",
+        action="store_true",
+        help=(
+            "Skip full-model per-residue SASA used only for contact-residue accessibility "
+            "in the report (faster on large assemblies)."
+        ),
+    )
+    parser.add_argument(
+        "--ec-max-contact-points",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Cap contact heavy atoms used as EC samples (both chains combined).",
+    )
     add_log_args(parser)
     args = parser.parse_args()
     log_setup = setup_log_from_args(
@@ -63,15 +83,22 @@ Examples (from repository root):
         print("Error: ASU mode expects one input structure; specify --output (-o) when passing multiple.", file=sys.stderr)
         raise SystemExit(1)
 
-    analyser = InterfaceAnalyserEC(ec_mode="full")
+    ec_cap = getattr(args, "ec_max_contact_points", None)
+    analyser = InterfaceAnalyserEC(
+        ec_mode="full",
+        skip_accessibility_sasa=bool(getattr(args, "skip_accessibility_sasa", False)),
+        ec_max_contact_points=int(ec_cap) if ec_cap is not None else None,
+    )
     out = sys.stdout
     if args.output:
         out = open(args.output, "w")
     try:
         out_desc = args.output if args.output else "stdout"
+        iw = _foldkit_interface_workers()
+        iw_note = f" parallel_workers={iw}" if iw > 1 else ""
         print(
             f"[FoldKit] interface (ASU, EC): inputs={len(paths)} focus_chains={focus_chains or 'ALL'} "
-            f"output={out_desc}",
+            f"output={out_desc}{iw_note}",
             file=sys.stderr,
             flush=True,
         )

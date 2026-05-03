@@ -51,6 +51,9 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Automated tests are kept out of this repository (local-only).
+/tests/
+
 # Translations
 *.mo
 *.pot
