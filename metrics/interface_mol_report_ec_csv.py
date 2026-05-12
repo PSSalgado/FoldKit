@@ -101,9 +101,11 @@ _RE_SUM_LAT_CONTACT_RES_FRAC = re.compile(
 )
 
 # --- lattice EC summary lines ---
-_RE_SUM_LAT_EC_R_BSA = re.compile(r"^\s+Lattice EC \(r, BSA-weighted Fisher-z\):\s*([\d.]+)\s*$")
+_RE_SUM_LAT_EC_R_BSA = re.compile(
+    r"^\s+Lattice EC \(r, BSA-weighted Fisher-z\):\s*(-?[\d.]+)\s*$"
+)
 _RE_SUM_LAT_EC_R_NP = re.compile(
-    r"^\s+Lattice EC \(r, n_pairs-weighted Fisher-z\):\s*([\d.]+)\s+\(total_n_pairs=(\d+)\)\s*$"
+    r"^\s+Lattice EC \(r, n_pairs-weighted Fisher-z\):\s*(-?[\d.]+)\s+\(total_n_pairs=(\d+)\)\s*$"
 )
 _RE_SUM_LAT_EC_D_BSA = re.compile(
     r"^\s+Lattice EC density \(BSA-weighted\):\s*([\d.eE+-]+)\s+r/Å²\s+\(per\s+(.+?)\)\s*$"
@@ -212,7 +214,6 @@ def _parse_interface_block(lines: list[str]) -> dict[str, Any]:
         if m:
             out["ec_density"] = float(m.group(1))
             out["ec_density_denominator"] = str(m.group(2)).strip()
-            out["ec_density_percent"] = float(m.group(1)) * 100.0
             continue
         if _RE_RMSD.search(line):
             m = _RE_RMSD.search(line)
@@ -717,7 +718,6 @@ _CSV_DETAILS_FIELDS = [
     "ec_r",
     "ec_n_pairs",
     "ec_density",
-    "ec_density_percent",
     "distance_min_A",
     "distance_max_A",
     "distance_avg_A",

@@ -3,8 +3,9 @@
 Matplotlib square-matrix heatmaps for FoldKit (RMSD, Dali Z, …).
 
 Used by ``rmsd_to_csv`` and ``dalilite_pairs`` without those entry points
-importing each other. Documented in the main ``README.md`` (``rmsd_to_csv.py`` and
-``dalilite_pairs.py`` sections) and in ``metrics/metrics_details.md`` Section 6.3.1.
+importing each other; :func:`add_per_metric_heatmap_override_args` extends the same CLI
+for multi-metric interface-matrix heatmaps. Documented in the main ``README.md``
+(``rmsd_to_csv.py`` and ``dalilite_pairs.py`` sections) and in ``metrics/metrics_details.md`` Section 6.3.1.
 CLI details: ``python ranking/rmsd_to_csv.py --help``,
 ``python ranking/dalilite_pairs.py --help``, and ``python utils/foldkit_heatmap.py --help``.
 """
@@ -15,6 +16,7 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Callable, Sequence
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
@@ -402,11 +404,23 @@ def make_boundary_norm_cmap(edges: list[float], cmap_name: str):
     return norm, listed
 
 
-def add_generic_heatmap_args(g, *, prefix: str = "heatmap-") -> None:
+def add_generic_heatmap_args(
+    g,
+    *,
+    prefix: str = "heatmap-",
+    default_colorbar_orientation: str = "vertical",
+    default_short_labels: bool = False,
+) -> None:
     """
     Add FoldKit-generic heatmap CLI options to an argparse group, with a prefix.
+
+    Optional defaults allow ``lattice_compare_batch`` to prefer horizontal colour bars and
+    short structure labels while preserving ``--no-heatmap-short-labels``.
     """
     p = str(prefix)
+    cbar_default = str(default_colorbar_orientation or "vertical").strip().lower()
+    if cbar_default not in ("vertical", "horizontal"):
+        cbar_default = "vertical"
     g.add_argument(f"--{p}cmap", default="viridis_r", metavar="NAME", help="Matplotlib colour map name.")
     g.add_argument(f"--{p}vmin", type=float, default=None, metavar="V", help="Colour scale floor (data units).")
     g.add_argument(f"--{p}vmax", type=float, default=None, metavar="V", help="Colour scale ceiling (data units).")
@@ -437,11 +451,16 @@ def add_generic_heatmap_args(g, *, prefix: str = "heatmap-") -> None:
         f"--{p}colorbar-orientation",
         f"--{p}colourbar-orientation",
         choices=("vertical", "horizontal"),
-        default="vertical",
+        default=cbar_default,
         help="Colour bar orientation.",
     )
     g.add_argument(f"--{p}y-axis-right", action="store_true", help="Put row tick labels on the right.")
-    g.add_argument(f"--{p}short-labels", action="store_true", help="Shorten structure axis labels.")
+    g.add_argument(
+        f"--{p}short-labels",
+        action=argparse.BooleanOptionalAction,
+        default=bool(default_short_labels),
+        help="Shorten structure axis labels (FoldKit convention). Use --no-heatmap-short-labels to disable.",
+    )
     g.add_argument(
         f"--{p}cbar-ticks",
         default=None,
@@ -502,6 +521,150 @@ def add_generic_heatmap_args(g, *, prefix: str = "heatmap-") -> None:
         default=1.65,
         metavar="F",
         help="Scale colour-bar strip thickness for readability.",
+    )
+
+
+def metric_float_map_from_cli(metric_choices: Sequence[str], items: list[str]) -> dict[str, float]:
+    """Parse ``METRIC=NUMBER`` tokens (repeatable) for per-metric vmin/vmax-style overrides."""
+    mc_set = frozenset(metric_choices)
+    out: dict[str, float] = {}
+    for raw in items:
+        item = (raw or "").strip()
+        if "=" not in item:
+            raise ValueError(f"Invalid token {raw!r}; expected METRIC=NUMBER.")
+        mk, vs = item.split("=", 1)
+        mk, vs = mk.strip(), vs.strip()
+        if mk not in mc_set:
+            raise ValueError(f"Unknown heatmap metric {mk!r} (choices: {', '.join(metric_choices)}).")
+        try:
+            out[mk] = float(vs)
+        except ValueError:
+            raise ValueError(f"Invalid numeric value in {raw!r}; expected METRIC=NUMBER.") from None
+    return out
+
+
+def metric_str_map_from_cli(
+    metric_choices: Sequence[str],
+    items: list[str],
+    *,
+    allowed: set[str] | frozenset[str] | None,
+    normalize_value: Callable[[str], str] | None = None,
+) -> dict[str, str]:
+    """
+    Parse ``METRIC=VALUE`` tokens (repeatable).
+
+    If ``allowed`` is set, the value must be a member (after ``normalize_value``).
+    If ``allowed`` is ``None``, any non-empty value is accepted (e.g. Matplotlib cmap names).
+    """
+    mc_set = frozenset(metric_choices)
+    out: dict[str, str] = {}
+    for raw in items:
+        item = (raw or "").strip()
+        if "=" not in item:
+            raise ValueError(f"Invalid token {raw!r}; expected METRIC=VALUE.")
+        mk, vs = item.split("=", 1)
+        mk, vs = mk.strip(), vs.strip()
+        if mk not in mc_set:
+            raise ValueError(f"Unknown heatmap metric {mk!r} (choices: {', '.join(metric_choices)}).")
+        if normalize_value is not None:
+            vs = normalize_value(vs)
+        if allowed is None:
+            if not vs:
+                raise ValueError(f"Empty value in {raw!r}.")
+        elif vs not in allowed:
+            raise ValueError(f"Invalid value {vs!r} for {mk!r} (allowed: {', '.join(sorted(allowed))}).")
+        out[mk] = vs
+    return out
+
+
+def metric_edges_map_from_cli(metric_choices: Sequence[str], items: list[str]) -> dict[str, list[float]]:
+    """Parse ``METRIC=V0,V1,…`` boundary edges (repeatable) using :func:`parse_boundaries_csv`."""
+    mc_set = frozenset(metric_choices)
+    out: dict[str, list[float]] = {}
+    for raw in items:
+        item = (raw or "").strip()
+        if "=" not in item:
+            raise ValueError(f"Invalid token {raw!r}; expected METRIC=V0,V1,…")
+        mk, rest = item.split("=", 1)
+        mk, rest = mk.strip(), rest.strip()
+        if mk not in mc_set:
+            raise ValueError(f"Unknown heatmap metric {mk!r} (choices: {', '.join(metric_choices)}).")
+        edges = parse_boundaries_csv(rest)
+        if len(edges) < 2:
+            raise ValueError(
+                f"Need at least two strictly distinct boundary edges for {mk!r} (got {rest!r})."
+            )
+        out[mk] = edges
+    return out
+
+
+def add_per_metric_heatmap_override_args(
+    g: argparse._ArgumentGroup,
+    metric_choices: Sequence[str],
+    *,
+    prefix: str = "heatmap-",
+) -> None:
+    """
+    Register repeatable ``--{prefix}cmap-by-metric``, ``vmin``/``vmax``/``scale``/``boundaries``/
+    ``diverging-center-by-metric`` flags for rectangular multi-metric heatmaps.
+
+    Generic scalar options live in :func:`add_generic_heatmap_args`; this only adds the
+    per-metric overrides used by interface-matrix scripts.
+    """
+    p = str(prefix)
+    g.add_argument(
+        f"--{p}cmap-by-metric",
+        action="append",
+        default=None,
+        metavar="METRIC=NAME",
+        help=(
+            f"Per-heatmap Matplotlib colormap (repeatable). METRIC must match --metrics names. "
+            f"Overrides --{p}cmap for that metric only."
+        ),
+    )
+    g.add_argument(
+        f"--{p}vmin-by-metric",
+        action="append",
+        default=None,
+        metavar="METRIC=V",
+        help=f"Per-heatmap vmin (repeatable). Overrides --{p}vmin for that metric.",
+    )
+    g.add_argument(
+        f"--{p}vmax-by-metric",
+        action="append",
+        default=None,
+        metavar="METRIC=V",
+        help=f"Per-heatmap vmax (repeatable). Overrides --{p}vmax for that metric.",
+    )
+    g.add_argument(
+        f"--{p}scale-by-metric",
+        action="append",
+        default=None,
+        metavar="METRIC=SCALE",
+        help=(
+            f"Per-heatmap scale (repeatable). SCALE choices match --{p}scale "
+            f"(linear, log10, log1p, clip_p95, clip_p98)."
+        ),
+    )
+    g.add_argument(
+        f"--{p}boundaries-by-metric",
+        action="append",
+        default=None,
+        metavar="METRIC=V0,V1,…",
+        help=(
+            f"Per-heatmap discrete colour buckets (repeatable): ascending edges; overrides "
+            f"--{p}boundaries for that metric."
+        ),
+    )
+    g.add_argument(
+        f"--{p}diverging-center-by-metric",
+        action="append",
+        default=None,
+        metavar="METRIC=none|median",
+        help=(
+            f"Per-heatmap diverging norm (repeatable): ``none`` or ``median`` "
+            f"(same semantics as --{p}diverging-center). Overrides the global setting for that metric only."
+        ),
     )
 
 

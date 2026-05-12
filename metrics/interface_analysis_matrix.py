@@ -27,7 +27,9 @@ Default matrices: ``bsa``, ``ec``, ``ec_density``, ``contacts`` (atom contact co
 ``--metrics`` when using EC-only inputs to avoid empty figures).
 
 Heatmap styling mirrors ``utils/foldkit_heatmap.py`` / ``ranking/rmsd_to_csv.py``
-(``--heatmap-cmap``, ``--heatmap-vmin`` / ``--heatmap-vmax``, ``--heatmap-diverging-center``,
+(``--heatmap-cmap``, per-metric overrides from ``utils/foldkit_heatmap.py`` such as
+``--heatmap-cmap-by-metric``, ``--heatmap-diverging-center-by-metric``,
+``--heatmap-vmin`` / ``--heatmap-vmax``, ``--heatmap-diverging-center``,
 ``--heatmap-colorbar-orientation``, ``--heatmap-short-labels``, colour-bar ticks, etc.).
 Use **`--heatmap-boundaries`** / **`--heatmap-boundaries-by-metric`** for discrete BSA-style buckets:
 comma-separated ascending edges define intervals; the colour-bar labels show each numeric range.
@@ -38,13 +40,18 @@ bar between the bulk and the dominant interface(s). A canonical chain pair is au
 an outlier when its **minimum BSA across structures** exceeds **`--heatmap-bsa-outlier-factor`**
 (default ``3``) times the median of the remaining cells; the cap is the rounded maximum of
 non-outlier cells. Override the auto rule with **`--heatmap-bsa-split-at VALUE`** (Å²). Cells
-below the cap use ``--heatmap-cmap`` and cells above use a contrasting gradient
+below the cap use the BSA colormap (``--heatmap-cmap-by-metric bsa=…`` if set, else
+``--heatmap-cmap`` from ``foldkit_heatmap``) and cells above use a contrasting gradient
 (**`--heatmap-bsa-above-cmap`**, default ``Reds``), so above-cap interfaces remain comparable
 to each other. Above-cap pairs are listed with their raw Å² values in a figure note (disable
 with **`--heatmap-bsa-no-outlier-note`**). For binned readouts use ``--heatmap-boundaries-by-metric
 bsa=…``; for log-compressed scales use ``--heatmap-scale-by-metric bsa=log1p``. Explicit
 ``--heatmap-vmax-by-metric bsa=…`` or ``--heatmap-boundaries-by-metric bsa=…`` settings take
 precedence over ``--heatmap-bsa-robust`` (a stderr warning is emitted).
+
+For a **median-centred diverging norm on EC only**, keep the global default linear norm and set
+``--heatmap-diverging-center-by-metric ec=median`` (and a diverging ``--heatmap-cmap-by-metric ec=…``
+if desired).
 
 Examples (repository root)::
 
@@ -68,6 +75,12 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from metrics.interface_matrix_heatmap_cli import (  # noqa: E402
+    DEFAULT_METRICS,
+    METRIC_CHOICES,
+    add_interface_matrix_heatmap_argument_group,
+    finalize_interface_matrix_heatmap_args,
+)
 from metrics.interface_mol_report_charge_csv import parse_charge_report_text  # noqa: E402
 from metrics.interface_mol_report_ec_csv import parse_ec_report_text  # noqa: E402
 
@@ -100,17 +113,6 @@ PER_IFACE_COLUMNS = (
     "ec_density_denominator",
     "ec_density_per_1000_A2",
 )
-
-METRIC_CHOICES: tuple[str, ...] = (
-    "bsa",
-    "ec",
-    "ec_density",
-    "contacts",
-    "charged_opposite",
-    "charged_same",
-)
-
-DEFAULT_METRICS: tuple[str, ...] = ("bsa", "ec", "ec_density", "contacts")
 
 _METRIC_FIELD = {
     "bsa": "buried_surface_area_A2",
@@ -550,85 +552,6 @@ def _pair_matrix_numpy(
     return arr
 
 
-_CELL_TEXT_FIELD_ALLOWED = frozenset((*PER_IFACE_COLUMNS, "same"))
-
-
-def _heatmap_cell_text_map_from_cli(items: list[str]) -> dict[str, str]:
-    """
-    Parse METRIC=FIELD tokens. FIELD must be 'same' or a per-interface CSV column name.
-    """
-    out: dict[str, str] = {}
-    for raw in items:
-        item = raw.strip()
-        if "=" not in item:
-            raise ValueError(f"Invalid --heatmap-cell-text {raw!r}; expected METRIC=FIELD.")
-        mk, fk = item.split("=", 1)
-        mk, fk = mk.strip(), fk.strip()
-        if mk not in METRIC_CHOICES:
-            raise ValueError(
-                f"Unknown heatmap metric {mk!r} in --heatmap-cell-text (choices: {', '.join(METRIC_CHOICES)})."
-            )
-        if fk not in _CELL_TEXT_FIELD_ALLOWED:
-            raise ValueError(
-                f"Unknown annotation field {fk!r} in --heatmap-cell-text "
-                f"(use 'same' or a per-interface CSV column name)."
-            )
-        out[mk] = fk
-    return out
-
-
-def _metric_float_map_from_cli(items: list[str]) -> dict[str, float]:
-    out: dict[str, float] = {}
-    for raw in items:
-        item = (raw or "").strip()
-        if "=" not in item:
-            raise ValueError(f"Invalid token {raw!r}; expected METRIC=NUMBER.")
-        mk, vs = item.split("=", 1)
-        mk, vs = mk.strip(), vs.strip()
-        if mk not in METRIC_CHOICES:
-            raise ValueError(f"Unknown heatmap metric {mk!r} (choices: {', '.join(METRIC_CHOICES)}).")
-        try:
-            out[mk] = float(vs)
-        except ValueError:
-            raise ValueError(f"Invalid numeric value in {raw!r}; expected METRIC=NUMBER.") from None
-    return out
-
-
-def _metric_str_map_from_cli(items: list[str], *, allowed: set[str]) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for raw in items:
-        item = (raw or "").strip()
-        if "=" not in item:
-            raise ValueError(f"Invalid token {raw!r}; expected METRIC=VALUE.")
-        mk, vs = item.split("=", 1)
-        mk, vs = mk.strip(), vs.strip()
-        if mk not in METRIC_CHOICES:
-            raise ValueError(f"Unknown heatmap metric {mk!r} (choices: {', '.join(METRIC_CHOICES)}).")
-        if vs not in allowed:
-            raise ValueError(f"Invalid value {vs!r} for {mk!r} (allowed: {', '.join(sorted(allowed))}).")
-        out[mk] = vs
-    return out
-
-
-def _metric_edges_map_from_cli(items: list[str]) -> dict[str, list[float]]:
-    from utils.foldkit_heatmap import parse_boundaries_csv  # noqa: E402
-
-    out: dict[str, list[float]] = {}
-    for raw in items:
-        item = (raw or "").strip()
-        if "=" not in item:
-            raise ValueError(f"Invalid token {raw!r}; expected METRIC=V0,V1,…")
-        mk, rest = item.split("=", 1)
-        mk, rest = mk.strip(), rest.strip()
-        if mk not in METRIC_CHOICES:
-            raise ValueError(f"Unknown heatmap metric {mk!r} (choices: {', '.join(METRIC_CHOICES)}).")
-        edges = parse_boundaries_csv(rest)
-        if len(edges) < 2:
-            raise ValueError(f"Need at least two strictly distinct boundary edges for {mk!r} (got {rest!r}).")
-        out[mk] = edges
-    return out
-
-
 def _write_per_interface_csv(path: str, rows: list[dict[str, Any]]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     fieldnames = list(PER_IFACE_COLUMNS)
@@ -784,7 +707,10 @@ def _write_heatmap(
         print(f"Warning: {exc}; using linear scale for {path!r}.", file=sys.stderr)
         lab_pre, lab_suf = "", ""
 
-    cmap_name = str(getattr(args, "heatmap_cmap", "viridis_r") or "viridis_r").strip()
+    cmap_by: dict[str, str] = getattr(args, "heatmap_cmap_by_metric", None) or {}
+    cmap_name = str(
+        cmap_by.get(metric_key) or getattr(args, "heatmap_cmap", "viridis_r") or "viridis_r"
+    ).strip()
 
     positive_only = metric_key == "bsa" and bool(getattr(args, "heatmap_bsa_positive_range", False))
     data_min, data_max = _data_range_finite(arr, positive_only=positive_only)
@@ -969,7 +895,12 @@ def _write_heatmap(
         if bsa_robust_active and bsa_robust_cap is not None:
             norm = make_heatmap_norm(disp_vmin, disp_vmax, "median", bsa_robust_cap)
         else:
-            dc_raw = str(getattr(args, "heatmap_diverging_center", "none") or "none").strip().lower()
+            dc_by = getattr(args, "heatmap_diverging_center_by_metric", None) or {}
+            dc_raw = str(
+                dc_by.get(metric_key)
+                or getattr(args, "heatmap_diverging_center", "none")
+                or "none"
+            ).strip().lower()
             vc_for_norm: float | None = None
             if dc_raw == "median":
                 vc_for_norm = _median_finite_2d(arr)
@@ -1302,197 +1233,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
-    hg = ap.add_argument_group(
-        "heatmap",
-        "Figure options (same spirit as utils/foldkit_heatmap.py and ranking/rmsd_to_csv.py).",
-    )
-    try:
-        from utils.foldkit_heatmap import add_generic_heatmap_args  # noqa: E402
-    except ImportError:
-        add_generic_heatmap_args = None
-    hg.add_argument(
-        "--heatmap-structures-x-axis",
-        action="store_true",
-        help="Transpose matrix plots/CSVs so structures are on x-axis and interfaces on y-axis.",
-    )
-    hg.add_argument(
-        "--heatmap-x-order",
-        default=None,
-        metavar="A,B,C,…",
-        help=(
-            "Comma-separated order for the x-axis labels (partial lists allowed). "
-            "Applies to structures when using --heatmap-structures-x-axis; otherwise applies to "
-            "interface canonical pairs."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-vmin-by-metric",
-        action="append",
-        default=None,
-        metavar="METRIC=V",
-        help="Per-heatmap vmin override (repeatable), e.g. --heatmap-vmin-by-metric bsa=0.",
-    )
-    hg.add_argument(
-        "--heatmap-vmax-by-metric",
-        action="append",
-        default=None,
-        metavar="METRIC=V",
-        help="Per-heatmap vmax override (repeatable), e.g. --heatmap-vmax-by-metric bsa=800.",
-    )
-    hg.add_argument(
-        "--heatmap-scale-by-metric",
-        action="append",
-        default=None,
-        metavar="METRIC=SCALE",
-        help=(
-            "Per-heatmap scale override (repeatable), e.g. --heatmap-scale-by-metric contacts=log1p. "
-            "SCALE choices match --heatmap-scale."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-boundaries-by-metric",
-        action="append",
-        default=None,
-        metavar="METRIC=V0,V1,…",
-        help=(
-            "Per-heatmap discrete colour buckets (repeatable): ascending edges V0,V1,… produce "
-            "len−1 intervals; colour-bar labels show each range. Overrides global --heatmap-boundaries "
-            "for that metric."
-        ),
-    )
-    if add_generic_heatmap_args is not None:
-        add_generic_heatmap_args(hg, prefix="heatmap-")
-    hg.add_argument(
-        "--heatmap-annotate-metrics",
-        nargs="*",
-        choices=list(METRIC_CHOICES),
-        default=[],
-        metavar="NAME",
-        help=(
-            "Draw one numeric label per cell on these heatmaps (repeatable metric names). "
-            "Defaults to the colour value; use --heatmap-cell-text to show a different CSV column."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-cell-text",
-        action="append",
-        default=None,
-        metavar="METRIC=FIELD",
-        help=(
-            "For heatmap METRIC, print FIELD in each cell (colour still follows that heatmap's metric). "
-            "FIELD is a per-interface CSV column name, or 'same' for the colour values (default when omitted). "
-            "Example: --heatmap-cell-text ec=ec_density_per_1000_A2 colours by EC (r) with EC per 1000 Å² labels. "
-            "Repeat the flag for multiple metrics."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-annotate-fmt",
-        default="{:.2f}",
-        metavar="FMT",
-        help="Format string for single-metric cell annotations (default: '{:.2f}').",
-    )
-    hg.add_argument(
-        "--heatmap-annotate-fontsize",
-        type=float,
-        default=7.0,
-        metavar="PT",
-        help="Font size for annotated heatmap cells (default: 7).",
-    )
-    hg.add_argument(
-        "--heatmap-bsa-positive-range",
-        action="store_true",
-        help=(
-            "For BSA heatmaps only: set default vmin/vmax from positive finite cells "
-            "(RMSD-style autoscale)."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-bsa-annotate-contacts",
-        action="store_true",
-        help=(
-            "Convenience: for the BSA heatmap, annotate cells with contact_count values "
-            "(colour still uses BSA). Equivalent to: --heatmap-annotate-metrics bsa "
-            "--heatmap-cell-text bsa=contact_count."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-bsa-robust",
-        action="store_true",
-        help=(
-            "BSA only: split the colour bar between the bulk and any dominant interface(s). A "
-            "canonical chain pair is auto-flagged as an outlier when its minimum BSA across "
-            "structures exceeds --heatmap-bsa-outlier-factor (default 3) times the median of "
-            "the remaining cells; the cap is the rounded max of non-outlier cells. Cells below "
-            "the cap use --heatmap-cmap; above use --heatmap-bsa-above-cmap (default Reds). "
-            "Above-cap pairs are listed in a figure note."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-bsa-outlier-factor",
-        type=float,
-        default=3.0,
-        metavar="K",
-        help=(
-            "Multiplier (> 1) for the auto outlier rule: a canonical chain pair is an outlier "
-            "when its min positive BSA across structures > K x median(remaining cells). "
-            "Default: 3.0."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-bsa-split-at",
-        type=float,
-        default=None,
-        metavar="VALUE",
-        help=(
-            "BSA only: explicit colour-bar split value (Å²). Wins over auto detection. Use "
-            "when the auto rule does not isolate the desired interface(s)."
-        ),
-    )
-    hg.add_argument(
-        "--heatmap-bsa-above-cmap",
-        default="Reds",
-        metavar="NAME",
-        help="Matplotlib colour map for cells above the BSA cap (default: Reds).",
-    )
-    hg.add_argument(
-        "--heatmap-bsa-no-outlier-note",
-        action="store_true",
-        help="Disable the figure-level note listing above-cap BSA pairs.",
-    )
+    add_interface_matrix_heatmap_argument_group(ap, METRIC_CHOICES)
     args = ap.parse_args(argv)
-    try:
-        args.heatmap_cell_text_map = _heatmap_cell_text_map_from_cli(list(args.heatmap_cell_text or []))
-    except ValueError as exc:
-        ap.error(str(exc))
-    try:
-        args.heatmap_vmin_by_metric = _metric_float_map_from_cli(list(args.heatmap_vmin_by_metric or []))
-        args.heatmap_vmax_by_metric = _metric_float_map_from_cli(list(args.heatmap_vmax_by_metric or []))
-        args.heatmap_scale_by_metric = _metric_str_map_from_cli(
-            list(args.heatmap_scale_by_metric or []),
-            allowed={"linear", "log10", "log1p", "clip_p95", "clip_p98"},
-        )
-        args.heatmap_boundaries_by_metric = _metric_edges_map_from_cli(
-            list(args.heatmap_boundaries_by_metric or [])
-        )
-    except ValueError as exc:
-        ap.error(str(exc))
-
-    from utils.foldkit_heatmap import parse_boundaries_csv as _parse_boundaries_csv_main  # noqa: E402
-
-    _gb_edges = _parse_boundaries_csv_main(getattr(args, "heatmap_boundaries", None))
-    if len(_gb_edges) == 1:
-        ap.error("--heatmap-boundaries needs at least two distinct comma-separated edge values.")
-
-    if bool(getattr(args, "heatmap_bsa_annotate_contacts", False)):
-        # Make sure BSA is in the annotation set.
-        ann = list(getattr(args, "heatmap_annotate_metrics", None) or [])
-        if "bsa" not in ann:
-            ann.append("bsa")
-        args.heatmap_annotate_metrics = ann
-        # Only set default if user didn't explicitly define bsa cell-text.
-        m = dict(getattr(args, "heatmap_cell_text_map", None) or {})
-        m.setdefault("bsa", "contact_count")
-        args.heatmap_cell_text_map = m
+    finalize_interface_matrix_heatmap_args(
+        args,
+        ap,
+        metric_choices=METRIC_CHOICES,
+        cell_text_allowed=frozenset((*PER_IFACE_COLUMNS, "same")),
+    )
 
     paths = _expand_inputs(list(args.reports))
     if not paths:

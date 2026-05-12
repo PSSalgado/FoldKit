@@ -376,6 +376,10 @@ def _merge_renumber(
     """
     Move all atoms from chain_from to chain_to; residue numbers on former chain_from
     continue after the maximum residue number on chain_to (integer resseq only).
+
+    If chain_to has no atoms yet, this is equivalent to renaming chain_from to chain_to
+    (same residue numbers), so --merge-map can build a target chain on the first FROM:TO
+    into that ID.
     """
     cf, ct = chain_from[:1], chain_to[:1]
     if cf == ct:
@@ -383,7 +387,7 @@ def _merge_renumber(
     if not _chain_has_atoms(lines, cf):
         return None, f"no ATOM/HETATM lines found for chain {cf!r}"
     if not _chain_has_atoms(lines, ct):
-        return None, f"chain {ct!r} has no atoms; use rename mode without --merge-renumber"
+        return _rename_chain_only(lines, cf, ct)
 
     max_a = _max_resseq_on_chain(lines, ct)
     min_b = _min_resseq_on_chain(lines, cf)
