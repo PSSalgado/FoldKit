@@ -80,9 +80,9 @@ def _normalize_packing_stem(stem: str) -> str:
 
 
 def _packing_row_stem(row: dict[str, Any]) -> str:
-    candidates: list[str] = []
     if row.get("structure_stem"):
-        candidates.append(str(row["structure_stem"]))
+        return str(row["structure_stem"]).strip()
+    candidates: list[str] = []
     if row.get("structure_basename"):
         candidates.append(_stem_from_any(str(row["structure_basename"])))
     inp = row.get("input") or ""

@@ -573,6 +573,7 @@ Examples (from repository root):
     combined_records = []
     combined_txt_f = None
     if combined_txt_path:
+        _ensure_parent_dir(combined_txt_path)
         combined_txt_f = open(combined_txt_path, "w", encoding="utf-8", newline="\n")
         combined_txt_f.write("FOLDKIT LATTICE PACKING (COMBINED REPORT)\n\n")
 
