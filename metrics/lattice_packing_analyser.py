@@ -556,7 +556,13 @@ Examples (from repository root):
         if warn:
             out_txt.write(f"\nWarning: {warn}\n")
 
+    def _ensure_parent_dir(path: str) -> None:
+        parent = os.path.dirname(os.path.abspath(path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
     def _write_txt_report(res0: dict, path_txt: str) -> None:
+        _ensure_parent_dir(path_txt)
         with open(path_txt, "w", encoding="utf-8", newline="\n") as out_txt:
             _write_txt_report_to_stream(res0, out_txt)
 
@@ -611,6 +617,7 @@ Examples (from repository root):
                 )
             elif out_json_template and "{}" in str(out_json_template):
                 out_json_path = str(out_json_template).replace("{}", stem)
+                _ensure_parent_dir(out_json_path)
                 with open(out_json_path, "w", encoding="utf-8", newline="\n") as f:
                     json.dump(res0, f, indent=2, sort_keys=True)
                     f.write("\n")
@@ -624,6 +631,7 @@ Examples (from repository root):
                 # SummaryLog (--log) does not tee stdout; write JSON to stdout unless --output-json is set.
                 out_json = sys.stdout
                 if out_json_template:
+                    _ensure_parent_dir(str(out_json_template))
                     out_json = open(str(out_json_template), "w", encoding="utf-8", newline="\n")
                 try:
                     json.dump(res0, out_json, indent=2, sort_keys=True)
@@ -656,6 +664,7 @@ Examples (from repository root):
             "n_structures": len(combined_records),
             "structures": combined_records,
         }
+        _ensure_parent_dir(combined_json_path)
         with open(combined_json_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(combined, f, indent=2, sort_keys=True)
             f.write("\n")

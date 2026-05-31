@@ -164,7 +164,7 @@ def add_interface_matrix_heatmap_argument_group(
             "canonical chain pair is auto-flagged as an outlier when its minimum BSA across "
             "structures exceeds --heatmap-bsa-outlier-factor (default 3) times the median of "
             "the remaining cells; the cap is the rounded max of non-outlier cells. Cells below "
-            "the cap use the BSA colormap (--heatmap-cmap-by-metric bsa=… if set, else "
+            "the cap use the BSA colour map (--heatmap-cmap-by-metric bsa=… if set, else "
             "--heatmap-cmap); above use --heatmap-bsa-above-cmap (default Reds). "
             "Above-cap pairs are listed in a figure note."
         ),

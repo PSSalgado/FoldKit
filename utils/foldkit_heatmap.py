@@ -618,7 +618,7 @@ def add_per_metric_heatmap_override_args(
         default=None,
         metavar="METRIC=NAME",
         help=(
-            f"Per-heatmap Matplotlib colormap (repeatable). METRIC must match --metrics names. "
+            f"Per-heatmap Matplotlib colour map (repeatable). METRIC must match --metrics names. "
             f"Overrides --{p}cmap for that metric only."
         ),
     )
@@ -1859,7 +1859,7 @@ def main(argv: list[str] | None = None) -> None:
         help="Output image path (.png, .svg, or .pdf).",
     )
     ap.add_argument("--title", default="Heatmap", help="Figure title.")
-    ap.add_argument("--cmap", default="viridis_r", help="Matplotlib colormap name.")
+    ap.add_argument("--cmap", default="viridis_r", help="Matplotlib colour map name (cmap).")
     ap.add_argument("--vmin", type=float, default=None, help="Colour scale floor (data units).")
     ap.add_argument("--vmax", type=float, default=None, help="Colour scale ceiling (data units).")
     ap.add_argument(

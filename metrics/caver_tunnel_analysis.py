@@ -12,28 +12,53 @@ Computes:
 - Optional rolling-window "local" values along the tunnel for colouring (applies to EC and hydropathy).
 - Hydropathy (Kyte–Doolittle) for residues lining each tunnel point.
 
-Examples (from repository root):
+Examples (from repository root; generic names per README):
   # Per-point CSV + PNG plot, coloured by EC.
-  python metrics/caver_tunnel_analysis.py /path/to/caver_output_dir \
-    --tunnel 26 --protein-pdb /path/to/protein.pdb --shell-a 3.0 --local-window 11 \
-    --color-by ec --output-csv tunnel_26_points.csv --plot-out tunnel_26_ec.png
+  python metrics/caver_tunnel_analysis.py /path/to/project/caver_output_dir \
+    --tunnel N --protein-pdb /path/to/project/model_01.pdb --shell-a 3.0 --local-window 11 \
+    --color-by ec --output-csv tunnel_N_points.csv --plot-out tunnel_N_ec.png
 
   # Per-point CSV + PNG plot, coloured by hydropathy
   # (orange = hydrophobic, white = neutral, green = hydrophilic).
-  python metrics/caver_tunnel_analysis.py /path/to/caver_output_dir \
-    --tunnel 26 --protein-pdb /path/to/protein.pdb --shell-a 3.0 \
-    --color-by hydropathy --output-csv tunnel_26_points.csv --plot-out tunnel_26_hydro.png
+  python metrics/caver_tunnel_analysis.py /path/to/project/caver_output_dir \
+    --tunnel N --protein-pdb /path/to/project/model_01.pdb --shell-a 3.0 \
+    --color-by hydropathy --output-csv tunnel_N_points.csv --plot-out tunnel_N_hydro.png
 
-  # Several Caver run directories: default CSV/PNG under each directory (tunnel_<N>_points.csv, etc.).
-  python metrics/caver_tunnel_analysis.py run_a/ run_b/ run_c/ \
-    --tunnel 26 --protein-pdb /path/to/protein.pdb --shell-a 3.0
+  # Several Caver run directories (batch mode): default CSV/PNG under each directory.
+  python metrics/caver_tunnel_analysis.py /path/to/project/caver_run_a /path/to/project/caver_run_b \
+    --tunnel N --protein-pdb /path/to/project/model_01.pdb --shell-a 3.0
 
-  # Same, but one shared protein per run and explicit paths get a per-run suffix (stem_<run_basename>.ext).
-  python metrics/caver_tunnel_analysis.py run_a/ run_b/ \
-    --tunnel 26 --protein-pdb /path/to/protein.pdb -o /path/to/out/points.csv --plot-out /path/to/out/fig.png
+  # Shared explicit paths with a per-run suffix (stem_<run_basename>.ext) when multiple CAVER_DIR are given.
+  python metrics/caver_tunnel_analysis.py /path/to/project/caver_run_a /path/to/project/caver_run_b \
+    --tunnel N --protein-pdb /path/to/project/model_01.pdb \
+    -o /path/to/project/out/points.csv --plot-out /path/to/project/out/fig.png
 
-  # Finer plot mesh (smoother fill): higher --plot-upsample (default 6), optional --plot-upsample-max 800.
-  # Report/plot local opening as diameter: add --diameter (2× Caver radius in CSV/plot/JSON).
+  # Summary table for a subset of tunnels (summary-only).
+  python metrics/caver_tunnel_analysis.py caver_output_dir \
+    --tunnels N,M,P --protein-pdb model_01.pdb --shell-a 3.0 --summary-only
+
+  # Full run: summary lists every tunnel; plot and per-point CSV are per selected tunnel.
+  python metrics/caver_tunnel_analysis.py caver_output_dir \
+    --tunnels N,M,P --protein-pdb model_01.pdb --shell-a 3.0 --color-by ec
+
+  # Full run for one tunnel (summary still includes all tunnels in the run directory).
+  python metrics/caver_tunnel_analysis.py caver_output_dir \
+    --tunnel N --protein-pdb model_01.pdb --color-by ec \
+    --output-csv tunnel_N_points.csv --plot-out tunnel_N_ec.png
+
+  # One structure, Caver outputs in different directories (one path per tunnel).
+  python metrics/caver_tunnel_analysis.py \
+    --protein-pdb model_01.pdb --shell-a 3.0 --color-by ec \
+    --tunnel-dir N caver_output_N --tunnel-dir M caver_output_M --tunnel-dir P caver_output_P
+
+  # Different structure per tunnel (--tunnel-pdb per cluster id).
+  python metrics/caver_tunnel_analysis.py --shell-a 3.0 --color-by ec \
+    --tunnel-dir N caver_N --tunnel-pdb N model_N.pdb \
+    --tunnel-dir M caver_M --tunnel-pdb M model_M.pdb
+
+  # Batch mode: same tunnel id(s) applied to each CAVER_DIR (legacy; multiple PDBs optional).
+  python metrics/caver_tunnel_analysis.py caver_run_a caver_run_b \
+    --all-tunnels --protein-pdb model_01.pdb --summary-only
 """
 
 from __future__ import annotations
@@ -46,7 +71,9 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
+
+WidthKind = Literal["diameter", "radius"]
 
 try:
     from Bio.PDB import PDBParser  # type: ignore
@@ -360,6 +387,17 @@ class LiningResidue:
 
 
 @dataclass(frozen=True)
+class CaverRunLayout:
+    """Resolved paths for one Caver run (run root or analysis/ folder)."""
+
+    run_root: str
+    analysis_dir: str
+    residues_path: str
+    profiles_path: str
+    bottlenecks_path: str
+
+
+@dataclass(frozen=True)
 class TunnelProfile:
     snapshot: str
     tunnel_cluster: int
@@ -383,6 +421,44 @@ def _find_analysis_path(base_dir: str, rel: str) -> str:
     if not os.path.isfile(p):
         raise FileNotFoundError(p)
     return p
+
+
+def resolve_caver_run_layout(path: str) -> CaverRunLayout:
+    """
+    Accept a Caver run root (contains ``analysis/``) or the ``analysis/`` directory itself.
+
+    Outputs (plots, CSV) are written under ``run_root``; inputs are read from ``analysis_dir``.
+    """
+    p = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isdir(p):
+        raise SystemExit(f"Error: not a directory: {p}")
+
+    analysis_sub = os.path.join(p, "analysis")
+    if os.path.isfile(os.path.join(analysis_sub, "residues.txt")):
+        analysis_dir = analysis_sub
+        run_root = p
+    elif os.path.isfile(os.path.join(p, "residues.txt")):
+        analysis_dir = p
+        run_root = os.path.dirname(p) or p
+    else:
+        raise SystemExit(
+            f"Error: no Caver analysis/ data under {p}. "
+            "Expected analysis/residues.txt (run root) or residues.txt (analysis/ folder)."
+        )
+
+    residues_path = os.path.join(analysis_dir, "residues.txt")
+    profiles_path = os.path.join(analysis_dir, "tunnel_profiles.csv")
+    bottlenecks_path = os.path.join(analysis_dir, "bottlenecks.csv")
+    if not os.path.isfile(residues_path):
+        raise SystemExit(f"Error: missing {residues_path}")
+
+    return CaverRunLayout(
+        run_root=run_root,
+        analysis_dir=analysis_dir,
+        residues_path=residues_path,
+        profiles_path=profiles_path,
+        bottlenecks_path=bottlenecks_path,
+    )
 
 
 def parse_residues_txt(path: str, tunnel_cluster: int) -> list[LiningResidue]:
@@ -442,6 +518,33 @@ def parse_residues_txt(path: str, tunnel_cluster: int) -> list[LiningResidue]:
         i += 1
 
     return out
+
+
+def list_tunnel_clusters_in_residues_txt(path: str) -> list[int]:
+    """Return sorted unique tunnel cluster ids from Caver ``analysis/residues.txt`` headers."""
+    pat = re.compile(r"^== Tunnel cluster (\d+) ==\s*$")
+    found: set[int] = set()
+    for line in _read_text(path).splitlines():
+        m = pat.match(line.strip())
+        if m:
+            found.add(int(m.group(1)))
+    return sorted(found)
+
+
+def list_tunnel_clusters_in_profiles_csv(path: str) -> list[int]:
+    """Return sorted unique tunnel cluster ids from ``analysis/tunnel_profiles.csv``."""
+    found: set[int] = set()
+    with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
+        r = csv.reader(f, skipinitialspace=True)
+        next(r, None)
+        for rec in r:
+            if len(rec) < 2:
+                continue
+            try:
+                found.add(int(rec[1]))
+            except Exception:
+                continue
+    return sorted(found)
 
 
 def _float_or_none(x: str) -> float | None:
@@ -986,11 +1089,13 @@ def plot_profile(
     annotate: dict[str, Any] | None = None,
     upsample_factor: float = 6.0,
     upsample_max_points: int = 800,
-    as_diameter: bool = False,
+    width_kind: WidthKind = "diameter",
     rasterise_fill: bool = False,
     rasterise_fill_dpi: int = 300,
     xlim: tuple[float, float] | None = None,
+    ylim_distance: tuple[float, float] | None = None,
     invert_y: bool = True,
+    xlim_pad_a: float = 1.0,
 ) -> None:
     _maybe_import_matplotlib()
     import matplotlib.pyplot as plt
@@ -998,10 +1103,10 @@ def plot_profile(
     from matplotlib.collections import PolyCollection
     import numpy as np
 
-    # Vertical projection: distance is the vertical axis; horizontal is Caver radius, or 2× for diameter.
+    # Vertical projection: distance is the vertical axis; horizontal is opening width (diameter or radius).
     d_anno = np.asarray(prof.distance, dtype=float)
     r_caver = np.asarray(prof.r, dtype=float)
-    wfac = 2.0 if as_diameter else 1.0
+    wfac = _wfac_for_width_kind(width_kind)
 
     vals = np.asarray(color_values, dtype=float)
     if vals.shape[0] != d_anno.shape[0]:
@@ -1051,15 +1156,18 @@ def plot_profile(
     ax.add_collection(lc_lf)
 
     ax.axvline(0.0, color="#999999", linewidth=0.8)
-    ax.set_xlabel("Diameter (Å)" if as_diameter else "Radius (Å)")
+    ax.set_xlabel("Diameter (Å)" if width_kind == "diameter" else "Radius (Å)")
     ax.set_ylabel("Distance along tunnel (Å)")
     ax.set_title(title)
-    r_span = float(wfac * max(np.max(r_caver), float(np.max(r))))
+    half_width = float(wfac * max(np.max(r_caver), float(np.max(r))) if len(r_caver) else 0.0)
     if xlim is not None:
         ax.set_xlim(float(xlim[0]), float(xlim[1]))
     else:
-        ax.set_xlim(-r_span * 1.12, r_span * 1.12)
-    ax.set_ylim(float(np.min(d_anno)), float(np.max(d_anno)))
+        ax.set_xlim(*_auto_plot_xlim_from_half_width(half_width, pad_a=float(xlim_pad_a)))
+    if ylim_distance is not None:
+        ax.set_ylim(float(ylim_distance[0]), float(ylim_distance[1]))
+    else:
+        ax.set_ylim(float(np.min(d_anno)), float(np.max(d_anno)))
     if invert_y:
         ax.invert_yaxis()
     ax.set_aspect("auto")
@@ -1089,7 +1197,7 @@ def plot_profile(
                 ax.plot([0.0], [y0], marker="o", markersize=3.0, color="#111111", zorder=6)
                 ax.plot([0.0, x0], [y0, y0], color="#111111", linewidth=0.8, alpha=0.7, zorder=6)
 
-                if as_diameter:
+                if width_kind == "diameter":
                     txt = f"{lab}  d={y0:.2f} Å  D={x0:.2f} Å"
                 else:
                     txt = f"{lab}  d={y0:.2f} Å  r={r0:.2f} Å"
@@ -1138,17 +1246,21 @@ def _write_points_csv(
     lining_summary: dict[str, Any],
     mapped: dict[str, Any] | None,
     residue_list_max: int,
-    as_diameter: bool = False,
+    width_kind: WidthKind = "diameter",
 ) -> None:
     """
     Write one CSV row per profile point.
     Includes a residue list (semicolon-separated) when mapping is enabled.
     """
     os.makedirs(os.path.dirname(os.path.abspath(out_csv_path)) or ".", exist_ok=True)
-    wfac = 2.0 if as_diameter else 1.0
-    col_width = "diameter_A" if as_diameter else "radius_A"
-    col_bneck_prof = "bottleneck_diameter_A_profiles" if as_diameter else "bottleneck_radius_A_profiles"
-    col_bneck_csv = "bottleneck_diameter_A_bottlenecks_csv" if as_diameter else "bottleneck_radius_A_bottlenecks_csv"
+    wfac = _wfac_for_width_kind(width_kind)
+    col_width = "diameter_A" if width_kind == "diameter" else "radius_A"
+    col_bneck_prof = (
+        "bottleneck_diameter_A_profiles" if width_kind == "diameter" else "bottleneck_radius_A_profiles"
+    )
+    col_bneck_csv = (
+        "bottleneck_diameter_A_bottlenecks_csv" if width_kind == "diameter" else "bottleneck_radius_A_bottlenecks_csv"
+    )
 
     if mapped is not None:
         loc = mapped["local"]
@@ -1213,11 +1325,7 @@ def _write_points_csv(
         w.writeheader()
         for i, d0 in enumerate(prof.distance):
             ids = ids_series[i] if i < len(ids_series) else []
-            labels_all = [f"{c}:{r}:{name[:3]}" for (c, r, name) in ids]
-            if residue_list_max > 0 and len(labels_all) > residue_list_max:
-                labels = labels_all[:residue_list_max] + [f"...(+{len(labels_all) - residue_list_max})"]
-            else:
-                labels = labels_all
+            labels = _format_residue_labels_csv(ids, max_list=residue_list_max)
 
             row: dict[str, Any] = {
                 "caver_output_dir": caver_output_dir,
@@ -1241,7 +1349,7 @@ def _write_points_csv(
                 if (mapped is not None and i < len(loc.get("hydropathy_mean_window") or []))
                 else "",
                 "n_residues": n_series[i] if i < len(n_series) else "",
-                "residues": ";".join(labels),
+                "residues": labels,
                 "tunnel_length_A": prof.length,
                 col_bneck_prof: (wfac * prof.bottleneck_radius) if prof.bottleneck_radius is not None else "",
                 col_bneck_csv: (wfac * bneck_r) if bneck_r is not None else "",
@@ -1264,6 +1372,364 @@ def _write_residues_csv(out_csv_path: str, *, mapped: dict[str, Any]) -> None:
         w.writeheader()
         for r in rows:
             w.writerow({k: r.get(k, "") for k in fieldnames})
+
+
+def _width_kind_from_args(args: argparse.Namespace) -> WidthKind:
+    return "radius" if bool(getattr(args, "radius", False)) else "diameter"
+
+
+def _wfac_for_width_kind(width_kind: WidthKind) -> float:
+    return 2.0 if width_kind == "diameter" else 1.0
+
+
+def _aa3_title(resname: str) -> str:
+    r = (resname or "").upper().strip()[:3]
+    if len(r) == 3 and r.isalpha():
+        return r[0] + r[1:].lower()
+    return r
+
+
+def _format_residue_labels(
+    ids: list[tuple[str, int, str]],
+    *,
+    max_list: int = 0,
+) -> str:
+    """
+    Standard biochemical labels: Lys648A, Ser649A, …
+    Sorted by chain ID (alphabetical), then ascending residue number.
+    """
+    uniq: dict[tuple[str, int, str], None] = {}
+    for chain_id, resseq, resname in ids:
+        aa = (resname or "")[:3].upper()
+        if len(aa) == 3 and aa.isalpha():
+            uniq[(str(chain_id), int(resseq), aa)] = None
+    ordered = sorted(uniq.keys(), key=lambda t: (t[0], t[1]))
+    labels_all = [f"{_aa3_title(aa)}{resseq}{chain_id}" for chain_id, resseq, aa in ordered]
+    if max_list > 0 and len(labels_all) > max_list:
+        labels = labels_all[:max_list] + [f"...(+{len(labels_all) - max_list})"]
+    else:
+        labels = labels_all
+    return ", ".join(labels)
+
+
+def _format_residue_labels_csv(
+    ids: list[tuple[str, int, str]],
+    *,
+    max_list: int = 0,
+) -> str:
+    """Per-point CSV: chain:res:aa tokens, semicolon-separated."""
+    labels_all = [f"{c}:{r}:{name[:3]}" for (c, r, name) in ids]
+    if max_list > 0 and len(labels_all) > max_list:
+        labels = labels_all[:max_list] + [f"...(+{len(labels_all) - max_list})"]
+    else:
+        labels = labels_all
+    return ";".join(labels)
+
+
+def parse_caver_bottleneck_residues(raw: str) -> list[tuple[str, int, str]]:
+    """
+    Parse Caver bottleneck residue text into (chain_id, resseq, resname3) tuples.
+
+    Supports tokens such as GLU 258 C, Glu258C, and comma-separated lists.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return []
+    out: list[tuple[str, int, str]] = []
+    seen: set[tuple[str, int, str]] = set()
+    token_re = re.compile(
+        r"(?:(?P<aa1>[A-Za-z]{3})\s*(?P<num1>\d+)\s*(?P<ch1>[A-Za-z0-9])|(?P<aa2>[A-Za-z]{3})(?P<num2>\d+)(?P<ch2>[A-Za-z0-9]))"
+    )
+    for part in re.split(r"[,;]+", s):
+        part = part.strip()
+        if not part:
+            continue
+        for m in token_re.finditer(part):
+            aa = (m.group("aa1") or m.group("aa2") or "").upper()
+            num_s = m.group("num1") or m.group("num2")
+            ch = m.group("ch1") or m.group("ch2") or ""
+            if not aa or not num_s or not ch:
+                continue
+            try:
+                resseq = int(num_s)
+            except Exception:
+                continue
+            key = (str(ch), resseq, aa)
+            if key not in seen:
+                seen.add(key)
+                out.append(key)
+    return out
+
+
+def _profile_key_indices(prof: TunnelProfile) -> tuple[int, int, int]:
+    """Return (top, bottom, minimum-radius) profile point indices."""
+    import numpy as np
+
+    idx_top = 0
+    idx_bottom = max(0, len(prof.distance) - 1)
+    idx_bneck = int(np.argmin(np.asarray(prof.r, dtype=float))) if prof.r else 0
+    return idx_top, idx_bottom, idx_bneck
+
+
+def _mapped_residue_ids_at(mapped: dict[str, Any] | None, idx: int) -> list[tuple[str, int, str]]:
+    if mapped is None:
+        return []
+    ids_series = list((mapped.get("local") or {}).get("residue_ids") or [])
+    if idx < 0 or idx >= len(ids_series):
+        return []
+    return list(ids_series[idx])
+
+
+def _bottleneck_width_a(
+    prof: TunnelProfile,
+    bottleneck: dict[str, Any] | None,
+    *,
+    width_kind: WidthKind,
+) -> float | None:
+    wfac = _wfac_for_width_kind(width_kind)
+    br = None if bottleneck is None else bottleneck.get("bottleneck_r")
+    if br is not None:
+        return wfac * float(br)
+    if prof.bottleneck_radius is not None:
+        return wfac * float(prof.bottleneck_radius)
+    if prof.r:
+        import numpy as np
+
+        return wfac * float(np.min(np.asarray(prof.r, dtype=float)))
+    return None
+
+
+def _bottleneck_residue_labels(
+    bottleneck: dict[str, Any] | None,
+    mapped: dict[str, Any] | None,
+    prof: TunnelProfile,
+    *,
+    max_list: int = 0,
+) -> str:
+    raw = "" if bottleneck is None else str(bottleneck.get("bottleneck_residues_raw") or "").strip()
+    parsed = parse_caver_bottleneck_residues(raw)
+    if parsed:
+        return _format_residue_labels(parsed, max_list=max_list)
+    if raw:
+        return raw
+    _, _, idx_bneck = _profile_key_indices(prof)
+    return _format_residue_labels(_mapped_residue_ids_at(mapped, idx_bneck), max_list=max_list)
+
+
+def _build_plot_annotations(
+    prof: TunnelProfile,
+    mapped: dict[str, Any] | None,
+    bottleneck: dict[str, Any] | None,
+    *,
+    max_list: int = 0,
+) -> dict[str, Any]:
+    idx_top, idx_bottom, idx_bneck = _profile_key_indices(prof)
+    bneck_res = _bottleneck_residue_labels(bottleneck, mapped, prof, max_list=max_list)
+    return {
+        "points": [
+            {
+                "label": "top",
+                "idx": idx_top,
+                "residues": _format_residue_labels(_mapped_residue_ids_at(mapped, idx_top), max_list=max_list),
+            },
+            {"label": "bottleneck", "idx": idx_bneck, "residues": bneck_res},
+            {
+                "label": "bottom",
+                "idx": idx_bottom,
+                "residues": _format_residue_labels(_mapped_residue_ids_at(mapped, idx_bottom), max_list=max_list),
+            },
+        ]
+    }
+
+
+def build_tunnel_summary_row(
+    *,
+    caver_output_dir: str,
+    prof: TunnelProfile,
+    lining_residues: list[LiningResidue],
+    mapped: dict[str, Any] | None,
+    bottleneck: dict[str, Any] | None,
+    width_kind: WidthKind = "diameter",
+    residue_list_max: int = 0,
+    protein_pdb: str | None = None,
+) -> dict[str, Any]:
+    """One summary row per tunnel cluster."""
+    wfac = _wfac_for_width_kind(width_kind)
+    col_top = f"width_top_{width_kind}_A"
+    col_bottom = f"width_bottom_{width_kind}_A"
+    col_bneck = f"width_bottleneck_{width_kind}_A"
+
+    idx_top, idx_bottom, _idx_bneck = _profile_key_indices(prof)
+
+    def width_at(idx: int) -> float | None:
+        if not prof.r or idx >= len(prof.r):
+            return None
+        return wfac * float(prof.r[idx])
+
+    chains = sorted({r.chain_id for r in lining_residues if r.chain_id})
+    pdb_out = protein_pdb
+    if pdb_out is None and mapped:
+        pdb_out = mapped.get("protein_pdb")
+    return {
+        "caver_output_dir": caver_output_dir,
+        "protein_pdb": pdb_out,
+        "tunnel_cluster": prof.tunnel_cluster,
+        "snapshot": prof.snapshot,
+        "tunnel_length_A": prof.length,
+        "lining_chain_ids": ",".join(chains),
+        col_top: width_at(idx_top),
+        "residues_top": _format_residue_labels(_mapped_residue_ids_at(mapped, idx_top), max_list=residue_list_max),
+        col_bottom: width_at(idx_bottom),
+        "residues_bottom": _format_residue_labels(
+            _mapped_residue_ids_at(mapped, idx_bottom), max_list=residue_list_max
+        ),
+        col_bneck: _bottleneck_width_a(prof, bottleneck, width_kind=width_kind),
+        "residues_bottleneck": _bottleneck_residue_labels(
+            bottleneck, mapped, prof, max_list=residue_list_max
+        ),
+    }
+
+
+def _summary_table_fieldnames(width_kind: WidthKind) -> list[str]:
+    return [
+        "caver_output_dir",
+        "protein_pdb",
+        "tunnel_cluster",
+        "snapshot",
+        "tunnel_length_A",
+        "lining_chain_ids",
+        f"width_top_{width_kind}_A",
+        "residues_top",
+        f"width_bottom_{width_kind}_A",
+        "residues_bottom",
+        f"width_bottleneck_{width_kind}_A",
+        "residues_bottleneck",
+    ]
+
+
+def _write_tunnel_summary_table_csv(
+    out_csv_path: str,
+    rows: list[dict[str, Any]],
+    *,
+    width_kind: WidthKind = "diameter",
+) -> None:
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(os.path.abspath(out_csv_path)) or ".", exist_ok=True)
+    fieldnames = _summary_table_fieldnames(width_kind)
+    with open(out_csv_path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        w.writeheader()
+        for row in rows:
+            w.writerow({k: row.get(k, "") for k in fieldnames})
+
+
+def _parse_tunnel_dir_pairs(raw: list[list[str]] | None) -> list[tuple[int, str]]:
+    out: list[tuple[int, str]] = []
+    for pair in raw or []:
+        if len(pair) != 2:
+            raise SystemExit(
+                f"Error: --tunnel-dir expects TUNNEL CAVER_DIR (2 values), got {len(pair)}: {pair!r}"
+            )
+        try:
+            tc = int(pair[0])
+        except ValueError:
+            raise SystemExit(f"Error: invalid tunnel cluster id in --tunnel-dir: {pair[0]!r}")
+        out.append((tc, str(pair[1])))
+    return out
+
+
+def _parse_tunnel_pdb_pairs(raw: list[list[str]] | None) -> list[tuple[int, str]]:
+    out: list[tuple[int, str]] = []
+    for pair in raw or []:
+        if len(pair) != 2:
+            raise SystemExit(
+                f"Error: --tunnel-pdb expects TUNNEL PDB (2 values), got {len(pair)}: {pair!r}"
+            )
+        try:
+            tc = int(pair[0])
+        except ValueError:
+            raise SystemExit(f"Error: invalid tunnel cluster id in --tunnel-pdb: {pair[0]!r}")
+        out.append((tc, str(pair[1])))
+    return out
+
+
+def _tunnel_dir_entries_from_args(
+    tunnel_dirs: list[tuple[int, str]],
+    tunnel_pdbs: list[tuple[int, str]] | None,
+) -> list[tuple[int, str, str | None]]:
+    """
+    Build one entry per ``--tunnel-dir`` line.
+
+    When the number of ``--tunnel-pdb`` lines equals the number of ``--tunnel-dir`` lines,
+    PDB paths are paired **by order** (same tunnel cluster id may repeat for different structures).
+    Otherwise ``--tunnel-pdb`` is keyed by cluster id (unique ids only).
+    """
+    tunnel_pdbs = list(tunnel_pdbs or [])
+    n = len(tunnel_dirs)
+    pdb_opts: list[str | None] = [None] * n
+
+    if len(tunnel_pdbs) == n:
+        for i, ((tc, _path), (pdb_tc, pdb_path)) in enumerate(zip(tunnel_dirs, tunnel_pdbs)):
+            if int(pdb_tc) != int(tc):
+                raise SystemExit(
+                    f"Error: --tunnel-dir / --tunnel-pdb pair {i + 1}: "
+                    f"tunnel cluster {tc} does not match {pdb_tc}."
+                )
+            pdb_opts[i] = str(pdb_path)
+    elif len(tunnel_pdbs) == 0:
+        pass
+    else:
+        pdb_by_tc: dict[int, str] = {}
+        for tc, pdb in tunnel_pdbs:
+            if tc in pdb_by_tc:
+                raise SystemExit(
+                    f"Error: duplicate --tunnel-pdb for tunnel cluster {tc}. "
+                    "Use one --tunnel-pdb per --tunnel-dir in the same order "
+                    "(allows the same cluster id with different PDBs), or unique cluster ids."
+                )
+            pdb_by_tc[int(tc)] = str(pdb)
+        for i, (tc, _path) in enumerate(tunnel_dirs):
+            pdb_opts[i] = pdb_by_tc.get(int(tc))
+
+    return [(int(tc), str(path), pdb_opts[i]) for i, (tc, path) in enumerate(tunnel_dirs)]
+
+
+def _parse_tunnels_arg(value: str) -> list[int]:
+    parts = re.split(r"[,;\s]+", (value or "").strip())
+    out: list[int] = []
+    for p in parts:
+        if not p:
+            continue
+        out.append(int(p))
+    return sorted(set(out))
+
+
+def _list_all_tunnel_clusters(*, residues_path: str, profiles_path: str) -> list[int]:
+    """Every tunnel cluster id present in Caver analysis outputs."""
+    clusters = list_tunnel_clusters_in_residues_txt(residues_path)
+    if os.path.isfile(profiles_path):
+        clusters = sorted(set(clusters) | set(list_tunnel_clusters_in_profiles_csv(profiles_path)))
+    if not clusters:
+        raise SystemExit("No tunnel clusters found in analysis/residues.txt")
+    return clusters
+
+
+def _resolve_detail_tunnel_clusters(
+    args: argparse.Namespace,
+    *,
+    residues_path: str,
+    profiles_path: str,
+) -> list[int]:
+    """Tunnel cluster ids selected for per-tunnel plot and per-point CSV output."""
+    if bool(getattr(args, "all_tunnels", False)):
+        return _list_all_tunnel_clusters(residues_path=residues_path, profiles_path=profiles_path)
+    tunnels_list = getattr(args, "tunnels_list", None)
+    if tunnels_list:
+        return list(tunnels_list)
+    if args.tunnel is not None:
+        return [int(args.tunnel)]
+    raise SystemExit("Error: tunnel selection required (--tunnel, --tunnels, or --all-tunnels).")
 
 
 def _slug_from_caver_base(caver_base: str) -> str:
@@ -1305,20 +1771,196 @@ def _broadcast_list(values: list[str], n: int, *, label: str) -> list[str | None
     )
 
 
-def _run_single_caver(
+@dataclass(frozen=True)
+class PlotJob:
+    """One tunnel cluster that will receive a profile plot in this invocation."""
+
+    tunnel_cluster: int
+    profiles_path: str
+    centerline_pdb: str | None
+
+
+def _profile_distance_extent(prof: TunnelProfile) -> tuple[float, float]:
+    if prof.distance:
+        return (float(min(prof.distance)), float(max(prof.distance)))
+    length = prof.length
+    if length is not None and math.isfinite(float(length)):
+        return (0.0, float(length))
+    return (0.0, 0.0)
+
+
+def _profile_half_width(prof: TunnelProfile, *, wfac: float) -> float:
+    if not prof.r:
+        return 0.0
+    return float(wfac * max(prof.r))
+
+
+def _auto_plot_xlim_from_half_width(half_width: float, *, pad_a: float = 1.0) -> tuple[float, float]:
+    w = max(0.0, float(half_width))
+    pad = float(pad_a)
+    return (-w - pad, w + pad)
+
+
+def _load_profile_for_extent(
+    *,
+    profiles_path: str,
+    tunnel_cluster: int,
+    centerline_pdb: str | None,
+) -> TunnelProfile:
+    if os.path.isfile(profiles_path):
+        return parse_tunnel_profiles_csv(profiles_path, tunnel_cluster)
+    if centerline_pdb:
+        xs, ys, zs, rs = _parse_centerline_pdb(os.path.abspath(os.path.expanduser(str(centerline_pdb))))
+        dist = _dist_along_polyline(xs, ys, zs)
+        return TunnelProfile(
+            snapshot="(unknown)",
+            tunnel_cluster=tunnel_cluster,
+            tunnel=tunnel_cluster,
+            length=dist[-1] if dist else None,
+            bottleneck_radius=min(rs) if rs else None,
+            distance=dist,
+            x=xs,
+            y=ys,
+            z=zs,
+            r=rs,
+        )
+    raise SystemExit(
+        f"Missing analysis/tunnel_profiles.csv for tunnel {tunnel_cluster} "
+        "(needed for shared plot axis limits). Pass --centerline-pdb for single-tunnel centreline mode."
+    )
+
+
+def _unified_plot_ylim(extents: list[tuple[float, float]]) -> tuple[float, float] | None:
+    if len(extents) <= 1:
+        return None
+    return (min(e[0] for e in extents), max(e[1] for e in extents))
+
+
+def _unified_plot_xlim(half_widths: list[float], *, pad_a: float = 1.0) -> tuple[float, float] | None:
+    if len(half_widths) <= 1:
+        return None
+    w_max = max(half_widths)
+    return _auto_plot_xlim_from_half_width(w_max, pad_a=pad_a)
+
+
+def _validate_tunnel_invert_args(args: argparse.Namespace) -> None:
+    invert_set = {int(x) for x in (getattr(args, "tunnel_invert", None) or [])}
+    no_invert_set = {int(x) for x in (getattr(args, "tunnel_no_invert", None) or [])}
+    conflict = sorted(invert_set & no_invert_set)
+    if conflict:
+        raise SystemExit(
+            "Error: tunnel cluster(s) listed in both --tunnel-invert and --tunnel-no-invert: "
+            + ", ".join(str(c) for c in conflict)
+        )
+
+
+def _resolve_invert_y_for_tunnel(tunnel_cluster: int, args: argparse.Namespace) -> bool:
+    tc = int(tunnel_cluster)
+    invert_set = {int(x) for x in (getattr(args, "tunnel_invert", None) or [])}
+    no_invert_set = {int(x) for x in (getattr(args, "tunnel_no_invert", None) or [])}
+    if tc in invert_set:
+        return True
+    if tc in no_invert_set:
+        return False
+    return bool(getattr(args, "invert_y", True))
+
+
+def _collect_plot_jobs_tunnel_dir(
+    jobs: list[tuple[int, CaverRunLayout, str | None]],
+    args: argparse.Namespace,
+) -> list[PlotJob]:
+    if bool(getattr(args, "no_plot", False)) or bool(getattr(args, "summary_only", False)):
+        return []
+    return [
+        PlotJob(
+            tunnel_cluster=int(tc),
+            profiles_path=layout.profiles_path,
+            centerline_pdb=cl,
+        )
+        for tc, layout, cl in jobs
+    ]
+
+
+def _collect_plot_jobs_batch(
+    args: argparse.Namespace,
+    layouts: list[CaverRunLayout],
+    centerlines: list[str | None],
+) -> list[PlotJob]:
+    if bool(getattr(args, "no_plot", False)) or bool(getattr(args, "summary_only", False)):
+        return []
+    plot_jobs: list[PlotJob] = []
+    for layout, cl in zip(layouts, centerlines):
+        detail_clusters = _resolve_detail_tunnel_clusters(
+            args,
+            residues_path=layout.residues_path,
+            profiles_path=layout.profiles_path,
+        )
+        use_cl = cl if len(detail_clusters) == 1 else None
+        for tc in detail_clusters:
+            plot_jobs.append(
+                PlotJob(
+                    tunnel_cluster=int(tc),
+                    profiles_path=layout.profiles_path,
+                    centerline_pdb=use_cl,
+                )
+            )
+    return plot_jobs
+
+
+def _compute_shared_plot_axis_limits(
+    args: argparse.Namespace,
+    plot_jobs: list[PlotJob],
+) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
+    """Return (shared_ylim, shared_xlim); None means per-tunnel auto in plot_profile."""
+    if not plot_jobs:
+        return None, None
+
+    width_kind = _width_kind_from_args(args)
+    wfac = _wfac_for_width_kind(width_kind)
+    extents: list[tuple[float, float]] = []
+    half_widths: list[float] = []
+    for job in plot_jobs:
+        prof = _load_profile_for_extent(
+            profiles_path=job.profiles_path,
+            tunnel_cluster=job.tunnel_cluster,
+            centerline_pdb=job.centerline_pdb,
+        )
+        extents.append(_profile_distance_extent(prof))
+        half_widths.append(_profile_half_width(prof, wfac=wfac))
+
+    user_xlim = getattr(args, "xlim", None)
+    if user_xlim is not None:
+        shared_xlim: tuple[float, float] | None = (float(user_xlim[0]), float(user_xlim[1]))
+    elif len(plot_jobs) > 1 and not bool(getattr(args, "per_tunnel_plot_xlim", False)):
+        shared_xlim = _unified_plot_xlim(half_widths)
+    else:
+        shared_xlim = None
+
+    if len(plot_jobs) > 1 and not bool(getattr(args, "per_tunnel_plot_ylim", False)):
+        shared_ylim = _unified_plot_ylim(extents)
+    else:
+        shared_ylim = None
+
+    return shared_ylim, shared_xlim
+
+
+def _process_one_tunnel_cluster(
     args: argparse.Namespace,
     *,
     base: str,
+    tunnel_cluster: int,
     protein_pdb: str,
     centerline_pdb: str | None,
+    residues_path: str,
+    profiles_path: str,
+    bottlenecks_path: str,
     n_inputs: int,
-) -> None:
-    tunnel_cluster = int(args.tunnel)
+    emit_details: bool = True,
+    plot_ylim: tuple[float, float] | None = None,
+    plot_xlim: tuple[float, float] | None = None,
+    invert_y: bool | None = None,
+) -> dict[str, Any]:
     his_ec = float(args.his_ec)
-
-    residues_path = _find_analysis_path(base, os.path.join("analysis", "residues.txt"))
-    profiles_path = _find_analysis_path(base, os.path.join("analysis", "tunnel_profiles.csv"))
-    bottlenecks_path = os.path.join(base, "analysis", "bottlenecks.csv")
 
     residues = parse_residues_txt(residues_path, tunnel_cluster)
     lining = summarise_lining_residues(residues, his_ec=his_ec)
@@ -1342,7 +1984,10 @@ def _run_single_caver(
             r=rs,
         )
     else:
-        raise SystemExit("Missing analysis/tunnel_profiles.csv. Pass --centerline-pdb to analyse from a centreline tunnel PDB.")
+        raise SystemExit(
+            f"Missing analysis/tunnel_profiles.csv for tunnel {tunnel_cluster}. "
+            "Pass --centerline-pdb (single-tunnel mode only) to analyse from a centreline tunnel PDB."
+        )
     bottleneck = None
     if os.path.isfile(bottlenecks_path):
         try:
@@ -1350,15 +1995,17 @@ def _run_single_caver(
         except Exception:
             bottleneck = None
 
+    width_kind = _width_kind_from_args(args)
+    wfac = _wfac_for_width_kind(width_kind)
     rmin = min(prof.r) if prof.r else None
     rmax = max(prof.r) if prof.r else None
     bneck_prof = prof.bottleneck_radius
-    if bool(getattr(args, "diameter", False)):
+    if width_kind == "diameter":
         width_summary: dict[str, Any] = {
             "output_tunnel_width": "diameter",
-            "profile_diameter_min_A": (2.0 * rmin) if rmin is not None else None,
-            "profile_diameter_max_A": (2.0 * rmax) if rmax is not None else None,
-            "bottleneck_diameter_A_from_profiles": (2.0 * bneck_prof) if bneck_prof is not None else None,
+            "profile_diameter_min_A": (wfac * rmin) if rmin is not None else None,
+            "profile_diameter_max_A": (wfac * rmax) if rmax is not None else None,
+            "bottleneck_diameter_A_from_profiles": (wfac * bneck_prof) if bneck_prof is not None else None,
         }
     else:
         width_summary = {
@@ -1468,31 +2115,12 @@ def _run_single_caver(
         args.output_csv, default_path=default_csv, n_inputs=n_inputs, caver_base=base
     )
 
-    if not args.no_plot:
-        import numpy as np
+    summary_only = bool(getattr(args, "summary_only", False))
+    max_list = int(getattr(args, "residue_list_max", 30))
+    write_details = bool(emit_details) and not summary_only
 
-        def _fmt_res_list(idx: int) -> str:
-            if mapped is None:
-                return ""
-            ids = mapped["local"]["residue_ids"][idx] if idx < len(mapped["local"]["residue_ids"]) else []
-            labels_all = [f"{c}:{r}:{name[:3]}" for (c, r, name) in ids]
-            max_list = int(getattr(args, "residue_list_max", 30))
-            if max_list > 0 and len(labels_all) > max_list:
-                labels = labels_all[:max_list] + [f"...(+{len(labels_all) - max_list})"]
-            else:
-                labels = labels_all
-            return ";".join(labels)
-
-        idx_top = 0
-        idx_bottom = max(0, len(prof.distance) - 1)
-        idx_bneck = int(np.argmin(np.asarray(prof.r, dtype=float))) if prof.r else 0
-        ann = {
-            "points": [
-                {"label": "top", "idx": idx_top, "residues": _fmt_res_list(idx_top)},
-                {"label": "bottleneck", "idx": idx_bneck, "residues": _fmt_res_list(idx_bneck)},
-                {"label": "bottom", "idx": idx_bottom, "residues": _fmt_res_list(idx_bottom)},
-            ]
-        }
+    if write_details and not args.no_plot:
+        ann = _build_plot_annotations(prof, mapped, bottleneck, max_list=max_list)
         plot_profile(
             prof,
             out_path=str(plot_out),
@@ -1506,11 +2134,14 @@ def _run_single_caver(
             annotate=ann,
             upsample_factor=float(getattr(args, "plot_upsample", 6.0)),
             upsample_max_points=int(getattr(args, "plot_upsample_max", 800)),
-            as_diameter=bool(getattr(args, "diameter", False)),
+            width_kind=width_kind,
             rasterise_fill=bool(getattr(args, "rasterise_fill", False)),
             rasterise_fill_dpi=int(getattr(args, "rasterise_fill_dpi", 300)),
-            xlim=tuple(getattr(args, "xlim")) if getattr(args, "xlim", None) is not None else None,
-            invert_y=bool(getattr(args, "invert_y", True)),
+            xlim=plot_xlim,
+            ylim_distance=plot_ylim,
+            invert_y=_resolve_invert_y_for_tunnel(tunnel_cluster, args)
+            if invert_y is None
+            else bool(invert_y),
         )
         summary["plot"] = {
             "path": os.path.abspath(str(plot_out)),
@@ -1518,35 +2149,36 @@ def _run_single_caver(
             "cbar_label": cbar_label,
             "plot_upsample": float(getattr(args, "plot_upsample", 6.0)),
             "plot_upsample_max": int(getattr(args, "plot_upsample_max", 800)),
-            "as_diameter": bool(getattr(args, "diameter", False)),
+            "width_kind": width_kind,
         }
         if str(args.color_by) == "ec":
             summary["plot"]["ec_color_vmin"] = vmin
             summary["plot"]["ec_color_vmax"] = vmax
 
-    _write_points_csv(
-        str(output_csv),
-        prof=prof,
-        caver_output_dir=base,
-        bottleneck=bottleneck,
-        lining_summary={"overall_ec": lining.get("overall_ec", 0.0)},
-        mapped=mapped,
-        residue_list_max=int(getattr(args, "residue_list_max", 30)),
-        as_diameter=bool(getattr(args, "diameter", False)),
-    )
-    summary["points_csv"] = os.path.abspath(str(output_csv))
+    if write_details:
+        _write_points_csv(
+            str(output_csv),
+            prof=prof,
+            caver_output_dir=base,
+            bottleneck=bottleneck,
+            lining_summary={"overall_ec": lining.get("overall_ec", 0.0)},
+            mapped=mapped,
+            residue_list_max=max_list,
+            width_kind=width_kind,
+        )
+        summary["points_csv"] = os.path.abspath(str(output_csv))
 
-    if args.residues_csv:
+    if write_details and args.residues_csv:
         residues_path_out = _resolve_batch_output_path(
             args.residues_csv,
-            default_path=os.path.join(base, "mapped_residues.csv"),
+            default_path=os.path.join(base, f"tunnel_{tunnel_cluster}_mapped_residues.csv"),
             n_inputs=n_inputs,
             caver_base=base,
         )
         _write_residues_csv(str(residues_path_out), mapped=mapped)
         summary["mapped_residues_csv"] = os.path.abspath(str(residues_path_out))
 
-    if args.json_out:
+    if write_details and args.json_out:
         json_path_out = _resolve_batch_output_path(
             args.json_out,
             default_path=os.path.join(base, f"tunnel_{tunnel_cluster}_summary.json"),
@@ -1558,28 +2190,287 @@ def _run_single_caver(
             json.dump({**summary, "lining_residues": lining["lining_residues"]}, f, indent=2, sort_keys=True)
             f.write("\n")
 
-    print(f"[caver_tunnel_analysis] wrote {os.path.abspath(str(output_csv))}")
-    if not args.no_plot:
-        print(f"[caver_tunnel_analysis] wrote {os.path.abspath(str(plot_out))}")
+    if write_details:
+        print(f"[caver_tunnel_analysis] wrote {os.path.abspath(str(output_csv))}")
+        if not args.no_plot:
+            print(f"[caver_tunnel_analysis] wrote {os.path.abspath(str(plot_out))}")
+
+    return build_tunnel_summary_row(
+        caver_output_dir=base,
+        prof=prof,
+        lining_residues=residues,
+        mapped=mapped,
+        bottleneck=bottleneck,
+        width_kind=width_kind,
+        residue_list_max=max_list,
+        protein_pdb=os.path.abspath(os.path.expanduser(str(protein_pdb))),
+    )
+
+
+def _run_single_caver(
+    args: argparse.Namespace,
+    *,
+    layout: CaverRunLayout,
+    protein_pdb: str,
+    centerline_pdb: str | None,
+    n_inputs: int,
+    summary_csv_explicit: str | None = None,
+    plot_ylim: tuple[float, float] | None = None,
+    plot_xlim: tuple[float, float] | None = None,
+) -> list[dict[str, Any]]:
+    base = layout.run_root
+    residues_path = layout.residues_path
+    profiles_path = layout.profiles_path
+    bottlenecks_path = layout.bottlenecks_path
+
+    all_clusters = _list_all_tunnel_clusters(residues_path=residues_path, profiles_path=profiles_path)
+    detail_clusters = _resolve_detail_tunnel_clusters(
+        args, residues_path=residues_path, profiles_path=profiles_path
+    )
+    summary_only = bool(getattr(args, "summary_only", False))
+    if summary_only:
+        summary_clusters = detail_clusters
+    else:
+        summary_clusters = all_clusters
+        missing = [int(tc) for tc in detail_clusters if int(tc) not in all_clusters]
+        if missing:
+            raise SystemExit(f"Tunnel cluster(s) not found in analysis/: {missing}")
+
+    if bool(getattr(args, "all_tunnels", False)) and centerline_pdb:
+        raise SystemExit("--centerline-pdb cannot be used with --all-tunnels (requires tunnel_profiles.csv).")
+    if len(detail_clusters) > 1 and centerline_pdb:
+        raise SystemExit("--centerline-pdb cannot be used when multiple tunnels are selected.")
+
+    detail_set = {int(tc) for tc in detail_clusters}
+    summary_rows: list[dict[str, Any]] = []
+    for tunnel_cluster in summary_clusters:
+        tc = int(tunnel_cluster)
+        summary_rows.append(
+            _process_one_tunnel_cluster(
+                args,
+                base=base,
+                tunnel_cluster=tc,
+                protein_pdb=protein_pdb,
+                centerline_pdb=centerline_pdb if len(detail_clusters) == 1 and tc in detail_set else None,
+                residues_path=residues_path,
+                profiles_path=profiles_path,
+                bottlenecks_path=bottlenecks_path,
+                n_inputs=n_inputs,
+                emit_details=(not summary_only) and (tc in detail_set),
+                plot_ylim=plot_ylim if tc in detail_set else None,
+                plot_xlim=plot_xlim if tc in detail_set else None,
+            )
+        )
+
+    if not getattr(args, "no_summary_csv", False):
+        if len(summary_clusters) == 1:
+            default_summary = os.path.join(base, f"tunnel_{summary_clusters[0]}_summary_table.csv")
+        else:
+            default_summary = os.path.join(base, "tunnels_summary_table.csv")
+        summary_csv = _resolve_batch_output_path(
+            summary_csv_explicit,
+            default_path=default_summary,
+            n_inputs=1,
+            caver_base=base,
+        )
+        _write_tunnel_summary_table_csv(
+            str(summary_csv),
+            summary_rows,
+            width_kind=_width_kind_from_args(args),
+        )
+        print(f"[caver_tunnel_analysis] wrote {os.path.abspath(str(summary_csv))}")
+
+    return summary_rows
+
+
+def _resolve_tunnel_dir_protein_pdbs(
+    args: argparse.Namespace,
+    entries: list[tuple[int, str, str | None]],
+) -> list[str]:
+    """
+    One PDB path per ``--tunnel-dir`` entry.
+
+    Each line may end with an explicit PDB, or omit it and use a single ``--protein-pdb``
+    for all lines that omit a per-pair path.
+    """
+    defaults = [os.path.abspath(os.path.expanduser(p)) for p in (args.protein_pdb or [])]
+    if len(defaults) > 1:
+        raise SystemExit(
+            "Error: --protein-pdb with multiple files is for batch mode (CAVER_DIR arguments). "
+            "In --tunnel-dir mode use one --protein-pdb for all tunnels without --tunnel-pdb, "
+            "or give --tunnel-pdb TUNNEL PDB for each cluster that needs its own structure."
+        )
+    default_one = defaults[0] if len(defaults) == 1 else None
+    out: list[str] = []
+    for tc, _path, pdb_opt in entries:
+        if pdb_opt is not None:
+            out.append(os.path.abspath(os.path.expanduser(str(pdb_opt))))
+        elif default_one is not None:
+            out.append(default_one)
+        else:
+            raise SystemExit(
+                f"Error: tunnel cluster {tc} has no --tunnel-pdb and "
+                "--protein-pdb was not given (use one --protein-pdb for all tunnels, or --tunnel-pdb per cluster)."
+            )
+    return out
+
+
+def _run_tunnel_dir_jobs(
+    args: argparse.Namespace,
+    jobs: list[tuple[int, CaverRunLayout]],
+    *,
+    protein_pdbs: list[str],
+    centerlines: list[str | None],
+    plot_ylim: tuple[float, float] | None = None,
+    plot_xlim: tuple[float, float] | None = None,
+) -> list[dict[str, Any]]:
+    """Process explicit (tunnel cluster, Caver run directory) pairs, each with its own protein PDB."""
+    summary_only = bool(getattr(args, "summary_only", False))
+    combined_rows: list[dict[str, Any]] = []
+    for i, (tunnel_cluster, layout) in enumerate(jobs):
+        tc = int(tunnel_cluster)
+        combined_rows.append(
+            _process_one_tunnel_cluster(
+                args,
+                base=layout.run_root,
+                tunnel_cluster=tc,
+                protein_pdb=protein_pdbs[i] if i < len(protein_pdbs) else protein_pdbs[-1],
+                centerline_pdb=centerlines[i] if i < len(centerlines) else None,
+                residues_path=layout.residues_path,
+                profiles_path=layout.profiles_path,
+                bottlenecks_path=layout.bottlenecks_path,
+                n_inputs=len(jobs),
+                emit_details=not summary_only,
+                plot_ylim=plot_ylim,
+                plot_xlim=plot_xlim,
+            )
+        )
+    return combined_rows
+
+
+def _explicit_summary_csv_path(args: argparse.Namespace) -> str | None:
+    """User-supplied summary table path (--summary-csv / --summary-table-csv, or --combined-summary-csv)."""
+    value = getattr(args, "summary_csv", None) or getattr(args, "combined_summary_csv", None)
+    if value:
+        return os.path.abspath(os.path.expanduser(str(value)))
+    return None
+
+
+def _default_summary_table_csv_path(
+    *,
+    n_jobs: int,
+    first_run_root: str | None,
+    first_tunnel_cluster: int | None,
+) -> str:
+    if n_jobs == 1 and first_tunnel_cluster is not None:
+        return os.path.join(
+            first_run_root or ".",
+            f"tunnel_{int(first_tunnel_cluster)}_summary_table.csv",
+        )
+    return os.path.abspath("tunnels_summary_combined.csv")
+
+
+def _write_paired_summary_csv(
+    args: argparse.Namespace,
+    rows: list[dict[str, Any]],
+    *,
+    n_jobs: int,
+    first_run_root: str | None = None,
+) -> None:
+    if getattr(args, "no_summary_csv", False) or not rows:
+        return
+    width_kind = _width_kind_from_args(args)
+    explicit = _explicit_summary_csv_path(args)
+    if explicit:
+        summary_path = explicit
+    else:
+        tc0 = int(rows[0].get("tunnel_cluster", 0)) if rows else None
+        default_summary = _default_summary_table_csv_path(
+            n_jobs=n_jobs,
+            first_run_root=first_run_root,
+            first_tunnel_cluster=tc0,
+        )
+        summary_path = _resolve_batch_output_path(
+            None,
+            default_path=default_summary,
+            n_inputs=1,
+            caver_base=first_run_root or ".",
+        )
+    _write_tunnel_summary_table_csv(str(summary_path), rows, width_kind=width_kind)
+    print(f"[caver_tunnel_analysis] wrote {os.path.abspath(str(summary_path))}")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Compute tunnel electrostatic complementarity (EC) and generate a 2D tunnel profile figure.",
+        description=(
+            "Compute tunnel electrostatic complementarity (EC) and generate a 2D tunnel profile figure "
+            "from Caver 3.0 analysis output."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument(
         "caver_output_dirs",
-        nargs="+",
+        nargs="*",
+        default=[],
         metavar="CAVER_DIR",
-        help="One or more Caver output directories (each contains analysis/).",
+        help=(
+            "Batch mode: one or more Caver run roots or analysis/ folders. The same --tunnel / "
+            "--tunnels / --all-tunnels selection is applied in every directory. Not used with "
+            "--tunnel-dir."
+        ),
     )
-    ap.add_argument("--tunnel", type=int, required=True, help="Tunnel cluster number (e.g. 26).")
+    ap.add_argument(
+        "--tunnel-dir",
+        action="append",
+        nargs=2,
+        metavar="TUNNEL CAVER_DIR",
+        dest="tunnel_dirs",
+        help=(
+            "Pair a tunnel cluster id with its Caver run directory (repeat per tunnel). "
+            "CAVER_DIR may be a run root or analysis/ folder. Use --tunnel-pdb for a "
+            "structure file specific to that cluster, or one --protein-pdb for all tunnels "
+            "without --tunnel-pdb."
+        ),
+    )
+    ap.add_argument(
+        "--tunnel-pdb",
+        action="append",
+        nargs=2,
+        metavar="TUNNEL PDB",
+        dest="tunnel_pdbs",
+        default=None,
+        help=(
+            "Protein PDB for one --tunnel-dir line (repeat in the same order). Tunnel cluster id "
+            "must match the preceding --tunnel-dir on that line. When the count matches "
+            "--tunnel-dir, pairing is by order (same cluster id may use different PDBs). "
+            "Otherwise --tunnel-pdb is keyed by unique cluster id only."
+        ),
+    )
+    tunnel_sel = ap.add_mutually_exclusive_group(required=False)
+    tunnel_sel.add_argument("--tunnel", type=int, help="Tunnel cluster number (e.g. N).")
+    tunnel_sel.add_argument(
+        "--tunnels",
+        type=_parse_tunnels_arg,
+        dest="tunnels_list",
+        metavar="N,N,…",
+        help="Comma-separated tunnel cluster numbers (e.g. N,M,P).",
+    )
+    tunnel_sel.add_argument(
+        "--all-tunnels",
+        action="store_true",
+        help="Process every tunnel cluster in analysis/residues.txt (and tunnel_profiles.csv when present).",
+    )
+    width_sel = ap.add_mutually_exclusive_group()
+    width_sel.add_argument(
+        "--radius",
+        action="store_true",
+        help="Report opening width as Caver radius (default is diameter = 2× radius).",
+    )
     ap.add_argument(
         "--color-by",
         choices=("ec", "hydropathy"),
         default="ec",
-        help="Colour the plot by EC or Kyte–Doolittle hydropathy.",
+        help="Colour the profile plot by EC or Kyte–Doolittle hydropathy.",
     )
     ap.add_argument(
         "--colour-by",
@@ -1666,8 +2557,9 @@ def main() -> None:
         metavar=("XMIN", "XMAX"),
         default=None,
         help=(
-            "Optional fixed x-axis limits for the profile plot (e.g. --xlim -21 21). "
-            "When set, this overrides the automatic radius/diameter-based range."
+            "Fixed x-axis limits for every profile plot (e.g. --xlim -21 21). "
+            "When omitted and multiple plots are produced, limits are shared from the widest tunnel "
+            "(±1 Å padding) unless --per-tunnel-plot-xlim is set."
         ),
     )
     ap.add_argument(
@@ -1684,6 +2576,46 @@ def main() -> None:
         help="Do not invert the profile y-axis.",
     )
     ap.add_argument(
+        "--tunnel-invert",
+        action="append",
+        type=int,
+        default=None,
+        metavar="N",
+        dest="tunnel_invert",
+        help=(
+            "Force inverted y-axis (tunnel top at top of figure) for tunnel cluster N. "
+            "Repeat per cluster. Overrides --no-invert-y for listed clusters."
+        ),
+    )
+    ap.add_argument(
+        "--tunnel-no-invert",
+        action="append",
+        type=int,
+        default=None,
+        metavar="N",
+        dest="tunnel_no_invert",
+        help=(
+            "Do not invert y-axis for tunnel cluster N. Repeat per cluster. "
+            "Overrides --invert-y for listed clusters."
+        ),
+    )
+    ap.add_argument(
+        "--per-tunnel-plot-ylim",
+        action="store_true",
+        help=(
+            "Use each tunnel's own distance range on the profile plot y-axis instead of a shared span "
+            "from the longest tunnel (only applies when multiple plots are produced)."
+        ),
+    )
+    ap.add_argument(
+        "--per-tunnel-plot-xlim",
+        action="store_true",
+        help=(
+            "Use each tunnel's own opening-width axis range instead of a shared span from the widest "
+            "tunnel (only applies when multiple plots are produced and --xlim is not set)."
+        ),
+    )
+    ap.add_argument(
         "--ec-epsilon-r",
         type=float,
         default=4.0,
@@ -1698,11 +2630,14 @@ def main() -> None:
     ap.add_argument(
         "--protein-pdb",
         nargs="+",
-        required=True,
+        required=False,
+        default=None,
         metavar="PDB",
         help=(
-            "Protein structure PDB path(s) for EC mapping: one file (used for every Caver directory) "
-            "or one file per directory in the same order as CAVER_DIR arguments."
+            "Protein structure PDB for shell mapping. Required in batch mode (CAVER_DIR). "
+            "With --tunnel-dir: one file for all tunnels without --tunnel-pdb, or omit this "
+            "flag when every tunnel has --tunnel-pdb. Batch mode accepts "
+            "one PDB for every directory or one PDB per CAVER_DIR in the same order."
         ),
     )
     ap.add_argument(
@@ -1719,11 +2654,13 @@ def main() -> None:
     )
     ap.add_argument("--no-plot", action="store_true", help="Skip generating plots.")
     ap.add_argument(
-        "--diameter",
+        "--summary-only",
         action="store_true",
         help=(
-            "Use tunnel opening diameter (2× Caver radius) for the profile plot and for width columns in CSV/JSON "
-            "(diameter_A, bottleneck_diameter_*, etc.)."
+            "Write only the tunnel summary table CSV for the selected tunnel(s). "
+            "Skips per-point CSV and profile plot. Without this flag, the summary table lists "
+            "every tunnel in the run directory while plot and per-point CSV are written per "
+            "selected tunnel (--tunnel / --tunnels / --all-tunnels)."
         ),
     )
     ap.add_argument(
@@ -1778,6 +2715,34 @@ def main() -> None:
         help="Optional JSON summary path; with multiple CAVER_DIR, path is suffixed like --output-csv.",
     )
     ap.add_argument(
+        "--summary-csv",
+        "--summary-table-csv",
+        default=None,
+        metavar="FILE",
+        dest="summary_csv",
+        help=(
+            "Output path for the tunnel summary table CSV for this invocation. "
+            "Default: <run_root>/tunnels_summary_table.csv or tunnel_<N>_summary_table.csv "
+            "(single tunnel / single --tunnel-dir); tunnels_summary_combined.csv in the working "
+            "directory when several --tunnel-dir pairs or CAVER_DIR runs are combined."
+        ),
+    )
+    ap.add_argument(
+        "--combined-summary-csv",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Same as --summary-csv for a combined summary table (several --tunnel-dir pairs or "
+            "multiple CAVER_DIR). If both --summary-csv and --combined-summary-csv are set, "
+            "--summary-csv wins."
+        ),
+    )
+    ap.add_argument(
+        "--no-summary-csv",
+        action="store_true",
+        help="Do not write the per-tunnel summary table CSV.",
+    )
+    ap.add_argument(
         "--centerline-pdb",
         action="append",
         default=None,
@@ -1787,25 +2752,105 @@ def main() -> None:
             "Repeat once per Caver directory (same order) or once for all runs."
         ),
     )
-    args = ap.parse_args()
+    args = ap.parse_intermixed_args()
+    _validate_tunnel_invert_args(args)
 
-    caver_bases = [os.path.abspath(os.path.expanduser(p)) for p in args.caver_output_dirs]
-    for b in caver_bases:
-        if not os.path.isdir(b):
-            raise SystemExit(f"Error: not a directory: {b}")
+    tunnel_dir_pairs = _parse_tunnel_dir_pairs(getattr(args, "tunnel_dirs", None))
+    tunnel_pdb_pairs = _parse_tunnel_pdb_pairs(getattr(args, "tunnel_pdbs", None))
+    caver_dirs = list(args.caver_output_dirs or [])
 
-    n = len(caver_bases)
-    proteins = [os.path.abspath(os.path.expanduser(p)) for p in (args.protein_pdb or [])]
+    if tunnel_dir_pairs and caver_dirs:
+        raise SystemExit("Error: use either --tunnel-dir pairs or CAVER_DIR arguments, not both.")
+    if not tunnel_dir_pairs and not caver_dirs:
+        raise SystemExit(
+            "Error: provide Caver data via --tunnel-dir TUNNEL CAVER_DIR (repeat) "
+            "or one or more CAVER_DIR paths (batch mode)."
+        )
+
+    if tunnel_dir_pairs:
+        tunnel_entries = _tunnel_dir_entries_from_args(tunnel_dir_pairs, tunnel_pdb_pairs or None)
+        seen_jobs: set[tuple[int, str]] = set()
+        jobs: list[tuple[int, CaverRunLayout]] = []
+        for tc, path, _pdb_opt in tunnel_entries:
+            key = (int(tc), os.path.abspath(os.path.expanduser(str(path))))
+            if key in seen_jobs:
+                raise SystemExit(
+                    f"Error: duplicate --tunnel-dir for tunnel cluster {tc} at {path!r}."
+                )
+            seen_jobs.add(key)
+            jobs.append((tc, resolve_caver_run_layout(path)))
+        protein_pdbs = _resolve_tunnel_dir_protein_pdbs(args, tunnel_entries)
+        cl_list_in = [str(x) for x in (args.centerline_pdb or [])]
+        centerlines = _broadcast_list(cl_list_in, len(jobs), label="--centerline-pdb")
+        tunnel_dir_specs = [
+            (int(tc), layout, centerlines[i] if i < len(centerlines) else None)
+            for i, (tc, layout) in enumerate(jobs)
+        ]
+        plot_jobs = _collect_plot_jobs_tunnel_dir(tunnel_dir_specs, args)
+        plot_ylim, plot_xlim = _compute_shared_plot_axis_limits(args, plot_jobs)
+        rows = _run_tunnel_dir_jobs(
+            args,
+            jobs,
+            protein_pdbs=protein_pdbs,
+            centerlines=centerlines,
+            plot_ylim=plot_ylim,
+            plot_xlim=plot_xlim,
+        )
+        _write_paired_summary_csv(
+            args, rows, n_jobs=len(jobs), first_run_root=jobs[0][1].run_root
+        )
+        return
+
+    if not (args.tunnel is not None or getattr(args, "tunnels_list", None) or args.all_tunnels):
+        raise SystemExit(
+            "Error: batch mode requires --tunnel, --tunnels, or --all-tunnels "
+            "(or use --tunnel-dir TUNNEL CAVER_DIR per tunnel)."
+        )
+
+    if not args.protein_pdb:
+        raise SystemExit("Error: --protein-pdb is required in batch mode (CAVER_DIR arguments).")
+
+    layouts = [resolve_caver_run_layout(p) for p in caver_dirs]
+    n = len(layouts)
+    proteins = [os.path.abspath(os.path.expanduser(p)) for p in args.protein_pdb]
     if len(proteins) == 1:
         proteins = proteins * n
     elif len(proteins) != n:
-        raise SystemExit(f"Error: --protein-pdb: expected 1 or {n} path(s), got {len(proteins)}.")
+        raise SystemExit(
+            f"Error: --protein-pdb: batch mode expected 1 or {n} path(s), got {len(proteins)}."
+        )
 
     cl_list_in = [str(x) for x in (args.centerline_pdb or [])]
     centerlines: list[str | None] = _broadcast_list(cl_list_in, n, label="--centerline-pdb")
 
-    for base, pdb, cl in zip(caver_bases, proteins, centerlines):
-        _run_single_caver(args, base=base, protein_pdb=pdb, centerline_pdb=cl, n_inputs=n)
+    plot_jobs = _collect_plot_jobs_batch(args, layouts, centerlines)
+    plot_ylim, plot_xlim = _compute_shared_plot_axis_limits(args, plot_jobs)
+
+    summary_explicit = _explicit_summary_csv_path(args) if n == 1 else None
+    combined_rows: list[dict[str, Any]] = []
+    for layout, pdb, cl in zip(layouts, proteins, centerlines):
+        rows = _run_single_caver(
+            args,
+            layout=layout,
+            protein_pdb=pdb,
+            centerline_pdb=cl,
+            n_inputs=n,
+            summary_csv_explicit=summary_explicit,
+            plot_ylim=plot_ylim,
+            plot_xlim=plot_xlim,
+        )
+        combined_rows.extend(rows)
+
+    if n > 1 and not getattr(args, "no_summary_csv", False):
+        combined_path = _explicit_summary_csv_path(args) or os.path.abspath(
+            "tunnels_summary_combined.csv"
+        )
+        _write_tunnel_summary_table_csv(
+            combined_path,
+            combined_rows,
+            width_kind=_width_kind_from_args(args),
+        )
+        print(f"[caver_tunnel_analysis] wrote {combined_path}")
 
 
 if __name__ == "__main__":

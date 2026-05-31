@@ -11,6 +11,9 @@ Heatmap defaults for this script: structures on the x-axis, horizontal colour ba
 labels. Override with ``--no-heatmap-structures-x-axis``, ``--heatmap-colorbar-orientation vertical``,
 and ``--no-heatmap-short-labels`` as needed.
 
+Row order for ``combined_lattice_vs_ec.csv``: default is alphabetical by structure stem; use
+``--structure-order`` or ``--structure-order-file``. Matrix/heatmap column order: ``--heatmap-x-order``.
+
 Requires PYTHONPATH pointing at the FoldKit repo root (same as other metrics scripts).
 """
 
@@ -66,15 +69,58 @@ def _stem_from_any(path_or_name: str) -> str:
     return os.path.splitext(os.path.basename(path_or_name.strip()))[0]
 
 
+def _normalize_packing_stem(stem: str) -> str:
+    """Map packing artefact names (packing_<stem>.json, <stem>_lattice_packing.json) to structure stem."""
+    s = str(stem or "").strip()
+    if s.startswith("packing_"):
+        s = s[len("packing_") :]
+    if s.endswith("_lattice_packing"):
+        s = s[: -len("_lattice_packing")]
+    return s
+
+
 def _packing_row_stem(row: dict[str, Any]) -> str:
+    candidates: list[str] = []
     if row.get("structure_stem"):
-        return str(row["structure_stem"])
+        candidates.append(str(row["structure_stem"]))
     if row.get("structure_basename"):
-        return _stem_from_any(str(row["structure_basename"]))
+        candidates.append(_stem_from_any(str(row["structure_basename"])))
     inp = row.get("input") or ""
     if inp:
-        return _stem_from_any(str(inp))
+        candidates.append(_stem_from_any(str(inp)))
+    src = row.get("source_json") or ""
+    if src:
+        candidates.append(_stem_from_any(str(src)))
+    for raw in candidates:
+        stem = _normalize_packing_stem(raw)
+        if stem:
+            return stem
     return ""
+
+
+def _load_structure_order(order_csv: str | None, order_file: str | None) -> list[str]:
+    """Stems from comma-separated CLI and/or one stem per line in a file (# comments allowed)."""
+    wanted: list[str] = []
+    if order_csv:
+        wanted.extend(_parse_csv_list(order_csv))
+    if order_file:
+        path = os.path.expanduser(str(order_file).strip())
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Structure order file not found: {path}")
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                raw = line.strip()
+                if not raw or raw.startswith("#"):
+                    continue
+                wanted.append(raw.split(",")[0].strip())
+    # De-duplicate while preserving first occurrence.
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for w in wanted:
+        if w and w not in seen:
+            seen.add(w)
+            uniq.append(w)
+    return uniq
 
 
 def _expand_ec_reports(inputs: list[str]) -> list[str]:
@@ -189,6 +235,8 @@ COMBINED_ALL_KEYS_EXTRA = (
 )
 
 PACKING_TAIL_KEYS = (
+    "volume_volume_a3",
+    "volume_source",
     "lattice_reference_chain",
     "atom_density_per_1000_A3",
     "mass_density_Da_per_1000_A3",
@@ -254,6 +302,8 @@ def _build_combined_row(
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "structure_stem": stem,
+        "volume_volume_a3": flat_packing.get("volume_volume_a3", ""),
+        "volume_source": flat_packing.get("volume_source", ""),
         "atom_density_per_1000_A3": "",
         "mass_density_Da_per_1000_A3": "",
         "packing_density_percent": flat_packing.get("lattice_packing_density_percent", ""),
@@ -451,6 +501,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Exit with error if any packing stem lacks EC summary or vice versa.",
     )
     ap.add_argument(
+        "--structure-order",
+        default=None,
+        metavar="STEM,STEM,…",
+        help=(
+            "Row order for combined_lattice_vs_ec.csv and per-structure {stem}_full.csv "
+            "(structure stems, not report filenames). Partial lists allowed; "
+            "any unmatched stems follow in alphabetical order."
+        ),
+    )
+    ap.add_argument(
+        "--structure-order-file",
+        default=None,
+        metavar="PATH",
+        help="One structure stem per line (after --structure-order, if both are set).",
+    )
+    ap.add_argument(
         "--skip-heatmaps",
         action="store_true",
         help="Only write CSV matrices, not figure files.",
@@ -532,6 +598,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if not matched:
         ap.error("No stems matched between packing JSON and EC reports.")
+
+    try:
+        wanted_stems = _load_structure_order(
+            getattr(args, "structure_order", None),
+            getattr(args, "structure_order_file", None),
+        )
+    except FileNotFoundError as exc:
+        ap.error(str(exc))
+    if wanted_stems:
+        try:
+            matched = _apply_custom_order(matched, wanted_stems)
+        except ValueError as exc:
+            ap.error(str(exc))
 
     combined_rows: list[dict[str, Any]] = []
     for stem in matched:

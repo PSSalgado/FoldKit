@@ -788,7 +788,7 @@ def main() -> None:
         default="DaliLite pairwise Z-scores",
         help="Figure title for --heatmap (same default as dalilite_pairs).",
     )
-    ap.add_argument("--cmap", default="viridis_r", help="Heatmap colormap.")
+    ap.add_argument("--cmap", default="viridis_r", help="Heatmap colour map.")
     ap.add_argument("--vmin", type=float, default=None)
     ap.add_argument("--vmax", type=float, default=None)
     ap.add_argument("--short-heatmap-labels", action="store_true")

@@ -40,7 +40,7 @@ bar between the bulk and the dominant interface(s). A canonical chain pair is au
 an outlier when its **minimum BSA across structures** exceeds **`--heatmap-bsa-outlier-factor`**
 (default ``3``) times the median of the remaining cells; the cap is the rounded maximum of
 non-outlier cells. Override the auto rule with **`--heatmap-bsa-split-at VALUE`** (Å²). Cells
-below the cap use the BSA colormap (``--heatmap-cmap-by-metric bsa=…`` if set, else
+below the cap use the BSA colour map (``--heatmap-cmap-by-metric bsa=…`` if set, else
 ``--heatmap-cmap`` from ``foldkit_heatmap``) and cells above use a contrasting gradient
 (**`--heatmap-bsa-above-cmap`**, default ``Reds``), so above-cap interfaces remain comparable
 to each other. Above-cap pairs are listed with their raw Å² values in a figure note (disable

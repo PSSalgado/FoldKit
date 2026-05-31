@@ -12,7 +12,9 @@ Scripts and docs are grouped in top-level folders that mirror this README:
 
 From the repository root, execute `python <category>/script_name.py` (or `Rscript ranking/...` where noted).
 
-**Example naming (this file, `metrics/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `results.txt` denotes a merged interface text report (e.g. from `interface_analyser_asu_charge.py -o`); `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv` or `rmsd_heatmap_<suffix>.<ext>` (for example `.svg` from `rmsd_to_csv.py` batch mode) match the scripts that create them.
+**Example naming (this file, `metrics/*.md`, and script `--help` / docstrings):** `model_01`, `model_02`, … denote structure files or row/column labels; `set_a`, `set_b`, … denote filter substrings, `--sets` groups, or `--tags` batch tokens; `condition_1`, `condition_2`, … denote condition subfolders in batch drivers; `ref_id` / `model_id` are filename tokens in LSQ `--pattern` mode; `ref_01` illustrates a reference name in Coot log filters; `caver_output_dir`, `caver_output_N`, and `caver_run_a` / `caver_run_b` denote Caver 3.0 result folders; `N`, `M`, `P` denote tunnel cluster ids from Caver; `results.txt` denotes a merged interface text report (for example from `interface_analyser_asu_charge.py -o`); `contact_results.txt` denotes a merged report from `contact_analyser.py -o`; `./out` denotes a generic output directory; chain IDs in examples (`A`, `B`, …) are placeholders. Output name patterns such as `rmsd_table_<suffix>.csv`, `tunnel_<N>_ec.png`, or `tunnels_summary_combined.csv` match the scripts that create them.
+
+**Documentation style:** UK English in prose (colour, behaviour, centreline, normalised). CLI flag names keep established spellings (`--color-by`, with `--colour-by` aliases where provided).
 
 **Paths in examples:** `/path/to/project/...` marks a generic working tree (replace with local directories or files; absolute paths are safest). Third-party installs may use placeholders such as `/path/to/DaliLite`. Command lines assume execution of `python <category>/<script>.py` from the **repository root** unless stated otherwise.
 
@@ -871,27 +873,88 @@ The script does not recompute metrics; it only reads files written by the analys
 
 #### `caver_tunnel_analysis.py`
 
-Analyses a **Caver 3.0 (PyMOL plugin)** result directory. Expect, under the run folder, an `analysis/` subtree with at least **`tunnel_profiles.csv`** and **`residues.txt`**, and optionally **`bottlenecks.csv`**. The script also requires **`--protein-pdb`**, a protein coordinate file that matches the structure used in Caver (for mapping residues in a shell around the path).
+Analyses **Caver 3.0 (PyMOL plugin)** output. Each run folder should contain an `analysis/` subtree with at least **`tunnel_profiles.csv`** and **`residues.txt`**, and optionally **`bottlenecks.csv`**. Supply matching structure file(s) via **`--protein-pdb`** and/or **`--tunnel-pdb`** (shell mapping of residues at the tunnel top and bottom).
 
-**For the tunnel cluster given by `--tunnel`:**
+**Tunnel selection** (for profile plot and per-point CSV): exactly one of **`--tunnel N`** (one cluster), **`--tunnels N,M,P`** (comma-separated list), or **`--all-tunnels`** (every cluster in `residues.txt`). Use generic cluster ids `N`, `M`, `P` in place of numeric labels from the Caver run.
 
-- **Electrostatic complementarity (EC), tunnel analogue** — a McCoy-style *facing-point* construction adapted to a tunnel: Coulomb-summed potentials at centreline points from charged residues in a shell (`--shell-a`, default 3.0 Å). The geometry differs from interface EC in `interface_analyser_*_ec.py` (path vs protein–protein interface); see `metrics/EC_details.md` and `metrics/metrics_details.md` Section 1.7.
-- **Optional “local” windowing** — a rolling, odd-width window along the path (`--local-window`) used to compute local series for colouring (EC correlation and hydropathy). Set `0` to disable.
-- **Hydropathy (Kyte–Doolittle)** — mean of tabulated per-residue values for residues assigned to each profile point.
-- **Plots** can be coloured by **EC** or **hydropathy** (`--color-by`). **Opening diameter** (twice the Caver radius) can be shown with **`--diameter`**. **Figure** format is chosen from **`--plot-out`** (e.g. `.png`, `.pdf`, `.svg`).
-- **Axis orientation:** the profile plot uses distance along the tunnel on the y-axis. By default the y-axis is inverted so the tunnel top is at the top of the figure (`--invert-y`); use `--no-invert-y` where Caver’s top/bottom convention is reversed for the case of interest.
-- **Colour scale limits:** by default, reference limits are used (EC: \([-1, +1]\); hydropathy: \([-4.5, +4.5]\)). Use `--color-scale data` (or `--colour-scale data`) to set limits from the plotted values.
-- **Optional plot-only smoothing:** use `--colour-smooth-window N` (odd integer) to apply an additional rolling mean to the per-point colour series for plotting only (no effect on CSV/JSON). This can reduce high-frequency variation in local EC colouring.
-- **Plot sampling, rasterisation, and smoothing:** `--plot-upsample` / `--plot-upsample-max` increase the sampling density used to construct the plotted tunnel boundary and colour transitions. `--rasterise-fill` (SVG/PDF only) changes the output encoding of the tunnel interior colour fill to a high-DPI bitmap to reduce file size; it does not alter the sampling. `--colour-smooth-window` applies a rolling mean to the colour series for plotting only and does not affect the tunnel geometry.
-- **Fixed x-axis range (comparability):** `--xlim XMIN XMAX` fixes the profile plot x-axis limits. This is useful for producing directly comparable figures across pores or runs (for example, `--diameter --xlim -21 21`).
+**Outputs**
 
-**Other options:** `--ec-epsilon-r`, `--ec-r-min` (defaults align with the main EC module where applicable), `--plot-upsample` / `--plot-upsample-max` for a denser distance sample and smoother fill, and **`--centerline-pdb`** to supply a **centreline** tunnel PDB when `analysis/tunnel_profiles.csv` is absent.
+| Mode | Summary table | Profile plot | Per-point CSV |
+| --- | --- | --- | --- |
+| **`--summary-only`** | Selected tunnel(s) only | — | — |
+| **Full run** (default) | **All** tunnels in the run directory (`tunnels_summary_table.csv`, or `tunnel_<N>_summary_table.csv` if only one exists) | One file per **selected** tunnel: `tunnel_<N>_ec.png` | One file per **selected** tunnel: `tunnel_<N>_points.csv` |
+
+On a full run, the summary table is a single comparison sheet over every tunnel cluster found under `analysis/`, while EC plots and per-point tables are generated only for the tunnel(s) named on the command line. For example, `--tunnel N` writes `tunnel_N_ec.png` and `tunnel_N_points.csv` but still fills `tunnels_summary_table.csv` with a row for each cluster in the Caver output.
+
+**Tunnel summary table** (written by default unless `--no-summary-csv`): paired **width** / **residue** columns at top, bottom, and bottleneck; **diameter** (2 × Caver radius) by default (`--radius` for radius). Residue labels: `Lys123A, Ser124A, Glu45C, …` (chains alphabetical, residue numbers ascending within chain). Set the output path with **`--summary-csv`** or **`--summary-table-csv`**.
+
+**Profile plot and per-point CSV** (full run): EC or hydropathy colouring, diameter axis by default, annotation labels matching the summary table. Per-point `residues` column stays `chain:res:aa` for parsing.
+
+**Comparable profile plots (multiple tunnels in one command):** distance (y) and opening width (x) axes are shared across every plot in the invocation. The y-axis spans the **longest** tunnel (shorter tunnels leave blank margin along the axis). The x-axis spans the **widest** tunnel with **±1 Å** padding (`--xlim XMIN XMAX` overrides x for all plots). Use **`--per-tunnel-plot-ylim`** or **`--per-tunnel-plot-xlim`** to restore per-tunnel auto ranges. **Y orientation:** **`--invert-y`** (default) or **`--no-invert-y`** sets the default; **`--tunnel-invert N`** / **`--tunnel-no-invert N`** (repeat per cluster id) override individual tunnels.
+
+**Other options:** `--ec-epsilon-r`, `--ec-r-min`, **`--centerline-pdb`** (single selected tunnel only), **`--summary-csv`** / **`--summary-table-csv`** (output path for the summary table), `--no-summary-csv`.
 
 ```bash
-python metrics/caver_tunnel_analysis.py /path/to/project/caver_output --tunnel 26 --protein-pdb /path/to/project/protein.pdb --shell-a 3.0 --local-window 11 --color-by ec --output-csv /path/to/project/tunnel_26_points.csv --plot-out /path/to/project/tunnel_26_ec.png
+# Summary table only, for tunnels N, M, and P
+python metrics/caver_tunnel_analysis.py /path/to/project/caver_output_dir \
+  --tunnels N,M,P --protein-pdb /path/to/project/model_01.pdb --shell-a 3.0 --summary-only
+
+# Full run: plots and per-point CSV for N, M, P; summary table lists every tunnel in caver_output_dir
+python metrics/caver_tunnel_analysis.py /path/to/project/caver_output_dir \
+  --tunnels N,M,P --protein-pdb /path/to/project/model_01.pdb --shell-a 3.0 --color-by ec
+
+# Full run: plot and per-point CSV for tunnel N only; summary still includes all tunnels
+python metrics/caver_tunnel_analysis.py /path/to/project/caver_output_dir \
+  --tunnel N --protein-pdb /path/to/project/model_01.pdb --local-window 11 --color-by ec
+
+# Full run: plot and per-point CSV for every tunnel; summary lists all
+python metrics/caver_tunnel_analysis.py /path/to/project/caver_output_dir \
+  --all-tunnels --protein-pdb /path/to/project/model_01.pdb --color-by ec
 ```
 
-**Several run directories:** pass multiple `CAVER_DIR` paths; per-run CSV and figure paths default inside each directory (`tunnel_<N>_points.csv`, `tunnel_<N>_ec.png`). Supply **one** `--protein-pdb` for every run, or **one PDB per directory** in the same order. If `-o` / `--plot-out` / `--residues-csv` / `--json-out` point at a **shared** file name and there are multiple directories, each run writes `stem_<caver_dir_basename>.ext` before the extension. **`--centerline-pdb`** may be repeated once per directory or once for all.
+**Tunnels in different Caver directories:** repeat **`--tunnel-dir TUNNEL CAVER_DIR`** once per tunnel. Use **`--tunnel-pdb TUNNEL PDB`** in the **same order** when each line needs its own structure (the same cluster id may appear for different PDBs, e.g. tunnel 19 for `model_s2.pdb` and tunnel 19 for `model_s7.pdb`), or a single **`--protein-pdb`** when every tunnel shares one structure. The combined summary table includes **`protein_pdb`** and **`caver_output_dir`** columns to distinguish rows. Each `CAVER_DIR` may be a run root or an `analysis/` folder. Default combined output: `tunnels_summary_combined.csv`, or set **`--summary-csv`** / **`--summary-table-csv`**.
+
+```bash
+# One PDB; each tunnel cluster lives in its own Caver output directory
+python metrics/caver_tunnel_analysis.py \
+  --protein-pdb /path/to/project/model_01.pdb --shell-a 3.0 --color-by ec \
+  --tunnel-dir N /path/to/project/caver_output_N \
+  --tunnel-dir M /path/to/project/caver_output_M --tunnel-dir P /path/to/project/caver_output_P
+
+# Different PDB per tunnel (no global --protein-pdb)
+python metrics/caver_tunnel_analysis.py --shell-a 3.0 --color-by ec \
+  --tunnel-dir N /path/to/project/caver_output_N --tunnel-pdb N /path/to/project/model_N.pdb \
+  --tunnel-dir M /path/to/project/caver_output_M --tunnel-pdb M /path/to/project/model_M.pdb
+
+# Mixed: --tunnel-pdb for some clusters, shared --protein-pdb for the rest
+python metrics/caver_tunnel_analysis.py --protein-pdb /path/to/project/model_shared.pdb --summary-only \
+  --tunnel-dir N /path/to/project/caver_N --tunnel-pdb N /path/to/project/model_N.pdb \
+  --tunnel-dir M /path/to/project/caver_M
+
+# Summary table only for the same layout
+python metrics/caver_tunnel_analysis.py \
+  --protein-pdb /path/to/project/model_01.pdb --shell-a 3.0 --summary-only \
+  --tunnel-dir N /path/to/project/caver_output_N --tunnel-dir M /path/to/project/caver_output_M
+
+# Same tunnel cluster id (e.g. 19) for two structures: one --tunnel-pdb per --tunnel-dir, in order
+python metrics/caver_tunnel_analysis.py --shell-a 3.0 --summary-only \
+  --summary-csv all_tunnels_summary.csv \
+  --tunnel-dir 26 /path/to/project/s2_pore1 --tunnel-pdb 26 /path/to/project/model_s2.pdb \
+  --tunnel-dir 19 /path/to/project/s2_pore2 --tunnel-pdb 19 /path/to/project/model_s2.pdb \
+  --tunnel-dir 19 /path/to/project/s7_pore1 --tunnel-pdb 19 /path/to/project/model_s7.pdb \
+  --tunnel-dir 15 /path/to/project/s7_pore2 --tunnel-pdb 15 /path/to/project/model_s7.pdb
+```
+
+**Batch mode (several directories, same tunnel selection):** pass multiple positional `CAVER_DIR` arguments and **`--tunnel`**, **`--tunnels`**, or **`--all-tunnels`**. The same tunnel id(s) are processed in every directory. Per run: summary under `<run_root>/tunnels_summary_table.csv` (full run) or selected clusters only (`--summary-only`); plots and per-point CSV under that run for the selected tunnel(s). A combined summary aggregates all runs when more than one `CAVER_DIR` is given. **`--protein-pdb`** is required: one file for all directories, or one file per `CAVER_DIR` in the same order. For different tunnel ids and/or PDBs per run, use **`--tunnel-dir`** instead.
+
+```bash
+# Same tunnels N and M in two runs; one structure file
+python metrics/caver_tunnel_analysis.py /path/to/project/caver_run_a /path/to/project/caver_run_b \
+  --tunnels N,M --protein-pdb /path/to/project/model_01.pdb --summary-only
+
+python metrics/caver_tunnel_analysis.py /path/to/project/caver_run_a /path/to/project/caver_run_b \
+  --all-tunnels --protein-pdb /path/to/project/model_01.pdb --color-by ec
+```
 
 **Dependencies:** **BioPython**, **NumPy**, **Matplotlib**; **SciPy** is optional (smoother radius interpolation for plots when available).
 
@@ -958,7 +1021,7 @@ python metrics/interface_analyser_lattice_charge.py expanded_assembly.pdb --refe
 python metrics/interface_analyser_lattice_ec.py expanded_assembly.pdb --reference-chain A -o lattice_ec.txt
 ```
 
-**Two-phase run (`--phase sasa` then `--phase ec`).** Default **`--phase full`** runs SASA/BSA and EC in one process (same definitions). Split when **wall-clock** is the bottleneck on **very large** multi-chain assemblies (atom count high enough that one **full-model** SASA pass dominates runtime), under **HPC session limits**, or when you want EC deferred until after an overnight SASA-only job. Phase **`sasa`** writes a JSON **`--sidecar-out`** artifact; phase **`ec`** reads **`--sidecar`** and parses the PDB once for chains while reusing stored BSA and lattice SASA summary fields—no duplicate Shrake–Rupley for the whole assembly. Requirements:
+**Two-phase run (`--phase sasa` then `--phase ec`).** Default **`--phase full`** runs SASA/BSA and EC in one process (same definitions). Split when **wall-clock** is the bottleneck on **very large** multi-chain assemblies (atom count high enough that one **full-model** SASA pass dominates runtime), under **HPC session limits**, or to defer EC until after an overnight SASA-only job. Phase **`sasa`** writes a JSON **`--sidecar-out`** artifact; phase **`ec`** reads **`--sidecar`** and parses the PDB once for chains while reusing stored BSA and lattice SASA summary fields—no duplicate Shrake–Rupley for the whole assembly. Requirements:
 
 - **Identical PDB bytes** as recorded by SHA-256 in the sidecar (same path optional).
 - **Same** `--reference-chain`, `--chains`, `--skip-accessibility-sasa`, `--ec-max-contact-points`, and implicit contact distance as phase **sasa**.

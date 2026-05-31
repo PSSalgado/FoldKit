@@ -8,7 +8,7 @@ set for SASA / lattice comparisons.
 
 Example::
 
-  python file_management/strip_hetatm_from_pdb.py Cvib_7hexA.pdb Cvib_7hexA_nohet.pdb
+  python file_management/strip_hetatm_from_pdb.py /path/to/input.pdb /path/to/output_nohet.pdb
 """
 
 from __future__ import annotations
