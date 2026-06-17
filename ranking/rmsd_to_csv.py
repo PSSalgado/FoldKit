@@ -842,7 +842,11 @@ def run_single_file(args: argparse.Namespace) -> None:
         out_csv = args.output
         ext = os.path.splitext(out_csv)[1].lower()
         if ext in (".png", ".svg", ".pdf"):
-            print("Note: -o/--output is for the CSV table. You passed an image extension (%s)." % ext, file=sys.stderr)
+            print(
+                "Warning: -o/--output is for the CSV table; the path uses an image "
+                "extension (%s)." % ext,
+                file=sys.stderr,
+            )
             print("To save the heatmap image, use: --plot %s" % out_csv, file=sys.stderr)
             print("Writing CSV to same path with .csv extension.", file=sys.stderr)
             out_csv = os.path.splitext(out_csv)[0] + ".csv"

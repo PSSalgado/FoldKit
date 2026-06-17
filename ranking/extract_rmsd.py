@@ -8,11 +8,16 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from utils.cli_log import add_log_args, setup_log_from_args
+from utils.ssm_log_parse import (
+    parse_ssm_log,
+    validate_equivalence_sequence_mapping,
+    write_equivalence_tsv,
+)
 
 _EXTRACT_EPILOG = """
 Examples (from repository root):
   Single Coot log:
-    python ranking/extract_rmsd.py --format ssm path/to/coot_log.txt
+    python ranking/extract_rmsd.py --format ssm --seq-align path/to/coot_log.txt
     python ranking/extract_rmsd.py --format lsq path/to/coot_log.txt --aligned=set_a --reference=ref_01
   Optional `file` keyword (same as a single positional log):
     python ranking/extract_rmsd.py file path/to/coot_log.txt -o /tmp/rmsd.txt
@@ -167,6 +172,125 @@ def extract_ssm_rmsd_values(log_file: str, output_dir=None, rmsd_output_path=Non
         if current_block:
             rmsd.write("".join(current_block))
             rmsd.write("\n")
+
+
+def extract_ssm_seq_alignments(
+    log_file: str,
+    output_dir=None,
+    seq_align_output_path=None,
+    equivalences_dir=None,
+) -> None:
+    """
+    Extract SSM sequence alignments and per-pair structural equivalences from a Coot log.
+
+    Writes:
+    - ssm_seq_align[_suffix].txt — alignment line, Moving:/Target: sequences, stats per pair
+    - ssm_equivalences/<moving>_vs_<reference>.tsv — one row per structurally aligned residue pair
+
+    output_dir: directory for outputs (default: log directory).
+    seq_align_output_path: exact path for the summary text file (overrides default basename).
+    equivalences_dir: directory for TSV files (default: <output_dir>/ssm_equivalences).
+    """
+    log_file = _resolved_path(log_file)
+    if not os.path.exists(log_file):
+        print(f"Error: Log file '{log_file}' not found.")
+        return
+
+    if os.path.isdir(log_file):
+        print(
+            f"Error: Expected a Coot log file, but '{log_file}' is a directory. "
+            "Use --dir DIR to scan for coot_log.txt / coot_log_*.txt."
+        )
+        return
+
+    if output_dir is not None:
+        output_dir = _resolved_path(output_dir)
+    else:
+        output_dir = os.path.dirname(log_file)
+
+    base = os.path.basename(log_file)
+    if seq_align_output_path is not None:
+        seq_file = _resolved_path(seq_align_output_path)
+        os.makedirs(os.path.dirname(seq_file), exist_ok=True)
+    else:
+        os.makedirs(output_dir, exist_ok=True)
+        if base == "coot_log.txt":
+            seq_basename = "ssm_seq_align.txt"
+        elif base.startswith("coot_log_") and base.endswith(".txt"):
+            suffix = base[9:-4]
+            seq_basename = "ssm_seq_align_{}.txt".format(suffix)
+        else:
+            seq_basename = "ssm_seq_align.txt"
+        seq_file = os.path.join(output_dir, seq_basename)
+
+    if equivalences_dir is not None:
+        equiv_dir = _resolved_path(equivalences_dir)
+    else:
+        equiv_dir = os.path.join(output_dir, "ssm_equivalences")
+    os.makedirs(equiv_dir, exist_ok=True)
+
+    blocks = parse_ssm_log(log_file)
+    if not blocks:
+        print(f"Warning: no SSM superposition blocks found in {log_file}", file=sys.stderr)
+
+    for block in blocks:
+        for warning in validate_equivalence_sequence_mapping(block):
+            print("WARNING: {}".format(warning), file=sys.stderr)
+
+    print(f"Extracting SSM sequence alignments from {log_file}")
+    print(f"Writing summary to {seq_file}")
+    print(f"Writing equivalences to {equiv_dir}/")
+
+    with open(seq_file, "w", encoding="utf-8") as out:
+        out.write(
+            "# SSM sequence alignment: structurally aligned residues per superposition pair\n"
+        )
+        out.write("# Extracted from: {}\n\n".format(log_file))
+        for block in blocks:
+            out.write("{}\n".format(block.alignment_line))
+            out.write(
+                "# equivalences: {}  moving={}  reference={}\n".format(
+                    len(block.equivalences),
+                    block.moving_label,
+                    block.reference_label,
+                )
+            )
+            if block.moving_seq_aligned:
+                out.write("Moving: {}\n".format(block.moving_seq_aligned))
+            if block.target_seq_aligned:
+                out.write("Target: {}\n".format(block.target_seq_aligned))
+            for key, val in block.stats.items():
+                out.write("{}: {}\n".format(key, val))
+            out.write("\n")
+
+            tsv_name = "{}_vs_{}.tsv".format(block.moving_label, block.reference_label)
+            tsv_path = os.path.join(equiv_dir, tsv_name)
+            write_equivalence_tsv(
+                tsv_path,
+                block.moving_label,
+                block.reference_label,
+                block.equivalences,
+                header_comment="from {}".format(log_file),
+            )
+
+    print(f"Wrote {len(blocks)} pairwise alignment(s).")
+
+
+def extract_ssm_rmsd_and_seq(
+    log_file: str,
+    output_dir=None,
+    rmsd_output_path=None,
+    seq_align_output_path=None,
+    equivalences_dir=None,
+) -> None:
+    """Extract RMSD blocks and, when requested, sequence alignments from one SSM log."""
+    extract_ssm_rmsd_values(log_file, output_dir=output_dir, rmsd_output_path=rmsd_output_path)
+    extract_ssm_seq_alignments(
+        log_file,
+        output_dir=output_dir,
+        seq_align_output_path=seq_align_output_path,
+        equivalences_dir=equivalences_dir,
+    )
 
 
 def extract_rmsd_values(
@@ -417,6 +541,9 @@ def _run_dir_scan(base_dir: str, args) -> None:
 
     print(f"Found {len(log_files)} log files")
     output_root = _resolved_path(args.output) if args.output else None
+    seq_kw = {}
+    if args.equivalences_dir:
+        seq_kw["equivalences_dir"] = _resolved_path(args.equivalences_dir)
     for log_file in sorted(log_files):
         fmt = args.format
         if fmt == "auto":
@@ -435,7 +562,10 @@ def _run_dir_scan(base_dir: str, args) -> None:
                         "Warning: --aligned/--reference apply to LSQ mode only; ignoring for SSM.",
                         file=sys.stderr,
                     )
-                extract_ssm_rmsd_values(log_file, output_dir=out_dir)
+                if args.seq_align:
+                    extract_ssm_rmsd_and_seq(log_file, output_dir=out_dir, **seq_kw)
+                else:
+                    extract_ssm_rmsd_values(log_file, output_dir=out_dir)
             else:
                 extract_rmsd_values(
                     log_file,
@@ -452,7 +582,10 @@ def _run_dir_scan(base_dir: str, args) -> None:
                         "Warning: --aligned/--reference apply to LSQ mode only; ignoring for SSM.",
                         file=sys.stderr,
                     )
-                extract_ssm_rmsd_values(log_file)
+                if args.seq_align:
+                    extract_ssm_rmsd_and_seq(log_file, **seq_kw)
+                else:
+                    extract_ssm_rmsd_values(log_file)
             else:
                 extract_rmsd_values(
                     log_file,
@@ -461,6 +594,14 @@ def _run_dir_scan(base_dir: str, args) -> None:
                     args.case_sensitive,
                     args.debug,
                 )
+
+    if args.seq_align:
+        print(
+            "Next step: run superimposition/SSM_struct_core.py on the same directory "
+            "tree to build structural core and MAFFT MSA (requires MAFFT on PATH or "
+            "MAFFT_ROOT; see utils/msa_external.py).",
+            file=sys.stderr,
+        )
 
 
 def _run_cli(argv):
@@ -503,6 +644,20 @@ def _run_cli(argv):
     )
     parser.add_argument(
         "--debug", "-d", action="store_true", help="LSQ only: write rmsd_debug*.txt."
+    )
+    parser.add_argument(
+        "--seq-align",
+        action="store_true",
+        help=(
+            "SSM only: also extract Moving:/Target: sequence alignments and per-pair "
+            "ssm_equivalences/*.tsv from Coot logs."
+        ),
+    )
+    parser.add_argument(
+        "--equivalences-dir",
+        metavar="DIR",
+        default=None,
+        help="SSM --seq-align only: directory for equivalence TSV files (default: ssm_equivalences/).",
     )
     parser.add_argument(
         "-o",
@@ -572,7 +727,13 @@ def _run_cli(argv):
                 "Warning: --aligned, --reference, and --debug apply to LSQ mode only; ignoring.",
                 file=sys.stderr,
             )
-        extract_ssm_rmsd_values(log_file, **out_kw)
+        seq_kw = {}
+        if args.equivalences_dir:
+            seq_kw["equivalences_dir"] = _resolved_path(args.equivalences_dir)
+        if args.seq_align:
+            extract_ssm_rmsd_and_seq(log_file, **out_kw, **seq_kw)
+        else:
+            extract_ssm_rmsd_values(log_file, **out_kw)
     else:
         extract_rmsd_values(
             log_file,

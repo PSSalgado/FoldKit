@@ -104,7 +104,83 @@ python ranking/extract_rmsd.py --format ssm "SSMaligned2_<ref_name>/coot_log.txt
 # or: python ranking/extract_rmsd.py --format auto "SSMaligned2_<ref_name>/coot_log.txt"
 ```
 
-### For LSQ logs
+---
+
+## Step 5: Extract sequence alignments and equivalences (SSM)
+
+Use **`--seq-align`** to write pairwise `Moving:` / `Target:` sequences and per-pair equivalence TSV files:
+
+```bash
+python ranking/extract_rmsd.py --format ssm --seq-align "SSMaligned2_<ref_name>/coot_log.txt"
+```
+
+Outputs:
+
+- `SSMaligned2_<ref_name>/ssm_seq_align.txt`
+- `SSMaligned2_<ref_name>/ssm_equivalences/<model>_vs_<ref_name>.tsv`
+
+---
+
+## Step 6: Structural core and MAFFT MSA
+
+Run **`SSM_struct_core.py`** on the same SSM output directory. MAFFT is resolved from `MAFFT_ROOT`, common install prefixes, or `PATH` (see `utils/msa_external.py`). Use `--no-mafft` for structural outputs only.
+
+```bash
+python superimposition/SSM_struct_core.py "SSMaligned2_<ref_name>/"
+```
+
+Outputs:
+
+- `ssm_core_equivalences.tsv` — reference residues matched in every model→reference alignment
+- `ssm_struct_core.fasta` / `.aln` — gapped core alignment
+- `ssm_structural_msa.fasta` — union of pairwise structural columns
+- `ssm_msa.fasta` / `.aln` — MAFFT alignment of full sequences
+
+To process many reference subdirectories:
+
+```bash
+python superimposition/SSM_struct_core.py --dir /path/to/parent --subdir-glob 'SSMaligned2_*'
+```
+
+---
+
+## Step 7: Core trim, Coot SSM re-alignment, full models
+
+After **`SSM_struct_core.py`**, run **`SSM_aligned_core.py`** on the same SSM directory. Writes a sibling folder **`SSM_aligned_core_<run_label>/`**.
+
+For a full description of each phase, inputs, outputs, and file formats, see **[`GUIDE_SSM_aligned_core_pipeline.md`](GUIDE_SSM_aligned_core_pipeline.md)**.
+
+```bash
+python superimposition/SSM_aligned_core.py "SSMaligned_all_vs_all_<run_label>/"
+```
+
+All-vs-all batch under a parent directory:
+
+```bash
+python superimposition/SSM_aligned_core.py --dir /path/to/parent --subdir-glob 'SSMaligned_all_vs_all_*'
+```
+
+Pipeline (requires **BioPython** for trim and **Coot** on PATH for SSM):
+
+1. **Phase 0** — trim native PDBs (from `# Directories:` in the parent Coot log) to `core_trim/{label}_core.pdb`
+2. **Phase A** — Coot SSM one-to-many: trimmed cores superimposed onto the anchor core (native coordinates); outputs in `core_ssm/`
+3. **Phase B** — Coot SSM: each full native PDB superimposed onto its own aligned core; outputs in `full_ssm/`
+
+Metrics (`ssm_core_alignment_metrics.tsv`): core RMSD and % sequence identity from the **phase A Coot log**.
+
+Outputs (under `SSM_aligned_core_<run_label>/`):
+
+- `core_trim/` — native trimmed cores (pre-SSM)
+- `core_ssm/` — aligned core PDBs, `coot_log_core.txt`, RMSD/seq-align extracts
+- `full_ssm/` — full-length PDBs aligned to each model’s core
+- `ssm_core_alignment_metrics.tsv` — pairwise RMSD and % identity (Coot phase A)
+- `anchor.txt` — auto-selected anchor (max complete core columns)
+
+Options: `--anchor`, `--skip-existing`, `--skip-full-ssm` (phases 0+A only), `--interactive` (keep Coot open).
+
+---
+
+## Step 8: LSQ logs (optional)
 
 Use **`--format lsq`** (or auto on an LSQ-only log). Optional: `--aligned=PATTERN`, `--reference=PATTERN`, `--debug`.
 
@@ -121,7 +197,10 @@ python ranking/extract_rmsd.py --format lsq "LSQaligned2_<ref_name>/coot_log.txt
 | 1 | From repo root, set `REFERENCE` and `ROOT_FOLDER` | — |
 | 2 | `python superimposition/superimpose_coot_SSM.py [--filter=...] [--ref-chain=...] [--model-chain=...] "$REFERENCE" "$ROOT_FOLDER"` | `SSMaligned2_<ref>/` with aligned PDBs + `coot_log.txt` |
 | 3 | (automatic) | Log in `SSMaligned2_<ref>/coot_log.txt` |
-| 4 | `python ranking/extract_rmsd.py --format ssm SSMaligned2_<ref>/coot_log.txt` | `SSMaligned2_<ref>/rmsd_SSM_values.txt` (alignment + RMSD per pair) |
+| 4 | `python ranking/extract_rmsd.py --format ssm SSMaligned2_<ref>/coot_log.txt` | `SSMaligned2_<ref>/rmsd_SSM_values.txt` |
+| 5 | `python ranking/extract_rmsd.py --format ssm --seq-align SSMaligned2_<ref>/coot_log.txt` | `ssm_seq_align.txt`, `ssm_equivalences/*.tsv` |
+| 6 | `python superimposition/SSM_struct_core.py SSMaligned2_<ref>/` | core TSV/FASTA, structural MSA, MAFFT `ssm_msa.fasta` |
+| 7 | `python superimposition/SSM_aligned_core.py SSMaligned_all_vs_all_<run_label>/` | `SSM_aligned_core_<run_label>/` core trim + Coot SSM + metrics |
 
 ---
 

@@ -22,6 +22,77 @@ if _REPO_ROOT not in sys.path:
 from utils.cli_log import add_log_args, setup_log_from_args
 
 
+def _natural_sort_key(text: str) -> list:
+    import re
+
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", text)]
+
+
+def prepare_short_pdb_symlinks(
+    directory: str | os.PathLike,
+    prefix: str,
+    *,
+    force: bool = False,
+) -> str:
+    """
+    Symlink each *.pdb in directory (top level only) to PREFIX_0001.pdb, PREFIX_0002.pdb, ...
+
+    Writes PREFIX_name_map.tsv (short_stem, original_basename) beside the inputs.
+    Returns the staging directory path (_short_PREFIX under directory).
+
+    Original PDBs are not renamed. Use the staging directory as Coot input so aligned
+    output names stay short (avoids Linux 255-byte filename limit on all-vs-all pairs).
+    """
+    root = os.path.abspath(os.path.expanduser(str(directory)))
+    if not os.path.isdir(root):
+        raise FileNotFoundError(f"Directory not found: {root}")
+
+    prefix = prefix.strip().rstrip("/\\")
+    if not prefix:
+        raise ValueError("prefix must be non-empty")
+
+    staging = os.path.join(root, f"_short_{prefix}")
+    map_path = os.path.join(root, f"{prefix}_name_map.tsv")
+
+    pdbs = sorted(
+        [
+            os.path.join(root, name)
+            for name in os.listdir(root)
+            if name.endswith(".pdb") and os.path.isfile(os.path.join(root, name))
+        ],
+        key=lambda p: _natural_sort_key(os.path.basename(p)),
+    )
+    if not pdbs:
+        raise ValueError(f"No *.pdb files in {root}")
+
+    if (
+        not force
+        and os.path.isfile(map_path)
+        and os.path.isdir(staging)
+        and len([n for n in os.listdir(staging) if n.endswith(".pdb")]) == len(pdbs)
+    ):
+        print(f"Reusing short-name staging: {staging} ({len(pdbs)} symlinks, map {map_path})")
+        return staging
+
+    os.makedirs(staging, exist_ok=True)
+    width = max(4, len(str(len(pdbs))))
+
+    with open(map_path, "w", encoding="utf-8") as mf:
+        mf.write("short_stem\toriginal_basename\n")
+        for index, pdb_path in enumerate(pdbs, start=1):
+            short_stem = f"{prefix}_{index:0{width}d}"
+            short_name = f"{short_stem}.pdb"
+            link_path = os.path.join(staging, short_name)
+            if os.path.lexists(link_path):
+                os.unlink(link_path)
+            os.symlink(os.path.relpath(pdb_path, staging), link_path)
+            mf.write(f"{short_stem}\t{os.path.basename(pdb_path)}\n")
+
+    print(f"Short-name staging: {staging} ({len(pdbs)} symlinks)")
+    print(f"Name map: {map_path}")
+    return staging
+
+
 def strip_date_from_prefixed_pdbs(directory: str, name_pattern: str) -> None:
     """Rename PDBs in one directory: drop YYYY_MM_DD_HH_MM segment after prefix."""
     if not os.path.exists(directory):
@@ -152,6 +223,7 @@ Examples (from repository root):
   python file_management/rename_files.py /path/to/dir sample_prefix
   python file_management/rename_files.py /path/to/dir --remove='\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_'
   python file_management/rename_files.py /path/to/dir --replace='fold_' --with='protein_'
+  python file_management/rename_files.py /path/to/DALI_1 --short-prefix=HPI_DALI_1
 """,
     )
     parser.add_argument(
@@ -194,6 +266,19 @@ Examples (from repository root):
         action="store_true",
         help="Only rename files, not directories.",
     )
+    parser.add_argument(
+        "--short-prefix",
+        metavar="PREFIX",
+        help=(
+            "Create _short_PREFIX/ with PREFIX_0001.pdb symlinks to each top-level *.pdb "
+            "and write PREFIX_name_map.tsv (for long AlphaFold names before superimposition)."
+        ),
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --short-prefix: rebuild symlinks and map even if staging already exists.",
+    )
 
     add_log_args(parser)
     args = parser.parse_args()
@@ -206,8 +291,25 @@ Examples (from repository root):
         summary_log.kv("files_only", bool(args.files_only))
 
     has_regex = args.remove or args.replace
+    if args.short_prefix and (args.strip_prefix is not None or has_regex):
+        parser.error("Use --short-prefix alone, not with legacy PREFIX or --remove/--replace")
     if args.strip_prefix is not None and has_regex:
         parser.error("Use either legacy PREFIX (positional) or --remove/--replace, not both")
+
+    if args.short_prefix:
+        if summary_log is not None:
+            summary_log.kv("mode", "short_prefix_symlinks")
+            summary_log.kv("prefix", args.short_prefix)
+        try:
+            prepare_short_pdb_symlinks(
+                directory,
+                args.short_prefix,
+                force=bool(args.force),
+            )
+        except (OSError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
 
     if args.strip_prefix is not None:
         if summary_log is not None:

@@ -164,7 +164,7 @@ Examples (from repository root):
     elif patterns:
         if args.filter:
             print(
-                "Note: --filter applies only to directory-only mode; ignored for pattern mode.",
+                "Warning: --filter applies only to directory-only mode; ignored for pattern mode.",
                 file=sys.stderr,
             )
         model_files = find_matching_files(patterns, directories if directories else None)

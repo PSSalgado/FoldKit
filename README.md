@@ -24,7 +24,7 @@ From the repository root, execute `python <category>/script_name.py` (or `Rscrip
 | Section                                                                                                | What it covers                                                                                      |
 | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
 | [File management](#file-management)                                                                    | Renaming files; PDB chain ID replacement and merge; residue-range trimming (no Coot)                |
-| [Superimposition](#superimposition)                                                                    | Coot SSM/LSQ and trim workflows; batch LSQ; DaliLite superposed coordinates; opening models in Coot |
+| [Superimposition](#superimposition)                                                                    | Coot SSM/LSQ and trim workflows; SSM structural core pipeline; batch LSQ; DaliLite superposed coordinates; opening models in Coot |
 | [Ranking, scoring, phylogeny, and graphical outputs](#ranking-scoring-phylogeny-and-graphical-outputs) | RMSD from logs; RMSD tables and heatmaps; Dali Z-scores; Dali matrix mode; neighbour-joining trees and plots |
 | [Metrics (crystal packing and lattice)](#metrics-crystal-packing-and-lattice)                          | Packing density, interfaces, contacts; multi-copy and lattice metrics; Caver tunnel profiles; optional batch JSON |
 | [Appendix](#appendix)                                                                                  | General notes, output layout, troubleshooting                                                       |
@@ -339,6 +339,56 @@ Options: `--trim`, `--trim-only` (implies `--trim`; incompatible with `--all-vs-
 
 Output: With trimming, creates `trimmed_set_a/`, `trimmed_set_b/` (or `trimmed_all/`); superposition output in `LSQ_set_a_all_vs_all/`, `LSQ_all_vs_all/`, or `LSQaligned2_[ref]` (one-to-many).
 
+### SSM structural core pipeline
+
+After an **SSM all-vs-all** (or multi-pair) Coot run, three scripts define a structural core, trim native coordinates, re-superimpose in Coot, and write RMSD and sequence-identity tables. Full step-by-step documentation: [`superimposition/GUIDE_SSM_aligned_core_pipeline.md`](superimposition/GUIDE_SSM_aligned_core_pipeline.md). One-to-many reference workflows: [`superimposition/GUIDE_SSM_superposition_subfolders.md`](superimposition/GUIDE_SSM_superposition_subfolders.md).
+
+| Step | Script | Purpose |
+| ---- | ------ | ------- |
+| 1 | `ranking/extract_rmsd.py --format ssm --seq-align` | Parse Coot log → pairwise equivalences (`ssm_equivalences/`), sequence alignments |
+| 2 | `superimposition/SSM_struct_core.py` | Merge equivalences → core and MSA definitions |
+| 3 | `superimposition/SSM_aligned_core.py` | Trim natives, Coot SSM on trimmed cores, full models → aligned trim |
+
+**Prerequisites:** Coot (steps 0 and 3); BioPython (step 3 trim); MAFFT optional (step 2 full-sequence MSA via `MAFFT_ROOT` or `PATH`; see `utils/msa_external.py`).
+
+#### `SSM_struct_core.py`
+
+Reads Coot SSM logs and/or `ssm_equivalences/*.tsv` from an `SSMaligned*` directory and writes core and MSA artefacts:
+
+```bash
+python superimposition/SSM_struct_core.py /path/to/project/SSMaligned_all_vs_all_<run_label>/
+python superimposition/SSM_struct_core.py --dir /path/to/project/parent --subdir-glob 'SSMaligned_all_vs_all_*'
+python superimposition/SSM_struct_core.py --equiv-dir /path/to/project/ssm_equivalences
+```
+
+Key outputs (in the SSM directory): `ssm_core_equivalences.tsv`, `ssm_struct_core.fasta`, `ssm_structural_msa.fasta`, `ssm_structural_msa_equivalences.tsv`; with MAFFT: `ssm_msa.fasta`, `ssm_msa_equivalences.tsv`. Use `--no-mafft` for structural outputs only.
+
+#### `SSM_aligned_core.py`
+
+Trims **native** PDBs from equivalence columns, runs Coot SSM (phase A: trimmed → anchor; phase B: full native → own aligned trim), and writes metrics TSVs.
+
+```bash
+python superimposition/SSM_aligned_core.py /path/to/project/SSMaligned_all_vs_all_<run_label>/
+python superimposition/SSM_aligned_core.py /path/to/project/SSM/ --trim-source structural_msa
+python superimposition/SSM_aligned_core.py /path/to/project/SSM/ --trim-source continuous_msa
+python superimposition/SSM_aligned_core.py --dir /path/to/project/parent --subdir-glob 'SSMaligned_all_vs_all_*' --skip-existing
+```
+
+**`--trim-source`:**
+
+| Value | Equivalence input | Output directory | Trim suffix |
+| ----- | ----------------- | ---------------- | ----------- |
+| `core` (default) | `ssm_core_equivalences.tsv` | `SSM_aligned_core_<run_label>/` | `_core` |
+| `structural_msa` | `ssm_structural_msa_equivalences.tsv` | `SSM_aligned_structural_msa_<run_label>/` | `_trim` |
+| `continuous_msa` | `ssm_structural_msa_equivalences.tsv` | `SSM_aligned_continuous_msa_<run_label>/` | `_cont` |
+| `mafft` | `ssm_msa_equivalences.tsv` | `SSM_aligned_mafft_msa_<run_label>/` | `_trim` |
+
+`continuous_msa` keeps the longest contiguous SSM-matched segment per structure in native sequence order (same equivalences as `structural_msa`, separate output tree).
+
+Options: `--trim-source`, `--anchor`, `--skip-existing`, `--force`, `--skip-full-ssm`, `--interactive` / `--not-interactive`, `--dir`, `--subdir-glob`.
+
+Output (per mode): `core_trim/` or `msa_trim/` or `continuous_trim/`; `core_ssm/` or `msa_ssm/` or `continuous_ssm/`; `full_ssm/`; `ssm_core_alignment_metrics.tsv`, `anchor.txt`, `processing_log.txt`.
+
 ### `run_all_superpositions.py`
 
 Batch driver for **`superimpose_coot_LSQ.py --pattern`**: loops over **conditions** (subfolders under each base, e.g. `condition_1`) and **tags** (same role as `--filter=set_a` in SSM/LSQ). Expects `refs_base/<condition>/<REFERENCE_SUBDIR>/` for reference PDBs (default subdir `LSQaligned2_reference_m0` in the script) and `models_base/<condition>/*_fl_<set>*` for models. The script passes `--pattern`, `--divider=LSQ_`, and globs derived from `CONDITION_PREFIX` (e.g. `run1_sd_set_a` vs `run1_sd_reference`); edit `CONDITION_PREFIX`, `REFERENCE_SUBDIR`, `REFERENCE_STEM`, and `TAGS` in the script to match the local layout.
@@ -417,25 +467,25 @@ Scripts here convert superposition logs or similarity tables into **tables, heat
 
 ### `extract_rmsd.py`
 
-Extracts RMSD blocks from Coot logs. **LSQ** logs use “Aligning … to …” (optional `--aligned` / `--reference` filters). **SSM** logs use “Superposing … onto …”. Use `--format lsq`, `--format ssm`, or `--format auto` (default) to detect from the log.
+Extracts RMSD blocks from Coot logs. **LSQ** logs use “Aligning … to …” (optional `--aligned` / `--reference` filters). **SSM** logs use “Superposing … onto …”. Use `--format lsq`, `--format ssm`, or `--format auto` (default) to detect from the log. With **`--seq-align`**, also writes pairwise sequence alignments and equivalence TSVs under `ssm_equivalences/` (input for `SSM_struct_core.py`).
 
 ```bash
-python ranking/extract_rmsd.py /path/to/project/coot_log.txt [--format auto|lsq|ssm] [LSQ options]
+python ranking/extract_rmsd.py /path/to/project/coot_log.txt [--format auto|lsq|ssm] [--seq-align] [LSQ options]
 ```
 
-LSQ-only options: `--aligned`, `-a`; `--reference`, `-r`; `--case-sensitive`, `-c`; `--debug`, `-d`.
+LSQ-only options: `--aligned`, `-a`; `--reference`, `-r`; `--case-sensitive`, `-c`; `--debug`, `-d`. SSM pipeline: `--seq-align` (equivalences for `SSM_struct_core.py`).
 
 Examples:
 
 ```bash
 python ranking/extract_rmsd.py /path/to/project/LSQaligned2_ref/coot_log.txt --format lsq
-python ranking/extract_rmsd.py /path/to/project/SSMaligned2_ref/coot_log.txt --format ssm
+python ranking/extract_rmsd.py /path/to/project/SSMaligned2_ref/coot_log.txt --format ssm --seq-align
 python ranking/extract_rmsd.py /path/to/project/coot_log.txt   # auto: picks SSM vs LSQ from log content
 python ranking/extract_rmsd.py /path/to/project/coot_log.txt --aligned=set_a --reference=ref_01 --format lsq
 python ranking/extract_rmsd.py /path/to/project/coot_log.txt --debug --format lsq
 ```
 
-Output: `rmsd_values*.txt` (LSQ) or `rmsd_SSM_values*.txt` (SSM).
+Output: `rmsd_values*.txt` (LSQ) or `rmsd_SSM_values*.txt` (SSM); with `--seq-align`: `ssm_seq_align.txt`, `ssm_equivalences/*.tsv`.
 
 **Batch modes (same script):**
 
@@ -1325,6 +1375,9 @@ working_directory/
 ├── trimmed_set_a/                    # Trimmed models (trim_models.py / trim_superimposeLSQ --trim)
 ├── trimmed_set_b/
 ├── trimmed_all/                      # Trimmed models, no --filter (same)
+├── SSM_aligned_core_<run_label>/     # SSM_aligned_core.py (--trim-source core)
+├── SSM_aligned_structural_msa_<run_label>/
+├── SSM_aligned_continuous_msa_<run_label>/
 └── [subdir]_LSQaligned_[ref]/        # superimpose_coot_LSQ.py --pattern
 ```
 

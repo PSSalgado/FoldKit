@@ -11,6 +11,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+from superimposition.aligned_pdb_names import COOT_ALIGNED_PDB_HELPERS_PY
 from superimposition.superimpose_pattern_match import find_ref_model_matches
 
 from utils.cli_log import setup_log_from_argv
@@ -220,7 +221,7 @@ def create_coot_script(
 ):
     """Legacy one-to-many template. If keep_coot_open is False, skip reload-for-display and exit Coot."""
     mt = repr(_normalise_lsq_match_type(lsq_match_type))
-    script_content = f"""{COOT_LSQ_HELPERS_PY}
+    script_content = f"""{COOT_LSQ_HELPERS_PY}{COOT_ALIGNED_PDB_HELPERS_PY}
 import os
 import sys
 
@@ -244,7 +245,7 @@ for model_path in {model_files!r}:
     except Exception as e:
         print("Error during superposition:", e)
         continue
-    output_name = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
+    output_name = os.path.join({output_dir!r}, foldkit_aligned_pdb_basename(model_name, ref_name, "_LSQaligned2_"))
     write_pdb_file(model_mol, output_name)
 
 for i in range(graphics_n_molecules()):
@@ -261,7 +262,7 @@ graphics_to_ca_representation(int(ref_mol))
 
 for model_path in {model_files!r}:
     model_name = os.path.splitext(os.path.basename(model_path))[0]
-    aligned_path = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
+    aligned_path = os.path.join({output_dir!r}, foldkit_aligned_pdb_basename(model_name, ref_name, "_LSQaligned2_"))
     handle_read_draw_molecule_with_recentre(aligned_path, 0)
     mol = graphics_n_molecules() - 1
     set_molecule_bonds_colour_map_rotation(mol, 21 * (mol - ref_mol))
@@ -307,7 +308,7 @@ def create_lsq_script(
         if model_chain is None
         else f"model_chain = {model_chain!r}"
     )
-    script_content = f"""{COOT_LSQ_HELPERS_PY}
+    script_content = f"""{COOT_LSQ_HELPERS_PY}{COOT_ALIGNED_PDB_HELPERS_PY}
 import os
 import sys
 
@@ -337,7 +338,7 @@ for model_path in {model_files!r}:
     except Exception as e:
         print("Error during superposition:", e)
         continue
-    output_name = os.path.join({output_dir!r}, model_name + {aligned_tag!r} + ref_name + ".pdb")
+    output_name = os.path.join({output_dir!r}, foldkit_aligned_pdb_basename(model_name, ref_name, {aligned_tag!r}))
     write_pdb_file(model_mol, output_name)
 
 __TAIL__
@@ -384,7 +385,7 @@ def create_all_vs_all_lsq_script(
         if model_chain is None
         else f"model_chain = {model_chain!r}"
     )
-    script_content = f"""{COOT_LSQ_HELPERS_PY}
+    script_content = f"""{COOT_LSQ_HELPERS_PY}{COOT_ALIGNED_PDB_HELPERS_PY}
 import os
 import sys
 
@@ -418,7 +419,7 @@ for ref_path in model_files:
             print("Error during superposition of " + model_name + " to " + ref_name + ": " + str(e))
             close_molecule(model_mol)
             continue
-        output_name = os.path.join({output_dir!r}, model_name + "_LSQaligned2_" + ref_name + ".pdb")
+        output_name = os.path.join({output_dir!r}, foldkit_aligned_pdb_basename(model_name, ref_name, "_LSQaligned2_"))
         write_pdb_file(model_mol, output_name)
         if model_path not in [mol[1] for mol in final_molecules]:
             final_molecules.append((model_mol, model_path))
@@ -493,7 +494,7 @@ def create_axb_lsq_script(
         else f"model_chain = {model_chain!r}"
     )
     ref_configs = list(zip(ref_files, output_dirs_per_ref))
-    script_content = f"""{COOT_LSQ_HELPERS_PY}
+    script_content = f"""{COOT_LSQ_HELPERS_PY}{COOT_ALIGNED_PDB_HELPERS_PY}
 import os
 import sys
 
@@ -526,7 +527,7 @@ for ref_path, out_dir in ref_configs:
             print("Error LSQ " + model_name + " to " + ref_name + ": " + str(e))
             close_molecule(model_mol)
             continue
-        output_name = os.path.join(out_dir, model_name + "_LSQaligned2_" + ref_name + ".pdb")
+        output_name = os.path.join(out_dir, foldkit_aligned_pdb_basename(model_name, ref_name, "_LSQaligned2_"))
         write_pdb_file(model_mol, output_name)
         close_molecule(model_mol)
     close_molecule(reference_mol)
