@@ -51,9 +51,6 @@ coverage.xml
 .pytest_cache/
 cover/
 
-# Automated tests are kept out of this repository (local-only).
-/tests/
-
 # Translations
 *.mo
 *.pot
@@ -177,3 +174,8 @@ cython_debug/
 .DS_Store
 
 0-coot-history.*
+.idea/.gitignore
+.idea/FoldKit.iml
+.idea/modules.xml
+.idea/vcs.xml
+.idea/inspectionProfiles/profiles_settings.xml

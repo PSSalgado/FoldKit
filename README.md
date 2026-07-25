@@ -1,3 +1,5 @@
+[![Tests](https://github.com/ruivieira/FoldKit/actions/workflows/tests.yml/badge.svg)](https://github.com/ruivieira/FoldKit/actions/workflows/tests.yml)
+
 # FoldKit — protein structure analysis scripts
 
 **FoldKit** is a collection of Python (and supporting R) tools for working with macromolecular **3D structures** in PDB or mmCIF format. The scripts cover **file preparation**, **pairwise and batch superimposition**, **similarity scoring and structure-based phylogenies** (with tabular and graphical outputs), and **quantitative crystal-packing and lattice metrics** (including **optional Caver 3.0 tunnel profile analysis** in `metrics/caver_tunnel_analysis.py`). Some workflows use **Coot** for interactive superposition and log-based RMSD extraction; others use **DaliLite**, **TM-align**, or pure Python/R and do not require Coot.
@@ -41,6 +43,13 @@ From the repository root, execute `python <category>/script_name.py` (or `Rscrip
 - **DaliLite** + `mkdssp`: `dalilite_pairs.py`, `dalilite_matrix.py`, and DaliLite-backed modes of `foldkit_dali_like_scores.py` (see [Appendix — DaliLite](#dalilite-foldkit_dali_like_scorespy-dalilite_pairspy)).
 - **TM-align**: optional distance input for `structure_phylogeny.py --from-pdb`.
 - `gemmi` (`pip install gemmi`): helpful for some CIF handling in superposition workflows.
+
+**Testing:** install dev dependencies and run the unit suite from the repository root:
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
 
 ---
 
