@@ -1,0 +1,45 @@
+{
+  "profile": "bbox",
+  "family": "volume",
+  "version": 1,
+  "population": "Expanded-lattice / AABB supercell volumes (calibrated on FoldKit multi-copy S-layer lattices; use for any expanded lattice, not only S-layers)",
+  "rounding": "Matthews on a 0.5 grid; solvent and packing upper edges on a 5-unit grid. Packing lower edge uses a 1%-point grid when a 5-point grid would collapse a positive minimum to zero. Solvent limits derived from Matthews endpoints via FoldKit 0.81 Da/A3 heuristic, then rounded outward.",
+  "sources": [
+    "experimental_s_layers/combined_lattice_vs_ec.csv",
+    "compact_slpa_15m/metrics_summary_table.csv"
+  ],
+  "n_structures": 10,
+  "metric_limits": {
+    "matthews_a3_per_Da": {
+      "display": "Matthews-like (A^3/Da)",
+      "n": 10,
+      "observed_min": 8.6166,
+      "observed_max": 44.171,
+      "round_step": 0.5,
+      "limits": [8.0, 45.0]
+    },
+    "estimated_solvent_percent": {
+      "display": "Estimated solvent (%)",
+      "n": 10,
+      "observed_min": 85.6722,
+      "observed_max": 97.205,
+      "derived_from_matthews": true,
+      "round_step": 5.0,
+      "limits": [80.0, 100.0]
+    },
+    "packing_density_percent": {
+      "display": "Packing density (%)",
+      "n": 10,
+      "observed_min": 2.4275,
+      "observed_max": 12.3644,
+      "round_step": 5.0,
+      "lower_round_step": 1.0,
+      "limits": [2.0, 15.0]
+    }
+  },
+  "notes": [
+    "Fixed expanded-lattice bands replacing the former crystal×f inflation. Mode name 'bbox' signals general supercell use; the calibration cohort is experimental S-layers until a non-S-layer expanded cohort is available.",
+    "Estimated solvent% is algebraically linked to Matthews via solvent = 100*(1 - 1/(0.81*VM)).",
+    "Bands: Matthews 8–45, solvent 80–100%, packing 2–15% (nonzero packing floor; assembled lattices are never empty)."
+  ]
+}

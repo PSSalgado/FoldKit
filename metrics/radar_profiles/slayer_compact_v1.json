@@ -1,0 +1,97 @@
+{
+  "profile": "slayer-compact",
+  "version": 1,
+  "band_method": "minmax",
+  "population": "Compact C. difficile SlpA 15-molecule FoldKit bbox lattices (bbox2)",
+  "rounding": "Bands are rounded outward. When a 5-point grid would reduce a positive LOI/contact minimum to zero, the lower limit uses a 1-point grid instead; upper limits use a 5-point grid. BSA/kDa uses 5 units at both edges.",
+  "sources": [
+    "compact_slpa_15m/combined_lattice_vs_ec.csv"
+  ],
+  "n_structures": 5,
+  "metric_limits": {
+    "reference_chain_BSA_per_kDa_reference_chain_A2": {
+      "display": "BSAmolA/kDa (A^2)",
+      "n": 5,
+      "observed_min": 43.05,
+      "observed_max": 56.94,
+      "band_min_unrounded": 43.05,
+      "band_max_unrounded": 56.94,
+      "lower_round_step": 5.0,
+      "upper_round_step": 5.0,
+      "limits": [
+        40.0,
+        60.0
+      ]
+    },
+    "lattice_burial_fraction_percent": {
+      "display": "LOImolA (%)",
+      "n": 5,
+      "observed_min": 8.9,
+      "observed_max": 12.1,
+      "band_min_unrounded": 8.9,
+      "band_max_unrounded": 12.1,
+      "lower_round_step": 5.0,
+      "upper_round_step": 5.0,
+      "limits": [
+        5.0,
+        15.0
+      ]
+    },
+    "lattice_contact_residue_fraction_percent": {
+      "display": "Mol. A lattice contact residues (%)",
+      "n": 5,
+      "observed_min": 11.6,
+      "observed_max": 15.2,
+      "band_min_unrounded": 11.6,
+      "band_max_unrounded": 15.2,
+      "lower_round_step": 5.0,
+      "upper_round_step": 5.0,
+      "limits": [
+        10.0,
+        20.0
+      ]
+    }
+  },
+  "structures": [
+    {
+      "structure_stem": "s2_opt2427_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 56.47,
+      "lattice_burial_fraction_percent": 11.8,
+      "lattice_contact_residue_fraction_percent": 15.2
+    },
+    {
+      "structure_stem": "s7_cd630_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 56.94,
+      "lattice_burial_fraction_percent": 12.1,
+      "lattice_contact_residue_fraction_percent": 14.8
+    },
+    {
+      "structure_stem": "s7b_r7404_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 43.05,
+      "lattice_burial_fraction_percent": 8.9,
+      "lattice_contact_residue_fraction_percent": 11.6
+    },
+    {
+      "structure_stem": "s11_ox247o_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 45.21,
+      "lattice_burial_fraction_percent": 10.1,
+      "lattice_contact_residue_fraction_percent": 13.0
+    },
+    {
+      "structure_stem": "s4del_r2d2_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 47.96,
+      "lattice_burial_fraction_percent": 10.2,
+      "lattice_contact_residue_fraction_percent": 12.4
+    }
+  ],
+  "notes": [
+    "Tighter alternative to the slayer occlusion profile: use when every structure in the run is a compact, narrow-pore SlpA-type lattice.",
+    "Calibrated on five FoldKit bbox2 SlpA 15-molecule lattices (BSA/kDa 43.05–56.94; LOI 8.9–12.1%; contact 11.6–15.2%), rounded outward to 40–60 / 5–15 / 10–20.",
+    "Open hexagonal arrays fall below this band; use --occlusion-scale-mode slayer for mixed cohorts."
+  ]
+}

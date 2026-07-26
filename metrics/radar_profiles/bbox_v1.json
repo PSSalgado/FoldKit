@@ -1,0 +1,135 @@
+{
+  "profile": "bbox",
+  "version": 1,
+  "band_method": "minmax",
+  "population": "Expanded-lattice / multi-copy occlusion (calibrated on FoldKit experimental S-layer lattices, bacterial and archaeal: open hexagonal arrays through dense lattices; use for any expanded lattice, not only S-layers)",
+  "rounding": "Bands are rounded outward. When a 5-point grid would reduce a positive LOI/contact minimum to zero, the lower limit uses a 1-point grid instead; upper limits use a 5-point grid. BSA/kDa uses 5 units at both edges.",
+  "sources": [
+    "experimental_s_layers/combined_lattice_vs_ec.csv"
+  ],
+  "n_structures": 10,
+  "metric_limits": {
+    "reference_chain_BSA_per_kDa_reference_chain_A2": {
+      "display": "BSAmolA/kDa (A^2)",
+      "n": 10,
+      "observed_min": 9.86,
+      "observed_max": 76.84,
+      "band_min_unrounded": 9.86,
+      "band_max_unrounded": 76.84,
+      "lower_round_step": 5.0,
+      "upper_round_step": 5.0,
+      "limits": [
+        5.0,
+        80.0
+      ]
+    },
+    "lattice_burial_fraction_percent": {
+      "display": "LOImolA (%)",
+      "n": 10,
+      "observed_min": 2.3,
+      "observed_max": 16.0,
+      "band_min_unrounded": 2.3,
+      "band_max_unrounded": 16.0,
+      "lower_round_step": 1.0,
+      "upper_round_step": 5.0,
+      "limits": [
+        2.0,
+        20.0
+      ]
+    },
+    "lattice_contact_residue_fraction_percent": {
+      "display": "Mol. A lattice contact residues (%)",
+      "n": 10,
+      "observed_min": 2.7,
+      "observed_max": 20.2,
+      "band_min_unrounded": 2.7,
+      "band_max_unrounded": 20.2,
+      "lower_round_step": 1.0,
+      "upper_round_step": 5.0,
+      "limits": [
+        2.0,
+        25.0
+      ]
+    }
+  },
+  "structures": [
+    {
+      "structure_stem": "Bant_12mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 76.84,
+      "lattice_burial_fraction_percent": 14.5,
+      "lattice_contact_residue_fraction_percent": 20.2
+    },
+    {
+      "structure_stem": "Cglut_7hexA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 48.79,
+      "lattice_burial_fraction_percent": 10.3,
+      "lattice_contact_residue_fraction_percent": 12.1
+    },
+    {
+      "structure_stem": "Cvib_7hexA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 9.86,
+      "lattice_burial_fraction_percent": 2.3,
+      "lattice_contact_residue_fraction_percent": 2.7
+    },
+    {
+      "structure_stem": "Drad_6hexA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 61.65,
+      "lattice_burial_fraction_percent": 16.0,
+      "lattice_contact_residue_fraction_percent": 15.1
+    },
+    {
+      "structure_stem": "Hvol_7hexA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 20.09,
+      "lattice_burial_fraction_percent": 4.3,
+      "lattice_contact_residue_fraction_percent": 5.4
+    },
+    {
+      "structure_stem": "s11_ox247o_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 45.21,
+      "lattice_burial_fraction_percent": 10.1,
+      "lattice_contact_residue_fraction_percent": 13.0
+    },
+    {
+      "structure_stem": "s2_opt2427_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 56.47,
+      "lattice_burial_fraction_percent": 11.8,
+      "lattice_contact_residue_fraction_percent": 15.2
+    },
+    {
+      "structure_stem": "s4del_r2d2_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 47.96,
+      "lattice_burial_fraction_percent": 10.2,
+      "lattice_contact_residue_fraction_percent": 12.4
+    },
+    {
+      "structure_stem": "s7_cd630_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 56.94,
+      "lattice_burial_fraction_percent": 12.1,
+      "lattice_contact_residue_fraction_percent": 14.8
+    },
+    {
+      "structure_stem": "s7b_r7404_15mA",
+      "source": "combined_lattice_vs_ec.csv",
+      "reference_chain_BSA_per_kDa_reference_chain_A2": 43.05,
+      "lattice_burial_fraction_percent": 8.9,
+      "lattice_contact_residue_fraction_percent": 11.6
+    }
+  ],
+  "notes": [
+    "Occlusion bands are empirical: FoldKit LOImolA measures burial of one focal chain by ALL neighbours in a multi-copy 2-D lattice, so monomeric 3-D crystal-packing statistics (Carugo & Argos 1997: 15-49% of surface in crystal contacts, mean ~27%) are not transferable.",
+    "Mode name 'bbox' signals general expanded-lattice use; the calibration cohort is experimental S-layers until a non-S-layer expanded cohort is available.",
+    "The LOI and contact-residue lower bounds are nonzero empirical reference baselines, not claims that an assembled lattice can have no contacts. Their observed minima (2.3% and 2.7%) are rounded outward to 2%, while upper limits retain the coarser 5-point reporting grid.",
+    "S-layers are porous meshworks (typically 30-70% porosity, pores ~2-8 nm; Sleytr et al. reviews), and much of each subunit faces solvent on the environment and cell-wall sides, so absolute occlusion is expected to be low with a meaningful compact-versus-open spread.",
+    "Cohort spans compact C. difficile SlpA-type lattices (narrow ~8-11 A pores; Lanzoni-Mangutchi et al. 2022) and permeable arrays such as Sap and archaeal hexagonal S-layers (~30-100 A openings), which set the upper and lower ends of the band respectively.",
+    "BSAmolA/kDa remains correlated with LOI (BSA/kDa = LOI x isolated_SASA/kDa) and varies with subunit size and architecture even at similar LOI, so it is banded but not independent."
+  ]
+}

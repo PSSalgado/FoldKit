@@ -1192,6 +1192,142 @@ PYTHONPATH=. python metrics/interface_analysis_matrix.py reports/*.txt \
   --output-dir ./compare/ --heatmap-bsa-robust --heatmap-bsa-split-at 600    # explicit threshold
 ```
 
+#### `lattice_metrics_radar.py`
+
+Radar (spider) charts of six key packing/occlusion metrics. Each metric is scored against a fixed raw-value band using **0–10 by default** (band minimum → 0, maximum → 10); use `--score-range MIN MAX` to select another score range. Scores are comparable between runs only when both the raw-value bands and score range match. Matthews and estimated solvent are **inverted** so a **larger polygon always means a tighter / more occluded lattice**. Output is **small-multiples** (one radar per structure, shared geometry); proteins are not overlaid on one polar plot. Comparison uses a dashed **ghost silhouette** on every panel (**leave-one-out median** by default: the median of the other *n*−1 structures, excluding the panel under view; alternatives via `--ghost` / `--reference-stem STEM`) and an optional companion **score heatmap** (on by default; `--no-heatmap` to skip). When within-cohort differences are a small fraction of the physical band, `--display deviation` plots signed cohort deviations (z-score / MAD / range) instead of band scores so the ring resolves small differences; the mid-ring is the cohort centre. The scale tag is appended to `--output-dir` and included in every filename (for example `<output-dir>_bbox/radar_grid_bbox.png`; deviation runs add `_dev-<scale>`, non-default ghosts add `_ghost-<mode>`, interleaved spoke order adds `_order-interleaved`), avoiding an extra nested directory while keeping runs separate; a mixed volume/occlusion run records both as `vol-<mode>_occ-<mode>` (for example `vol-slayer-compact_occ-empirical`). Use `--no-scale-tag` for flat, untagged names. Writes `radar_grid_<tag>.<fmt>`, optionally `radar_scores_heatmap_<tag>.<fmt>`, `radar_scores_<tag>.csv`, and `radar_scale_<tag>.json`. Metrics: packing density %, Matthews Å³/Da (inv), estimated solvent % (inv), BSAmolA/kDa, LOImolA %, and Mol. A lattice contact residues %. Default spoke order is LOI, Matthews, contact, packing, BSA/kDa, solvent (LOI at 12 o’clock); `--metric-order interleaved` uses packing, contact, Matthews, LOI, solvent, BSA/kDa, or pass a custom comma-separated token list. EC is excluded (charge complementarity, not packing).
+
+**Input layout is auto-detected**, so either table works:
+
+- **structures as rows** — `combined_lattice_vs_ec.csv` from `lattice_compare_batch.py` (`structure_stem` plus the six metric columns);
+- **metrics as rows** — a transposed summary table whose first column holds metric labels (`Packing density (%)`, `Matthews-like coefficient (Å3/Da)`, `BSAmolA/kDa (Å²)`, `Lattice occlusion index (LOImolA) (%)`, `Mol. A lattice contact residues (%)`, …) and whose header row lists the structure names. Extra rows (atom density, total volume, EC, …) are ignored.
+
+Labels are matched ignoring case, punctuation, and unit glyphs, so snake_case column names and display labels are both accepted.
+
+**Shared scale modes** (`--scale-mode` for packing / Matthews / solvent; `--occlusion-scale-mode` for BSA/kDa / LOI / contact %; both default **`bbox`**):
+
+| Mode | Volume (packing / Matthews / solvent) | Occlusion (BSA/kDa / LOI / contact %) |
+|---|---|---|
+| `cryst1` | Unit-cell literature: Matthews **1.5–4.0**, solvent **25–80%**, packing **20–75%** (alias: `crystal`) | No crystal LOI band → within-run **empirical** fallback |
+| `bbox` | Fixed expanded-lattice bands: Matthews **8–45**, solvent **80–100%**, packing **2–15%** | LOI **2–20%**, contact **2–25%**, BSA/kDa **5–80** |
+| `empirical` | Within-run: close (span ≤ 5) → **floor(min)−1 … ceil(max)+1**; wider → Matthews **0.5** / % **0/5** grid | Same within-run rule (wide step = 5) |
+| `slayer-compact` | Matthews **7–10**, solvent **80–90%**, packing **10–15%** | LOI **5–15%**, contact **10–20%**, BSA/kDa **40–60** |
+| `user` | Requires `--matthews-min/max` (optional solvent/packing) | Requires `--loi-*`, `--contact-*`, `--bsa-kda-*` |
+| `cohort` | — | Legacy raw within-run min–max (prefer `empirical`) |
+
+Crystal×\(f\) inflation is **removed**: expanded lattices use the fixed `bbox` profiles, calibrated on the ten FoldKit experimental S-layer lattices but labelled for general supercell use. Solvent bands for those profiles are tied to Matthews via FoldKit’s \(0.81\,\mathrm{Da/Å³}\) heuristic. Occlusion lower edges use a 1%-point grid when a 5-point grid would produce zero (LOI/contact floors **2%**). Profiles live in `metrics/radar_profiles/`. See [`metrics/metrics_details.md`](metrics/metrics_details.md) §1.6.7.
+
+```bash
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar
+
+# custom 0–5 score range (default is 0–10)
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --score-range 0 5
+
+# resolve small within-cohort differences: z-score radars + leave-one-out ghost (default)
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --display deviation --deviation-scale sd
+
+# same, but MAD-robust and with a shared cohort-median ghost
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --display deviation --deviation-scale mad --ghost cohort-median
+
+# transposed summary table (metrics as rows, one column per protein)
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./interface_analysis_out/metrics_summary_table.csv \
+  --output-dir ./interface_analysis_out/radar
+
+# unit-cell / CRYST1 volumes
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --scale-mode cryst1 --occlusion-scale-mode empirical
+
+# explicit Matthews band
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./interface_analysis_out/metrics_summary_table.csv \
+  --output-dir ./interface_analysis_out/radar \
+  --scale-mode user --matthews-min 5 --matthews-max 15
+
+# tighter bands for a cohort of compact SlpA-like lattices only
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar_compact \
+  --scale-mode slayer-compact \
+  --occlusion-scale-mode slayer-compact
+
+# same cohort with packing/occlusion spokes interleaved
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --metric-order interleaved
+
+# highlight adjacent spoke disagreements (shared edge width/opacity scale)
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --edge-delta
+
+# within-run empirical band: close values → floor(min)−1…ceil(max)+1; wider → 0/5 grid
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --occlusion-scale-mode empirical
+
+# legacy within-run min-max on the occlusion axes
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --occlusion-scale-mode cohort
+
+# explicit occlusion band (all three pairs required in user mode)
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --occlusion-scale-mode user \
+  --loi-min 0 --loi-max 25 --contact-min 0 --contact-max 30 \
+  --bsa-kda-min 0 --bsa-kda-max 100
+
+# keep the bbox profile but widen one axis
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --loi-min 0 --loi-max 30
+
+# order + sort by mean score (tighter first), TIFF output, use one structure as the ghost
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --sort-by mean --format tiff --reference-stem model_01
+
+# split large cohorts across pages and hide raw-value annotations
+PYTHONPATH=. python metrics/lattice_metrics_radar.py \
+  --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar \
+  --max-per-page 9 --no-annotate-values
+```
+
+`--score-range MIN MAX` remaps the selected raw-value bands onto any finite increasing score interval (default `0 10`) and updates the radar rings, heatmap colour scale, score CSV, and `radar_scale` JSON (ignored for the radial mapping under `--display deviation`). `--display deviation` standardises each axis about the cohort centre (`--deviation-scale sd|mad|range`) so a narrow cohort uses the full ring; `--ghost loo-median` (default) / `loo-mean` / `cohort-median` / `cohort-mean` selects the dashed silhouette, overridden by `--reference-stem`. `--metric-order default|interleaved|TOKENS` sets spoke order (`interleaved` = packing, contact, Matthews, LOI, solvent, BSA/kDa). `--edge-delta` varies polygon edge width/opacity with adjacent plot-value gaps on a shared run-wide scale (tags `_edges-delta`). `--format` accepts `png`, `svg`, `pdf`, or `tiff`. By default the scale tag is appended to `--output-dir` and included in each filename (for example `./compare/radar_bbox/radar_grid_bbox.png`; a mixed run uses `vol-<mode>_occ-<mode>`; deviation adds `_dev-<scale>`; interleaved adds `_order-interleaved`); pass `--no-scale-tag` for flat, untagged names directly in `--output-dir`. `lattice_compare_batch.py --radar` renders the same figures automatically after it writes the combined CSV.
+
+#### `calibrate_occlusion_profile.py`
+
+Derives the fixed occlusion bands used by `lattice_metrics_radar.py --occlusion-scale-mode` from FoldKit-computed lattices and writes them as a versioned profile JSON under `metrics/radar_profiles/`. Reads the same two table layouts as the radar script and accepts several tables at once, so a profile can be extended as new experimental structures are analysed. Records the source paths, per-structure values, observed span, rounding step, final limits, and free-text provenance notes.
+
+```bash
+# rebuild the default expanded-lattice profile
+PYTHONPATH=. python metrics/calibrate_occlusion_profile.py \
+  --input ./experimental_s_layers/combined_lattice_vs_ec.csv \
+  --profile bbox --version 1 \
+  --population "Expanded-lattice occlusion, FoldKit multi-copy models" \
+  --note "Empirical band; monomeric crystal-packing statistics do not transfer."
+
+# pool several cohorts and trim outliers to the 5th-95th percentile
+PYTHONPATH=. python metrics/calibrate_occlusion_profile.py \
+  --input ./cohort_a/combined_lattice_vs_ec.csv ./cohort_b/combined_lattice_vs_ec.csv \
+  --profile bbox --version 2 --band p5p95
+
+# calibrate on a subset (compact lattices only)
+PYTHONPATH=. python metrics/calibrate_occlusion_profile.py \
+  --input ./compact_slpa_15m/combined_lattice_vs_ec.csv \
+  --profile slayer-compact --version 1 \
+  --stems s2_opt2427_15mA,s7_cd630_15mA,s7b_r7404_15mA
+```
+
+Bands are rounded **outward**. LOI and contact-residue lower edges use a **1%-point grid when a 5-point grid would produce zero**, preserving a nonzero empirical baseline; otherwise they retain 5 points. Upper edges use **5 points**. BSA/kDa uses **5 units** at both edges. Use `--output-dir` to write elsewhere than the shipped profile directory; register a new profile name in `lattice_metrics_radar.OCCLUSION_SCALE_MODES` to select it from the radar CLI.
+
 #### `contact_analyser.py`
 
 Crystal contact and symmetry interaction analysis.

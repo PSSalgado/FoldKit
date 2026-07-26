@@ -195,6 +195,117 @@ The analyser carries volume provenance in a `vol_meta` dictionary. Merges are pe
 
 A companion to Section 1.6 that **concatenates** per-structure **TXT** reports, **flattens** one or more **JSON** files (or a **combined** JSON bundle) into a **single CSV table**, and supports **`--preset summary`** or an explicit comma-separated **`--columns`** list to control the written fields. It performs **no** structure parsing and **no** physics; see **README.md** (Metrics) for the command-line interface.
 
+#### 1.6.7 Radar charts of key metrics: `lattice_metrics_radar.py`
+
+**Purpose.** Visualise six packing/occlusion metrics as **small-multiples radar charts** — one panel per structure — plus a companion **score heatmap** and a `radar_scores.csv` table. It performs **no** physics; it only reads a metrics table, computes comparative scores, and renders figures with Matplotlib.
+
+**Accepted input layouts (auto-detected).** Either **structures as rows** — `combined_lattice_vs_ec.csv` from `lattice_compare_batch.py` (or via its `--radar` flag), requiring `structure_stem` plus the six metric columns — or **metrics as rows**, a transposed summary table whose first column holds metric labels and whose header row lists structure names. Metric labels are matched after folding case, punctuation, and unit glyphs (`Å`→`a`, `³`→`3`, `²`→`2`), so both snake_case column names and display labels (`Packing density (%)`, `Matthews-like coefficient (Å3/Da)`, `BSAmolA/kDa (Å²)`, `Lattice occlusion index (LOImolA) (%)`, `Mol. A lattice contact residues (%)`) resolve to the same metric. Unrecognised rows or columns (atom density, total volume, EC, …) are ignored. Percent-valued columns are expected: fixed scoring bands are expressed in percent, so a fraction-valued variant of the same quantity (`lattice_burial_fraction` = 0.12 rather than `lattice_burial_fraction_percent` = 12) would be scored against the wrong scale. Such a column is detected and warned about (all values ≤ 1 against a 0–100 band); under `--occlusion-scale-mode cohort` the min–max rescaling remains invariant to a constant factor and both variants score identically.
+
+**Metrics and columns (six).** `packing_density_percent`, `matthews_a3_per_Da`, `estimated_solvent_percent`, `reference_chain_BSA_per_kDa_reference_chain_A2`, `lattice_burial_fraction_percent` (LOImolA), and `lattice_contact_residue_fraction_percent`. EC (`lattice_ec_r_npairs_weighted`) is intentionally **excluded** — it is a charge-complementarity quantity, not a packing/occlusion measure.
+
+##### Score calculation (band mode; `--display score`, default)
+
+**Definition of a score.** For each metric \(j\) and structure \(i\), the raw value \(x_{ij}\) is mapped from a fixed or cohort raw-value band \([x_{\min,j},\, x_{\max,j}]\) onto a user-chosen score interval \([s_{\min},\, s_{\max}]\) (default \(0\)–\(10\); set with `--score-range MIN MAX`). This is classical **min–max normalisation** (also called range scaling): a linear transform that places every axis on a common numeric interval so heterogeneous units (Å³/Da, %, Å²/kDa) can share one polar plot. The same construction is the standard preprocessing step before multivariate displays and distance-based comparisons (for example Han, Kamber & Pei, *Data Mining*; Jain, Murty & Flynn 1999). It does **not** invent new physics — it only rescales an already-computed lattice metric for visual comparison.
+
+```
+u          = (x − xmin) / (xmax − xmin)          # fraction of the raw band
+raw_score  = smin + (smax − smin) · u
+plot_score = smax − (raw_score − smin)           # if inverted (Matthews, solvent)
+           = raw_score                           # otherwise
+plot_score = clamp(plot_score, smin, smax)
+```
+
+If \(x_{\max} = x_{\min}\) (degenerate cohort), every structure scores at the midpoint \((s_{\min}+s_{\max})/2\). Values outside a fixed band saturate at \(s_{\min}\) or \(s_{\max}\) (clipping) and are listed in `radar_scale.json`.
+
+**Axis inversion (polarity).** Matthews and estimated solvent are **cost-type** axes for the intended reading: larger raw values mean a *looser* lattice. Packing density, BSA/kDa, LOI and contact % are **benefit-type**: larger means tighter / more occluded. Inverting the two cost axes (reflecting the score about the midpoint of \([s_{\min},\,s_{\max}]\)) enforces a single polarity on the polygon — **larger radius always means tighter / more occluded** — the same benefit/cost polarity handling used in multi-criteria scoring (for example Hwang & Yoon 1981 TOPSIS). Inverted spokes are labelled `(inv)`.
+
+**Limits of the score reading.** A score of 7 on packing density is **not** “70% packing”; it is “70% of the way from the chosen band floor to the band ceiling.” Absolute physical meaning lives in the spoke annotations (raw values) and in the band endpoints recorded in `radar_scale.json`. Scores are comparable across runs only when both the raw-value bands **and** the score range match.
+
+**Why fixed bands rather than within-run min–max.** Cohort min–max always stretches the observed extremes to \(s_{\min}\) and \(s_{\max}\), so a cluster of nearly identical lattices looks maximally different. Fixed literature / empirical bands (Matthews 1968; Kantardjieff & Rupp 2003 for cryst1 volume; FoldKit expanded-lattice profiles for bbox/occlusion) keep scores interpretable against a biophysical scale, at the cost of using only a fraction of the ring when the cohort is tight. In that case `--display deviation` is appropriate.
+
+##### Deviation display (`--display deviation`)
+
+When a cohort occupies only a thin slice of a physically motivated band (for example five SlpA lattices spanning ~1–2 points of packing density against a 2–15% `bbox` band), band scores collapse toward the mid-ring and small differences become hard to read. Deviation mode ignores the band for the radial mapping and instead plots a **signed cohort standardisation** of the *raw* values — the classical way to express “how many spreads above or below the centre of *this* cohort” (Student’s \(z\)-score tradition; see also Tukey 1977 for exploratory standardisation).
+
+```
+centre, spread  = mean / sample SD          (--deviation-scale sd)
+                | median / (1.4826 · MAD)   (--deviation-scale mad)
+                | midrange / half-range     (--deviation-scale range)
+signed_dev      = σ · (x − centre) / spread   # σ = −1 for Matthews/solvent, else +1
+```
+
+- **`sd`** — classic \(z\)-score. Sample SD uses \(n-1\) in the denominator. Mean of the plotted deviations is ~0; their sample SD is 1.
+- **`mad`** — median absolute deviation about the median, multiplied by the Gaussian consistency constant \(1/\Phi^{-1}(3/4) \approx 1.4826\) so that, for normal data, the scaled MAD matches the SD (Hampel 1974; Rousseeuw & Croux 1993). Prefer this when one structure is an outlier. If MAD is zero under ties but the SD is not, the implementation falls back to SD so the axis does not silently flatten.
+- **`range`** — \((x - \mathrm{midrange}) / \mathrm{half\text{-}range}\), mapping the cohort exactly onto \([-1,+1]\) with no distributional assumption.
+
+The mid-ring is the cohort centre (signed deviation 0). The polygon reaches outward for tighter / more occluded lattices (same polarity as score mode). `--deviation-limit Z` sets a symmetric ring radius (default 0 = auto-fit to the observed peak, rounded up to a half-unit). Raw bands are still recorded in `radar_scale.json` for provenance; they are **not** used for the radial mapping. The companion heatmap uses a diverging colour scale centred at 0. Spoke annotations remain the raw metric values.
+
+**Physical reading.** A packing deviation of \(+1.2\) under `sd` means “this structure packs 1.2 cohort standard deviations tighter than the cohort mean,” not “1.2% denser.” Absolute Å³/Da and % still come from the spoke labels. Deviation mode answers *relative* questions inside one run; band scores answer *absolute* questions against a fixed biophysical scale.
+
+##### Ghost silhouette — what it physically means
+
+The dashed outline on each panel is a **reference profile in the same radial units as the polygon** (band scores or signed deviations). It is **not** a second structure’s raw lattice, a unit-cell archetype, or a free-energy surface. It provides a visual reference for the gap between the plotted structure and a peer summary without overlaying every polygon on one polar axis (Saary 2008; Anderson 1960 on semigraphical multivariate displays; Tufte’s small-multiples principle — identical frames, one entity per panel).
+
+| Mode | Definition per spoke | Physical / statistical meaning |
+| --- | --- | --- |
+| **`loo-median`** (default) | Median of the other \(n-1\) structures’ plotted values | **Peer lattice, excluding self.** Leave-one-out / jackknife construction (Quenouille 1956; Tukey 1958; Efron 1982): the reference is never contaminated by the panel under view. With odd \(n\), a shared cohort median always equals one member’s value; LOO avoids that coincidence. With even \(n-1\), the median is the mean of the two central others (an interpolated peer, not a real structure). |
+| **`loo-mean`** | Mean of the other \(n-1\) | Same leave-one-out idea with a least-squares centre; more sensitive to a single extreme peer. |
+| **`cohort-median`** | Median of all \(n\) (shared across panels) | **Typical lattice of the whole run**, including the panel. Useful as a fixed backdrop; with odd \(n\) the ghost can land exactly on one structure’s polygon. |
+| **`cohort-mean`** | Mean of all \(n\) (shared) | Same, with the arithmetic mean. |
+| **`--reference-stem STEM`** | That structure’s plotted profile (shared) | **Named reference lattice** (for example wild type versus mutants). Overrides `--ghost`. |
+
+**Reading the gap.** Where the filled polygon sits **outside** the ghost, that spoke is tighter / more occluded than the reference. Where it sits **inside**, it is looser / more open. Because Matthews and solvent are inverted before the ghost is computed, the geometric reading is consistent on every spoke. Under deviation mode the ghost of a leave-one-out median is typically near the mid-ring (peer centre ≈ 0), so the polygon’s signed radius *is* the comparison.
+
+**Limits of interpretation.** The ghost is not a crystallographic archetype, not an energy minimum, and not a statistical confidence band. It is a descriptive location summary of peer scores/deviations in plot space — the multivariate analogue of drawing a peer median on a bar chart.
+
+##### Layout and comparison design
+
+**Shared scale modes** (`--scale-mode` for packing / Matthews / solvent; `--occlusion-scale-mode` for BSA/kDa / LOI / contact %; both default **`bbox`**):
+
+- **`cryst1`** (alias `crystal`) — volume: unit-cell literature bands (Matthews 1968; Kantardjieff & Rupp 2003): Matthews **1.5–4.0 Å³/Da**, solvent **25–80%**, packing **20–75%**. Occlusion: no transferable crystal LOI/contact/BSA band → within-run **`empirical`** fallback.
+- **`bbox`** — fixed expanded-lattice / AABB supercell bands: Matthews **8–45**, solvent **80–100%**, packing **2–15%**. Occlusion: LOImolA **2–20%**, contact **2–25%**, BSAmolA/kDa **5–80 Å²**. Calibrated on the ten FoldKit experimental S-layer lattices — the only multi-copy set available — but labelled for general supercell use. Replaces the old crystal×\(f\) inflation.
+- **`empirical`** — within-run adaptive band for **both** families. If `max − min ≤ 5`, expand to **floor(min) − 1 … ceil(max) + 1**; if wider, round outward onto the reporting grid (Matthews **0.5**, percentages **5**). For occlusion LOI/contact, the lower edge uses a **1%-point** grid when a 5-point grid would collapse a positive minimum to zero.
+- **`slayer-compact`** — SlpA-core only. Volume: Matthews **7–10**, solvent **80–90%**, packing **10–15%**. Occlusion: LOI **5–15%**, contact **10–20%**, BSA/kDa **40–60 Å²**.
+- **`user`** — explicit min/max pairs for the family in user mode.
+- **`cohort`** (occlusion only, legacy) — raw within-run min–max with no padding; prefer **`empirical`**.
+
+**Matthews ↔ solvent link.** Under FoldKit, `estimated_solvent% = 100 × (1 − 1/(0.81 × V_M))`. Profile solvent bands are derived from Matthews endpoints via that heuristic, then rounded onto the 5 grid, so the two inverted spokes stay physically consistent. Packing % (tabulated atomic volumes / bbox) is related but independent and typically sits ~1–2 points below bulk protein fraction \(100/(0.81 V_M)\).
+
+**Rounding.** Profile JSONs already store rounded bands. `cryst1` and `user`-derived (non-explicit) bands snap outward onto **0.5** (Matthews) / **5** (solvent, packing). Explicit `--*-min/--*-max` values stay exact. Occlusion LOI/contact lower edges use a 1%-point grid when a 5-point grid would produce zero.
+
+**Clipping.** Values outside a fixed raw-value band saturate at the selected score-range minimum or maximum and are listed in `radar_scale.json` (`clipped`, `n_clipped`). The JSON also records `score_range`.
+
+**Why the occlusion bands are empirical, not from the literature.** Published crystal-packing statistics do not transfer to these three metrics. Carugo & Argos (1997) report that **15–49%** of a protein's surface (mean ≈ 27%) lies in crystal contacts, but that describes **3-D packing of monomeric proteins**; FoldKit's LOImolA measures burial of one focal chain by **all neighbours in a multi-copy 2-D lattice** model (for example a 15-molecule SlpA supercell), where much of each subunit still faces solvent on the environment and cell-wall sides. Pairwise contact-area cutoffs (PQS ≈ 400 Å², Ponstingl ≈ 856 Å², Luo interface-area ratios) are per-interface criteria and likewise define no whole-neighbourhood band. The S-layer literature supplies the expectation rather than the numbers: S-layers are porous meshworks (typically **30–70% porosity**, pores ≈ **2–8 nm**; Sleytr reviews), spanning compact *C. difficile* SlpA-type lattices with ≈ 8–11 Å pores (Lanzoni-Mangutchi et al. 2022) through permeable arrays such as Sap and archaeal hexagonal S-layers with ≈ 30–100 Å openings. That predicts **low absolute occlusion with a wide compact-versus-open spread**, as observed in the FoldKit cohort.
+
+**Reference cohort.** Ten multi-copy experimental S-layer lattices computed with FoldKit (`combined_lattice_vs_ec.csv`, cross-checked against the SlpA 15-molecule `metrics_summary_table.csv`):
+
+| Structure | BSA/kDa (Å²) | LOImolA (%) | Contact res. (%) | Character |
+| --- | ---: | ---: | ---: | --- |
+| Cvib_7hexA | 9.9 | 2.3 | 2.7 | open / sparse hexagonal |
+| Hvol_7hexA | 20.1 | 4.3 | 5.4 | open / sparse hexagonal |
+| s7b_r7404_15mA | 43.1 | 8.9 | 11.6 | compact SlpA |
+| s11_ox247o_15mA | 45.2 | 10.1 | 13.0 | compact SlpA |
+| s4del_r2d2_15mA | 48.0 | 10.2 | 12.4 | SlpA ΔD2 |
+| Cglut_7hexA | 48.8 | 10.3 | 12.1 | mid hexagonal |
+| s2_opt2427_15mA | 56.5 | 11.8 | 15.2 | compact SlpA |
+| s7_cd630_15mA | 56.9 | 12.1 | 14.8 | compact SlpA |
+| Drad_6hexA | 61.7 | 16.0 | 15.1 | denser hexagonal |
+| Bant_12mA | 76.8 | 14.5 | 20.2 | highest occlusion |
+
+Observed spans are LOI **2.3–16.0%**, contact **2.7–20.2%**, BSA/kDa **9.9–76.8 Å²**. Because the 5-point grid would reduce both positive empirical minima to zero, those lower limits use a finer 1%-point grid, producing nonzero baselines of **2%**; lower limits at or above 5% retain the 5-point grid. Upper limits use the 5-point grid, producing 20% and 25%. This is intentional: by definition an assembled S-layer subunit makes neighbour contacts and occludes some residues, so a raw value of zero has no useful physical interpretation as the lower scoring anchor. BSA/kDa retains a 5-unit grid at both edges, giving 5–80 Å²/kDa. The five compact SlpA models alone (bbox2 volumes) span LOI 8.9–12.1%, contact 11.6–15.2%, BSA/kDa 43.1–56.9 Å², and Matthews **7.73–8.96** (packing 11.9–13.8%, solvent 84.0–86.2%), giving `slayer-compact` volume **7–10 / 80–90 / 10–15** and occlusion **40–60 / 5–15 / 10–20**. Note that BSA/kDa is not independent of LOI (BSA/kDa = LOI × isolated SASA/kDa) and additionally varies with subunit size and architecture at similar LOI — compare Cvib (9.9 Å²/kDa at 2.3% LOI) with Bant (76.8 Å²/kDa at 14.5% LOI).
+
+**Profiles and recalibration.** Bands are shipped as versioned JSON under `metrics/radar_profiles/`: occlusion (`bbox_v1.json`, `slayer_compact_v1.json`) and volume (`bbox_volume_v1.json`, `slayer_compact_volume_v1.json`). Each records sources, observed spans, rounding, final limits, and provenance notes. `radar_scale.json` echoes both scale modes and profile metadata. `metrics/calibrate_occlusion_profile.py` regenerates occlusion profiles; volume profiles are curated from the same experimental cohort. Compact profiles are calibrated on the five FoldKit bbox2 SlpA 15-molecule lattices.
+
+**Inverted axes.** See **Score calculation** above: `matthews_a3_per_Da` and `estimated_solvent_percent` are inverted so a larger polygon always means a tighter / more occluded lattice. Inverted axes are labelled `(inv)` on the chart.
+
+**Comparison without overlay.** By design, multiple proteins are **never** overlaid on one polar plot (overlays become difficult to interpret; Saary 2008). Comparison uses **small multiples** — identical geometry and rings on every panel (Tufte; Cleveland) — plus the dashed **ghost** (see **Ghost silhouette** above), the companion `radar_scores_heatmap`, and optional `--sort-by mean`. Raw metric values are annotated at each spoke by default (`--no-annotate-values` to disable).
+
+**Outputs.** The scale tag is appended to `--output-dir`, with the same tag echoed in each filename, so runs with different scaling never overwrite one another without adding another nested directory: `<output-dir>_<tag>/radar_grid_<tag>.<fmt>` (paginated as `radar_grid_<tag>_01.<fmt>`, … when `--max-per-page` splits the cohort), optional `radar_scores_heatmap_<tag>.<fmt>` (skip with `--no-heatmap`), `radar_scores_<tag>.csv`, and `radar_scale_<tag>.json`. The tag is the shared mode when volume and occlusion use the same one (for example `bbox`); a mixed run records both as `vol-<mode>_occ-<mode>` (for example `vol-slayer-compact_occ-empirical`). Non-default spoke order appends `_order-interleaved` or `_order-custom`; deviation mode appends `_dev-<scale>`; a non-default ghost appends `_ghost-<mode>`. Pass `--no-scale-tag` for flat, untagged names directly in `--output-dir`. `--format` accepts **png**, **svg**, **pdf**, or **tiff**. See **README.md** (Metrics) for the command-line interface.
+
+**Spoke order (`--metric-order`).** Default clockwise order (with **LOI at 12 o’clock**) is LOI, Matthews, contact, packing, BSA/kDa, solvent. The `interleaved` preset is an alternate neighbour layout — packing, contact, Matthews, LOI, solvent, BSA/kDa — emphasising packing↔contact, Matthews↔LOI, and solvent↔BSA edges. A custom order is a comma-separated list of the six tokens `packing,matthews,solvent,bsa,loi,contact` (each exactly once). Order affects spoke sequence, heatmap column order, and CSV column order only; scores and deviations are unchanged. On the radar figure, LOI is always drawn at 12 o’clock (the spoke ring is rotated so that column sits at the top) even if a custom list puts it elsewhere.
+
+**Zig-zag edges (`--edge-delta`).** Optional. Polygon edges use linewidth and opacity proportional to \((|v_i - v_{i+1}| / (s_{\max}-s_{\min}))^{0.55}\) in plot units (band scores or deviations), with a **shared** mapping across every panel so thicknesses are comparable. The sub-linear power expands mid-range gaps (typical \(|\Delta|\) is well below the full span). Agreeing edges stay thin/faint; disagreeing edges thicken. The dashed ghost stays uniform. Tags outputs with `_edges-delta`. Fill alpha is lowered slightly so edges read clearly.
+
 ### 1.7 Caver tunnel analysis: `caver_tunnel_analysis.py`
 
 **Purpose.** The script ingests **Caver 3.0 (PyMOL plugin)** output. Two invocation styles: **`--tunnel-dir TUNNEL CAVER_DIR`** (repeat per tunnel) pairs each cluster id with the run directory where that tunnel was calculated; **`--tunnel-pdb TUNNEL PDB`** (repeat) supplies a structure file for that cluster. Use one **`--protein-pdb`** for tunnels without **`--tunnel-pdb`**, or omit **`--protein-pdb`** when every cluster has **`--tunnel-pdb`**. **Batch mode** uses one or more positional **run root** or **`analysis/`** paths plus **`--tunnel`**, **`--tunnels`**, or **`--all-tunnels`** to apply the same tunnel selection in every directory (**`--protein-pdb`** required: one file for all runs or one per directory in order). Tunnel selection controls **profile plots** and **per-point CSV** under each run root. The **summary table** behaviour depends on mode: on a **full run**, one row per tunnel cluster in that run’s `analysis/`; with **`--summary-only`**, one row per processed cluster only. **`--tunnel-dir`** with multiple pairs writes a combined summary (`tunnels_summary_combined.csv` by default); batch mode with multiple directories does the same and also writes per-run summaries. Expected inputs per run: `tunnel_profiles.csv`, `residues.txt`, and optionally `bottlenecks.csv` under `analysis/`. If `tunnel_profiles.csv` is missing, **`--centerline-pdb`** supplies a centreline. See **README.md** (Metrics) for usage examples.
@@ -1421,5 +1532,20 @@ Lines starting with `#` are comments. Header row is auto-skipped.
 - **Holm, L.** (2020). Dali and the persistence of protein shape. *Protein Sci.* **29**, 128–140 (print; first published online 2019). DOI: [10.1002/pro.3749](https://doi.org/10.1002/pro.3749)
 - **Saitou, N.; Nei, M.** (1987). The neighbour-joining method: a new method for reconstructing phylogenetic trees. *Mol. Biol. Evol.* **4**, 406–425. DOI: [10.1093/oxfordjournals.molbev.a040454](https://doi.org/10.1093/oxfordjournals.molbev.a040454)
 - **Matthews, B.W.** (1968). Solvent content of protein crystals. *J. Mol. Biol.* **33**, 491–497. DOI: [10.1016/0022-2836(68)90205-2](https://doi.org/10.1016/0022-2836(68)90205-2)
+- **Kantardjieff, K.A.; Rupp, B.** (2003). Matthews coefficient probabilities: Improved estimates for unit cell contents of proteins, DNA, and protein–nucleic acid complex crystals. *Protein Sci.* **12**, 1865–1871. DOI: [10.1110/ps.0350503](https://doi.org/10.1110/ps.0350503)
 - **Shrake, A.; Rupley, J.A.** (1973). Environment and exposure to solvent of protein atoms. *J. Mol. Biol.* **79**, 351–371. DOI: [10.1016/0022-2836(73)90011-9](https://doi.org/10.1016/0022-2836(73)90011-9)
+
+### Radar scoring, deviation display, and ghost silhouette (§1.6.7)
+
+- **Anderson, E.** (1960). A semigraphical method for the analysis of complex problems. *Technometrics* **2**, 387–391. DOI: [10.1080/00401706.1960.10489905](https://doi.org/10.1080/00401706.1960.10489905) — early multivariate “glyph” displays that motivate one-entity-per-panel radar / star plots.
+- **Saary, M.J.** (2008). Radar plots: a useful way for presenting multivariate health care data. *J. Clin. Epidemiol.* **61**, 311–317. DOI: [10.1016/j.jclinepi.2007.04.021](https://doi.org/10.1016/j.jclinepi.2007.04.021) — practical guidance on radar/spider plots; argues for consistent axis polarity and against overcrowded overlays (FoldKit uses small multiples + a single ghost instead).
+- **Chambers, J.M.; Cleveland, W.S.; Kleiner, B.; Tukey, P.A.** (1983). *Graphical Methods for Data Analysis.* Wadsworth & Brooks/Cole — star/radar plots and multivariate glyphs in the exploratory-graphics canon.
+- **Tukey, J.W.** (1977). *Exploratory Data Analysis.* Addison-Wesley — median as a robust location summary; exploratory standardisation of heterogeneous measurements.
+- **Jain, A.K.; Murty, M.N.; Flynn, P.J.** (1999). Data clustering: a review. *ACM Comput. Surv.* **31**, 264–323. DOI: [10.1145/331499.331504](https://doi.org/10.1145/331499.331504) — feature scaling / normalisation before multivariate comparison (min–max and \(z\)-score families).
+- **Han, J.; Kamber, M.; Pei, J.** (2011). *Data Mining: Concepts and Techniques*, 3rd ed. Morgan Kaufmann — min–max normalisation and \(z\)-score standardisation as standard attribute transforms.
+- **Hwang, C.-L.; Yoon, K.** (1981). *Multiple Attribute Decision Making: Methods and Applications.* Springer. DOI: [10.1007/978-3-642-48318-9](https://doi.org/10.1007/978-3-642-48318-9) — benefit vs cost criteria and polarity inversion so larger transformed scores consistently mean “better” (here: tighter / more occluded).
+- **Hampel, F.R.** (1974). The influence curve and its role in robust estimation. *J. Am. Stat. Assoc.* **69**, 383–393. DOI: [10.1080/01621459.1974.10482962](https://doi.org/10.1080/01621459.1974.10482962) — median absolute deviation (MAD) as a robust scale.
+- **Rousseeuw, P.J.; Croux, C.** (1993). Alternatives to the median absolute deviation. *J. Am. Stat. Assoc.* **88**, 1273–1283. DOI: [10.1080/01621459.1993.10476408](https://doi.org/10.1080/01621459.1993.10476408) — Gaussian consistency constant \(1/\Phi^{-1}(3/4)\approx 1.4826\) used by `--deviation-scale mad`.
+- **Quenouille, M.H.** (1956). Notes on bias in estimation. *Biometrika* **43**, 353–360. DOI: [10.1093/biomet/43.3-4.353](https://doi.org/10.1093/biomet/43.3-4.353) — jackknife / leave-one-out estimation (exclude one observation when forming a reference).
+- **Efron, B.** (1982). *The Jackknife, the Bootstrap and Other Resampling Plans.* SIAM. DOI: [10.1137/1.9781611970319](https://doi.org/10.1137/1.9781611970319) — modern synthesis of leave-one-out / jackknife ideas underlying the default `--ghost loo-median`.
 

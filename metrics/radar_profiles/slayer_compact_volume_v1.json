@@ -1,0 +1,52 @@
+{
+  "profile": "slayer-compact",
+  "family": "volume",
+  "version": 1,
+  "population": "Compact C. difficile SlpA 15-molecule FoldKit bbox lattices (bbox2)",
+  "rounding": "Matthews on an integer grid with one-unit headroom above the observed max (floor(min) … ceil(max)+1). Solvent and packing on a 5-unit grid. Solvent limits derived from Matthews endpoints via FoldKit 0.81 Da/A3 heuristic, then rounded outward.",
+  "sources": [
+    "compact_slpa_15m/combined_lattice_vs_ec.csv"
+  ],
+  "stems": [
+    "s2_opt2427_15mA",
+    "s7_cd630_15mA",
+    "s7b_r7404_15mA",
+    "s11_ox247o_15mA",
+    "s4del_r2d2_15mA"
+  ],
+  "n_structures": 5,
+  "metric_limits": {
+    "matthews_a3_per_Da": {
+      "display": "Matthews-like (A^3/Da)",
+      "n": 5,
+      "observed_min": 7.7299,
+      "observed_max": 8.9584,
+      "round_step": 1.0,
+      "limits": [7.0, 10.0]
+    },
+    "estimated_solvent_percent": {
+      "display": "Estimated solvent (%)",
+      "n": 5,
+      "observed_min": 84.0287,
+      "observed_max": 86.2189,
+      "derived_from_matthews": true,
+      "round_step": 5.0,
+      "limits": [80.0, 90.0]
+    },
+    "packing_density_percent": {
+      "display": "Packing density (%)",
+      "n": 5,
+      "observed_min": 11.8908,
+      "observed_max": 13.7826,
+      "round_step": 5.0,
+      "limits": [10.0, 15.0]
+    }
+  },
+  "notes": [
+    "Tighter volume band for compact SlpA-type lattices only. Open hexagonal arrays and Bant fall outside and clip.",
+    "Calibrated on five FoldKit bbox2 SlpA 15-molecule lattices (Matthews 7.73–8.96; packing 11.9–13.8%; solvent 84.0–86.2%).",
+    "Matthews uses floor(min)=7 and ceil(max)+1=10 so the loosest lattice (s7b ≈8.96) is not pinned at the inverted-score origin; a 0.5-grid 7.5–9.0 ceiling sat on s7b.",
+    "Solvent band matches Matthews 7–10 via the 0.81 heuristic after 5-grid outward rounding (solvent(7)≈82.4%→80; solvent(10)≈87.7%→90). Packing 10–15%.",
+    "Display-rounded summary-table values (VM=8, packing=14, solvent=84) sit inside these bands."
+  ]
+}

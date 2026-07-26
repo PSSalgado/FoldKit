@@ -522,6 +522,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Only write CSV matrices, not figure files.",
     )
     ap.add_argument(
+        "--radar",
+        action="store_true",
+        help="Also render radar charts from the combined CSV "
+        "(metrics/lattice_metrics_radar.py; score heatmap included unless that "
+        "script is called with --no-heatmap). Skipped with a warning if matplotlib "
+        "is unavailable.",
+    )
+    ap.add_argument(
         "--no-default-heatmap-annotations",
         action="store_true",
         help="Do not force BSA→contact_count and EC→ec_density_per_1000_A2 cell labels.",
@@ -656,6 +664,21 @@ def main(argv: list[str] | None = None) -> int:
         w.writeheader()
         for r in combined_rows:
             w.writerow({k: r.get(k, "") for k in comb_fieldnames})
+
+    if getattr(args, "radar", False):
+        try:
+            from metrics import lattice_metrics_radar as lmr  # noqa: PLC0415
+
+            radar_written = lmr.generate_radar(
+                input_csv=combined_path,
+                output_dir=od,
+                structure_order=list(matched),
+            )
+            print("Wrote radar artefacts:\n  " + "\n  ".join(radar_written))
+        except ImportError as exc:
+            print(f"Warning: --radar skipped (matplotlib/numpy unavailable): {exc}", file=sys.stderr)
+        except ValueError as exc:
+            print(f"Warning: --radar skipped ({exc}).", file=sys.stderr)
 
     heat_rows = [r for r in iface_rows if _stem_from_any(str(r.get("structure_basename") or "")) in set(matched)]
     structures = sorted(
