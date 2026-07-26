@@ -43,7 +43,7 @@
     }
   },
   "notes": [
-    "Tighter volume band for compact SlpA-type lattices only. Open hexagonal arrays and Bant fall outside and clip.",
+    "Tighter volume band for compact SlpA-type lattices only. Lattices outside this span will clip; use --scale-mode bbox for general supercells.",
     "Calibrated on five FoldKit bbox2 SlpA 15-molecule lattices (Matthews 7.73–8.96; packing 11.9–13.8%; solvent 84.0–86.2%).",
     "Matthews uses floor(min)=7 and ceil(max)+1=10 so the loosest lattice (s7b ≈8.96) is not pinned at the inverted-score origin; a 0.5-grid 7.5–9.0 ceiling sat on s7b.",
     "Solvent band matches Matthews 7–10 via the 0.81 heuristic after 5-grid outward rounding (solvent(7)≈82.4%→80; solvent(10)≈87.7%→90). Packing 10–15%.",

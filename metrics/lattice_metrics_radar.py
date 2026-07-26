@@ -210,7 +210,8 @@ _SCALE_MODE_ALIASES = {"crystal": "cryst1"}
 
 # Occlusion axes: whole-neighbourhood burial of the reference chain in a multi-copy
 # lattice. These have no transferable published band (see metrics_details.md), so the
-# defaults are empirical profiles calibrated on FoldKit-computed experimental S-layers.
+# defaults are empirical profiles calibrated on FoldKit-computed multi-copy lattices
+# (including SlpA; see metrics_details.md).
 OCCLUSION_COLUMNS = (
     "reference_chain_BSA_per_kDa_reference_chain_A2",
     "lattice_burial_fraction_percent",
@@ -651,7 +652,7 @@ def volume_lower_round_step(column: str, band_min: float | None = None) -> float
     Lower-edge reporting-grid step for a volume band.
 
     Packing density uses a 1%-point lower grid when a 5-point grid would collapse
-    a positive S-layer minimum to zero (assembled lattices are never empty).
+    a positive assembled-lattice minimum to zero (assembled lattices are never empty).
     Matthews and solvent keep their usual steps at both edges.
     """
     if column == "packing_density_percent":
@@ -1901,7 +1902,7 @@ def _occlusion_scale_note(
         n = profile.get("n_structures", "")
         note = (
             f"Occlusion axes: {mode} profile v{version} "
-            f"(n={n} FoldKit experimental lattices; {bands})."
+            f"(n={n} FoldKit multi-copy lattices; {bands})."
         )
         if overrides:
             note += " Overridden: " + ", ".join(str(c) for c in overrides) + "."

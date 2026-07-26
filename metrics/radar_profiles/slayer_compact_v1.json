@@ -90,8 +90,8 @@
     }
   ],
   "notes": [
-    "Tighter alternative to the slayer occlusion profile: use when every structure in the run is a compact, narrow-pore SlpA-type lattice.",
+    "Tighter alternative to the bbox occlusion profile: use when every structure in the run is a compact, narrow-pore SlpA-type lattice.",
     "Calibrated on five FoldKit bbox2 SlpA 15-molecule lattices (BSA/kDa 43.05–56.94; LOI 8.9–12.1%; contact 11.6–15.2%), rounded outward to 40–60 / 5–15 / 10–20.",
-    "Open hexagonal arrays fall below this band; use --occlusion-scale-mode slayer for mixed cohorts."
+    "Lattices outside this tighter span will clip; use --occlusion-scale-mode bbox for general expanded-lattice cohorts."
   ]
 }

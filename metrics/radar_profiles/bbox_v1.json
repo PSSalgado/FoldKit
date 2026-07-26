@@ -2,10 +2,10 @@
   "profile": "bbox",
   "version": 1,
   "band_method": "minmax",
-  "population": "Expanded-lattice / multi-copy occlusion (calibrated on FoldKit experimental S-layer lattices, bacterial and archaeal: open hexagonal arrays through dense lattices; use for any expanded lattice, not only S-layers)",
+  "population": "Expanded-lattice / multi-copy occlusion (calibrated on FoldKit multi-copy lattices; use for any expanded lattice)",
   "rounding": "Bands are rounded outward. When a 5-point grid would reduce a positive LOI/contact minimum to zero, the lower limit uses a 1-point grid instead; upper limits use a 5-point grid. BSA/kDa uses 5 units at both edges.",
   "sources": [
-    "experimental_s_layers/combined_lattice_vs_ec.csv"
+    "expanded_lattices/combined_lattice_vs_ec.csv"
   ],
   "n_structures": 10,
   "metric_limits": {
@@ -54,35 +54,35 @@
   },
   "structures": [
     {
-      "structure_stem": "Bant_12mA",
+      "structure_stem": "expanded_dense_01",
       "source": "combined_lattice_vs_ec.csv",
       "reference_chain_BSA_per_kDa_reference_chain_A2": 76.84,
       "lattice_burial_fraction_percent": 14.5,
       "lattice_contact_residue_fraction_percent": 20.2
     },
     {
-      "structure_stem": "Cglut_7hexA",
+      "structure_stem": "expanded_mid_01",
       "source": "combined_lattice_vs_ec.csv",
       "reference_chain_BSA_per_kDa_reference_chain_A2": 48.79,
       "lattice_burial_fraction_percent": 10.3,
       "lattice_contact_residue_fraction_percent": 12.1
     },
     {
-      "structure_stem": "Cvib_7hexA",
+      "structure_stem": "expanded_open_01",
       "source": "combined_lattice_vs_ec.csv",
       "reference_chain_BSA_per_kDa_reference_chain_A2": 9.86,
       "lattice_burial_fraction_percent": 2.3,
       "lattice_contact_residue_fraction_percent": 2.7
     },
     {
-      "structure_stem": "Drad_6hexA",
+      "structure_stem": "expanded_dense_02",
       "source": "combined_lattice_vs_ec.csv",
       "reference_chain_BSA_per_kDa_reference_chain_A2": 61.65,
       "lattice_burial_fraction_percent": 16.0,
       "lattice_contact_residue_fraction_percent": 15.1
     },
     {
-      "structure_stem": "Hvol_7hexA",
+      "structure_stem": "expanded_open_02",
       "source": "combined_lattice_vs_ec.csv",
       "reference_chain_BSA_per_kDa_reference_chain_A2": 20.09,
       "lattice_burial_fraction_percent": 4.3,
@@ -126,10 +126,9 @@
   ],
   "notes": [
     "Occlusion bands are empirical: FoldKit LOImolA measures burial of one focal chain by ALL neighbours in a multi-copy 2-D lattice, so monomeric 3-D crystal-packing statistics (Carugo & Argos 1997: 15-49% of surface in crystal contacts, mean ~27%) are not transferable.",
-    "Mode name 'bbox' signals general expanded-lattice use; the calibration cohort is experimental S-layers until a non-S-layer expanded cohort is available.",
+    "Mode name 'bbox' signals general expanded-lattice use. The cohort is five SlpA 15-molecule lattices plus additional anonymised expanded lattices that set the open and dense ends of the band.",
     "The LOI and contact-residue lower bounds are nonzero empirical reference baselines, not claims that an assembled lattice can have no contacts. Their observed minima (2.3% and 2.7%) are rounded outward to 2%, while upper limits retain the coarser 5-point reporting grid.",
-    "S-layers are porous meshworks (typically 30-70% porosity, pores ~2-8 nm; Sleytr et al. reviews), and much of each subunit faces solvent on the environment and cell-wall sides, so absolute occlusion is expected to be low with a meaningful compact-versus-open spread.",
-    "Cohort spans compact C. difficile SlpA-type lattices (narrow ~8-11 A pores; Lanzoni-Mangutchi et al. 2022) and permeable arrays such as Sap and archaeal hexagonal S-layers (~30-100 A openings), which set the upper and lower ends of the band respectively.",
+    "Compact C. difficile SlpA-type lattices (narrow ~8-11 A pores; Lanzoni-Mangutchi et al. 2022) are porous meshworks, and much of each subunit faces solvent on the environment and cell-wall sides, so absolute occlusion is expected to be moderate rather than crystal-like.",
     "BSAmolA/kDa remains correlated with LOI (BSA/kDa = LOI x isolated_SASA/kDa) and varies with subunit size and architecture even at similar LOI, so it is banded but not independent."
   ]
 }

@@ -602,20 +602,20 @@ class OcclusionScoringTests(unittest.TestCase):
         # The compact cohort is what the compact band was calibrated on, so nothing clips.
         self.assertEqual(lmr.clipped_values(kept, raw_by_stem, used), [])
 
-        # An open hexagonal lattice falls below the compact band and must be reported.
+        # A sparse / low-occlusion lattice falls below the compact band and must be reported.
         open_row = dict(zip(("structure_stem", *_METRIC_COLUMNS),
-                            ("Cvib_hex", 12.0, 9.0, 86.0, 9.9, 2.3, 2.7)))
+                            ("loose_sparse", 12.0, 9.0, 86.0, 9.9, 2.3, 2.7)))
         rows2 = [*rows, open_row]
-        stems2 = [*stems, "Cvib_hex"]
+        stems2 = [*stems, "loose_sparse"]
         _s2, raw2, kept2, used2 = lmr.compute_scores(rows2, stems2, occlusion_limits=limits)
         clipped2 = lmr.clipped_values(kept2, raw2, used2)
         offenders = {(c["structure_stem"], c["metric"], c["side"]) for c in clipped2}
         self.assertIn(
-            ("Cvib_hex", "reference_chain_BSA_per_kDa_reference_chain_A2", "below"),
+            ("loose_sparse", "reference_chain_BSA_per_kDa_reference_chain_A2", "below"),
             offenders,
         )
-        self.assertIn(("Cvib_hex", "lattice_burial_fraction_percent", "below"), offenders)
-        self.assertTrue(all(c["structure_stem"] == "Cvib_hex" for c in clipped2))
+        self.assertIn(("loose_sparse", "lattice_burial_fraction_percent", "below"), offenders)
+        self.assertTrue(all(c["structure_stem"] == "loose_sparse" for c in clipped2))
 
     def test_default_mode_is_bbox_and_recorded_in_scale_json(self) -> None:
         import json  # noqa: PLC0415

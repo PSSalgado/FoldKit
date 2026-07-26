@@ -1214,7 +1214,7 @@ Labels are matched ignoring case, punctuation, and unit glyphs, so snake_case co
 | `user` | Requires `--matthews-min/max` (optional solvent/packing) | Requires `--loi-*`, `--contact-*`, `--bsa-kda-*` |
 | `cohort` | — | Legacy raw within-run min–max (prefer `empirical`) |
 
-Crystal×\(f\) inflation is **removed**: expanded lattices use the fixed `bbox` profiles, calibrated on the ten FoldKit experimental S-layer lattices but labelled for general supercell use. Solvent bands for those profiles are tied to Matthews via FoldKit’s \(0.81\,\mathrm{Da/Å³}\) heuristic. Occlusion lower edges use a 1%-point grid when a 5-point grid would produce zero (LOI/contact floors **2%**). Profiles live in `metrics/radar_profiles/`. See [`metrics/metrics_details.md`](metrics/metrics_details.md) §1.6.7.
+Crystal×\(f\) inflation is **removed**: expanded lattices use the fixed `bbox` profiles, calibrated on a FoldKit multi-copy expanded-lattice cohort (including SlpA) and labelled for general supercell use. Solvent bands for those profiles are tied to Matthews via FoldKit’s \(0.81\,\mathrm{Da/Å³}\) heuristic. Occlusion lower edges use a 1%-point grid when a 5-point grid would produce zero (LOI/contact floors **2%**). Profiles live in `metrics/radar_profiles/`. See [`metrics/metrics_details.md`](metrics/metrics_details.md) §1.6.7.
 
 ```bash
 PYTHONPATH=. python metrics/lattice_metrics_radar.py \
@@ -1251,7 +1251,7 @@ PYTHONPATH=. python metrics/lattice_metrics_radar.py \
   --output-dir ./interface_analysis_out/radar \
   --scale-mode user --matthews-min 5 --matthews-max 15
 
-# tighter bands for a cohort of compact SlpA-like lattices only
+# tighter bands for a cohort of compact SlpA lattices only
 PYTHONPATH=. python metrics/lattice_metrics_radar.py \
   --input ./compare/combined_lattice_vs_ec.csv --output-dir ./compare/radar_compact \
   --scale-mode slayer-compact \
@@ -1309,7 +1309,7 @@ Derives the fixed occlusion bands used by `lattice_metrics_radar.py --occlusion-
 ```bash
 # rebuild the default expanded-lattice profile
 PYTHONPATH=. python metrics/calibrate_occlusion_profile.py \
-  --input ./experimental_s_layers/combined_lattice_vs_ec.csv \
+  --input ./expanded_lattices/combined_lattice_vs_ec.csv \
   --profile bbox --version 1 \
   --population "Expanded-lattice occlusion, FoldKit multi-copy models" \
   --note "Empirical band; monomeric crystal-packing statistics do not transfer."

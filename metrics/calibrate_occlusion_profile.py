@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Derive fixed 0-10 scoring bands for the three lattice *occlusion* metrics from
-FoldKit-computed experimental lattices, and write them as a versioned profile JSON.
+FoldKit-computed multi-copy lattices, and write them as a versioned profile JSON.
 
 The occlusion metrics are BSAmolA/kDa, LOImolA (lattice burial fraction), and the
 Mol. A lattice contact-residue fraction. Unlike the volume axes, these have no
@@ -9,9 +9,9 @@ directly transferable literature band: published crystal-packing statistics are
 either per-interface (Janin & Rodier 1995; Luo et al. 2015) or describe 3-D packing
 of monomeric proteins (Carugo & Argos 1997, 15-49% surface in contacts). FoldKit
 instead measures one focal chain against *all* neighbours in a multi-copy 2-D
-S-layer lattice, where much of the molecule still faces solvent on the environment
-and cell-wall sides, so absolute occlusion is far lower. The bands are therefore
-calibrated empirically on experimental S-layer lattices processed with FoldKit.
+lattice (for example SlpA), where much of the molecule still faces solvent on the
+environment and cell-wall sides, so absolute occlusion is far lower. The bands are
+therefore calibrated empirically on FoldKit-computed multi-copy lattices.
 
 Reads one or more metrics tables in either layout accepted by
 ``lattice_metrics_radar.load_rows`` (``combined_lattice_vs_ec.csv`` with structures
@@ -20,7 +20,7 @@ occlusion metric the observed span, the rounded scoring band, and the provenance
 
 Bands are rounded *outward*. If the 5-point grid would turn a positive empirical
 LOI/contact minimum into zero, that lower edge uses a 1%-point grid instead,
-preserving a nonzero baseline for an assembled S-layer. Upper edges use the
+preserving a nonzero baseline for an assembled lattice. Upper edges use the
 coarser 5-point grid. BSA/kDa uses 5 units at both edges.
 
 Examples
@@ -28,11 +28,11 @@ Examples
 Rebuild the default expanded-lattice profile from an experimental cohort::
 
     PYTHONPATH=. python metrics/calibrate_occlusion_profile.py \\
-      --input ./experimental_s_layers/combined_lattice_vs_ec.csv \\
+      --input ./expanded_lattices/combined_lattice_vs_ec.csv \\
       --profile bbox --version 1 \\
-      --population "Expanded-lattice / multi-copy occlusion (calibrated on FoldKit experimental S-layer lattices)"
+      --population "Expanded-lattice / multi-copy occlusion (calibrated on FoldKit multi-copy lattices)"
 
-Restrict to a compact subset (tighter band for SlpA-like lattices)::
+Restrict to a compact subset (tighter band for SlpA lattices)::
 
     PYTHONPATH=. python metrics/calibrate_occlusion_profile.py \\
       --input ./compact_slpa_15m/combined_lattice_vs_ec.csv \\
@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=(
             "Derive fixed 0-10 scoring bands for BSAmolA/kDa, LOImolA, and lattice "
-            "contact-residue % from FoldKit-computed experimental lattices, and write "
+            "contact-residue % from FoldKit-computed multi-copy lattices, and write "
             "them as a versioned occlusion profile JSON."
         )
     )
