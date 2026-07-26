@@ -1,4 +1,4 @@
-[![Tests](https://github.com/ruivieira/FoldKit/actions/workflows/tests.yml/badge.svg)](https://github.com/ruivieira/FoldKit/actions/workflows/tests.yml)
+[![Tests](https://github.com/PSSalgado/FoldKit/actions/workflows/tests.yml/badge.svg)](https://github.com/PSSalgado/FoldKit/actions/workflows/tests.yml)
 
 # FoldKit — protein structure analysis scripts
 
